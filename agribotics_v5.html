@@ -1,0 +1,1630 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agri-Botics</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --green: #2d6a35;
+  --green-light: #4a9c55;
+  --green-pale: #e8f5e9;
+  --earth: #8B6914;
+  --red: #c0392b;
+  --orange: #e6a817;
+  --white: #ffffff;
+  --bg: #f5f9f5;
+  --text: #1a2e1a;
+  --grey: #6b8f6e;
+  --border: #c8e6cc;
+  --shadow: 0 4px 20px rgba(26,61,31,0.10);
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family:'DM Sans',sans-serif; background:var(--bg); color:var(--text); min-height:100vh; }
+
+/* ======== LANGUE SCREEN ======== */
+#lang-screen {
+  position:fixed; inset:0; background:var(--green);
+  display:flex; flex-direction:column; align-items:center; justify-content:center;
+  z-index:999; gap:32px;
+}
+#lang-screen h1 {
+  font-family:'Playfair Display',serif; color:white; font-size:36px; text-align:center;
+}
+#lang-screen p { color:rgba(255,255,255,0.7); font-size:16px; }
+.lang-btns { display:flex; gap:16px; flex-wrap:wrap; justify-content:center; }
+.lang-btn {
+  background:white; border:none; border-radius:20px;
+  padding:18px 36px; font-size:18px; cursor:pointer;
+  font-family:'DM Sans',sans-serif; font-weight:600; color:var(--green);
+  box-shadow:0 4px 20px rgba(0,0,0,0.2); transition:transform 0.2s;
+}
+.lang-btn:hover { transform:scale(1.05); }
+
+/* ======== HEADER ======== */
+header {
+  background:var(--green); color:white;
+  padding:14px 24px; display:flex; align-items:center; justify-content:space-between;
+  box-shadow:0 2px 12px rgba(0,0,0,0.15);
+}
+header h1 { font-family:'Playfair Display',serif; font-size:22px; }
+.header-right { display:flex; align-items:center; gap:10px; }
+.status-dot { width:9px; height:9px; border-radius:50%; background:#a8e6ae; animation:pulse 2s infinite; }
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.status-txt { font-size:12px; color:rgba(255,255,255,0.8); }
+.lang-badge {
+  background:rgba(255,255,255,0.2); border-radius:20px;
+  padding:4px 12px; font-size:12px; cursor:pointer;
+}
+
+/* ======== BOTTOM NAV ======== */
+.bottom-nav {
+  position:fixed; bottom:0; left:0; right:0;
+  background:white; border-top:1px solid var(--border);
+  display:flex; box-shadow:0 -4px 20px rgba(0,0,0,0.08);
+  z-index:100;
+}
+.bnav-item {
+  flex:1; display:flex; flex-direction:column; align-items:center;
+  padding:10px 4px 14px; cursor:pointer; transition:all 0.2s;
+  border:none; background:transparent; gap:4px;
+}
+.bnav-item .bnav-icon { font-size:26px; }
+.bnav-item .bnav-label { font-size:11px; color:var(--grey); font-weight:500; }
+.bnav-item.active .bnav-label { color:var(--green); font-weight:600; }
+.bnav-item.active .bnav-icon { transform:scale(1.15); }
+.bnav-item.active { background:var(--green-pale); }
+
+/* ======== MAIN ======== */
+.main { padding:20px 16px 90px; }
+
+/* ======== PAGES ======== */
+.page { display:none; }
+.page.active { display:block; animation:fadeIn 0.3s ease; }
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+
+/* ======== PAGE AGRICULTEUR ======== */
+.farmer-greeting {
+  background:var(--green); color:white; border-radius:20px;
+  padding:20px; margin-bottom:20px; text-align:center;
+}
+.farmer-greeting .greeting-emoji { font-size:48px; margin-bottom:8px; }
+.farmer-greeting h2 { font-size:20px; font-weight:600; margin-bottom:4px; }
+.farmer-greeting p { font-size:14px; opacity:0.85; }
+
+.gauge-grid { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin-bottom:20px; }
+.gauge-card {
+  background:white; border-radius:18px; padding:18px;
+  box-shadow:var(--shadow); text-align:center; border:2px solid transparent;
+  transition:border-color 0.3s;
+}
+.gauge-card.bad { border-color:var(--red); }
+.gauge-card.warn { border-color:var(--orange); }
+.gauge-card.good { border-color:var(--green-light); }
+.gauge-emoji { font-size:44px; margin-bottom:6px; }
+.gauge-label { font-size:13px; font-weight:600; color:var(--text); margin-bottom:8px; }
+.gauge-faces { display:flex; justify-content:center; gap:4px; margin-bottom:6px; }
+.gauge-face { font-size:22px; opacity:0.25; transition:all 0.3s; }
+.gauge-face.active { opacity:1; transform:scale(1.3); }
+.gauge-status { font-size:12px; font-weight:600; padding:4px 12px; border-radius:20px; }
+.gauge-status.good { background:#e8f5e9; color:var(--green); }
+.gauge-status.warn { background:#fff8e1; color:var(--earth); }
+.gauge-status.bad { background:#fdecea; color:var(--red); }
+
+/* CHATBOT */
+.chatbot-card {
+  background:white; border-radius:20px; padding:20px;
+  box-shadow:var(--shadow); margin-bottom:20px;
+}
+.chatbot-title { font-size:15px; font-weight:600; margin-bottom:14px; display:flex; align-items:center; gap:8px; }
+.chat-messages { min-height:100px; max-height:220px; overflow-y:auto; margin-bottom:12px; display:flex; flex-direction:column; gap:10px; }
+.chat-bubble {
+  padding:10px 14px; border-radius:16px; font-size:13px; max-width:85%; line-height:1.5;
+}
+.chat-bubble.bot { background:var(--green-pale); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
+.chat-bubble.user { background:var(--green); color:white; align-self:flex-end; border-bottom-right-radius:4px; }
+.chat-input-row { display:flex; gap:8px; }
+.chat-input {
+  flex:1; border:1px solid var(--border); border-radius:12px;
+  padding:10px 14px; font-size:13px; font-family:'DM Sans',sans-serif;
+  outline:none;
+}
+.chat-input:focus { border-color:var(--green); }
+.mic-btn {
+  width:44px; height:44px; border-radius:12px; border:none;
+  background:var(--green); color:white; font-size:20px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition:all 0.2s;
+  flex-shrink:0;
+}
+.mic-btn.listening { background:var(--red); animation:pulse 0.8s infinite; }
+.send-btn {
+  width:44px; height:44px; border-radius:12px; border:none;
+  background:var(--green-light); color:white; font-size:18px; cursor:pointer;
+  flex-shrink:0;
+}
+.suggested-questions { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; }
+.sug-q {
+  background:var(--green-pale); border:1px solid var(--border);
+  border-radius:20px; padding:6px 12px; font-size:11px; cursor:pointer;
+  color:var(--green); font-weight:500; transition:background 0.2s;
+}
+.sug-q:hover { background:var(--border); }
+
+/* ======== PAGE EXPERT ======== */
+.expert-section { margin-bottom:20px; }
+.section-title {
+  font-size:13px; font-weight:700; letter-spacing:1px; text-transform:uppercase;
+  color:var(--grey); margin-bottom:12px; display:flex; align-items:center; gap:6px;
+}
+.data-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.data-card {
+  background:white; border-radius:14px; padding:14px;
+  box-shadow:var(--shadow); border-left:3px solid var(--green-light);
+}
+.data-card.warn { border-left-color:var(--orange); }
+.data-card.bad { border-left-color:var(--red); }
+.data-name { font-size:11px; color:var(--grey); text-transform:uppercase; letter-spacing:0.8px; }
+.data-value { font-size:24px; font-weight:700; color:var(--text); margin:2px 0; }
+.data-unit { font-size:12px; color:var(--grey); }
+.data-range { font-size:11px; color:var(--grey); margin-top:4px; }
+.data-bar { height:6px; background:#e8f5e9; border-radius:6px; margin-top:8px; overflow:hidden; }
+.data-bar-fill { height:100%; border-radius:6px; }
+
+.npk-row { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; margin-bottom:20px; }
+.npk-card {
+  background:white; border-radius:14px; padding:14px;
+  box-shadow:var(--shadow); text-align:center;
+}
+.npk-letter { font-size:28px; font-weight:700; }
+.npk-name { font-size:10px; color:var(--grey); margin-bottom:6px; }
+.npk-val { font-size:18px; font-weight:600; }
+.npk-unit { font-size:10px; color:var(--grey); }
+
+.history-card {
+  background:white; border-radius:14px; padding:16px; box-shadow:var(--shadow);
+}
+.mini-chart { height:80px; position:relative; }
+.mini-chart canvas { width:100%; height:100%; }
+
+/* ======== PAGE CARTE ======== */
+.map-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; }
+.map-var-scroll { display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:12px; }
+.map-var-scroll::-webkit-scrollbar { display:none; }
+.map-var-btn {
+  flex-shrink:0; padding:6px 14px; border-radius:20px; font-size:12px;
+  border:1px solid var(--border); background:white; cursor:pointer;
+  color:var(--grey); font-weight:500; transition:all 0.2s;
+}
+.map-var-btn.active { background:var(--green); color:white; border-color:var(--green); }
+
+.map-wrap {
+  background: linear-gradient(160deg, #1a3d1f 0%, #2d5a20 50%, #3a6b2a 100%);
+  border-radius:20px; padding:14px; box-shadow:var(--shadow); margin-bottom:16px;
+  position:relative; overflow:hidden;
+}
+.map-wrap::before {
+  content:''; position:absolute; inset:0;
+  background: radial-gradient(ellipse at 30% 20%, rgba(255,255,255,0.04) 0%, transparent 60%),
+              radial-gradient(ellipse at 80% 80%, rgba(0,0,0,0.15) 0%, transparent 50%);
+  pointer-events:none; z-index:1;
+}
+.map-title { color:rgba(255,255,255,0.7); font-size:11px; letter-spacing:1px; text-transform:uppercase; margin-bottom:8px; position:relative; z-index:2; }
+.map-container { position:relative; z-index:2; }
+#fieldMap { width:100%; border-radius:12px; display:block; cursor:crosshair; }
+.map-legend-wrap { display:flex; gap:8px; flex-wrap:wrap; margin-top:10px; position:relative; z-index:2; }
+.leg-item { display:flex; align-items:center; gap:5px; font-size:11px; color:rgba(255,255,255,0.75); }
+.leg-dot { width:14px; height:14px; border-radius:4px; }
+.map-scale-bar { height:8px; border-radius:4px; margin-top:8px; position:relative; z-index:2; }
+.map-scale-labels { display:flex; justify-content:space-between; margin-top:3px; font-size:10px; color:rgba(255,255,255,0.6); }
+.map-tooltip {
+  position:absolute; background:rgba(10,30,12,0.92); color:white;
+  padding:8px 12px; border-radius:10px; font-size:12px; pointer-events:none;
+  z-index:50; display:none; white-space:nowrap; backdrop-filter:blur(4px);
+  border:1px solid rgba(255,255,255,0.15); box-shadow:0 4px 12px rgba(0,0,0,0.3);
+}
+.map-tooltip.show { display:block; }
+.zone-detail {
+  background:white; border-radius:14px; padding:16px; box-shadow:var(--shadow); display:none;
+}
+.zone-detail.visible { display:block; animation:fadeIn 0.3s ease; }
+.zone-detail-title { font-size:15px; font-weight:700; margin-bottom:10px; }
+.zone-tags { display:flex; gap:8px; flex-wrap:wrap; }
+.zone-tag { padding:4px 12px; border-radius:20px; font-size:12px; font-weight:600; }
+
+/* ======== TOOLTIP ======== */
+.toast {
+  position:fixed; bottom:90px; left:50%; transform:translateX(-50%);
+  background:var(--green); color:white; padding:10px 20px; border-radius:20px;
+  font-size:13px; opacity:0; transition:opacity 0.3s; z-index:200; pointer-events:none;
+}
+.toast.show { opacity:1; }
+
+/* ======== PAGE RECOMMANDATIONS ======== */
+.reco-hero {
+  background: linear-gradient(135deg, #1B5E20 0%, #2E7D32 60%, #1565C0 100%);
+  border-radius: 20px; padding: 20px; margin-bottom: 18px; color: white; position: relative; overflow: hidden;
+}
+.reco-hero::before {
+  content:''; position:absolute; inset:0;
+  background: radial-gradient(ellipse at 80% 20%, rgba(255,255,255,0.07) 0%, transparent 60%);
+  pointer-events:none;
+}
+.reco-hero h2 { font-size:18px; font-weight:700; margin-bottom:4px; position:relative; z-index:1; }
+.reco-hero p  { font-size:12px; opacity:0.8; position:relative; z-index:1; }
+.reco-weather-row {
+  display:flex; gap:10px; margin-top:12px; position:relative; z-index:1;
+}
+.reco-weather-chip {
+  background:rgba(255,255,255,0.15); border-radius:12px;
+  padding:6px 12px; font-size:11px; display:flex; align-items:center; gap:5px; backdrop-filter:blur(4px);
+}
+
+/* Tab selector */
+.reco-tabs {
+  display:flex; background:white; border-radius:16px; padding:4px;
+  box-shadow:var(--shadow); margin-bottom:18px; gap:4px;
+}
+.reco-tab {
+  flex:1; padding:10px 6px; border:none; border-radius:12px; cursor:pointer;
+  font-family:'DM Sans',sans-serif; font-size:11px; font-weight:600;
+  background:transparent; color:var(--grey); transition:all 0.25s;
+  display:flex; flex-direction:column; align-items:center; gap:3px;
+}
+.reco-tab .rtab-icon { font-size:20px; }
+.reco-tab.active { background:var(--green); color:white; }
+.reco-tab.active.tab-culture { background:#1565C0; }
+.reco-tab.active.tab-temporal { background:#6A1B9A; }
+
+/* Sub-pages */
+.reco-subpage { display:none; }
+.reco-subpage.active { display:block; animation:fadeIn 0.3s ease; }
+
+/* ── Module 1: Pratiques sol ── */
+.weather-banner {
+  background: linear-gradient(90deg, #0277BD, #0288D1);
+  border-radius:14px; padding:14px 16px; margin-bottom:14px;
+  display:flex; align-items:center; gap:14px; color:white;
+}
+.weather-main-icon { font-size:40px; flex-shrink:0; }
+.weather-info { flex:1; }
+.weather-info .w-temp { font-size:24px; font-weight:700; }
+.weather-info .w-desc { font-size:12px; opacity:0.85; }
+.weather-info .w-detail { font-size:11px; opacity:0.7; margin-top:2px; }
+.weather-forecast {
+  display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px;
+}
+.weather-forecast::-webkit-scrollbar { display:none; }
+.forecast-chip {
+  flex-shrink:0; background:white; border-radius:12px; padding:10px 12px;
+  text-align:center; box-shadow:0 2px 8px rgba(0,0,0,0.08); min-width:56px;
+}
+.forecast-chip .fc-day   { font-size:10px; color:var(--grey); font-weight:600; }
+.forecast-chip .fc-icon  { font-size:22px; margin:2px 0; }
+.forecast-chip .fc-temp  { font-size:12px; font-weight:700; color:var(--text); }
+.forecast-chip .fc-rain  { font-size:10px; color:#0288D1; }
+
+.zone-practice-list { display:flex; flex-direction:column; gap:10px; margin-bottom:14px; }
+.zone-practice-card {
+  background:white; border-radius:14px; padding:14px 16px;
+  box-shadow:var(--shadow); border-left:4px solid var(--green-light);
+  display:flex; flex-direction:column; gap:6px;
+}
+.zone-practice-card.urgent { border-left-color:var(--red); }
+.zone-practice-card.warn   { border-left-color:var(--orange); }
+.zone-practice-card.good   { border-left-color:var(--green-light); }
+.zpc-header { display:flex; justify-content:space-between; align-items:center; }
+.zpc-zone   { font-size:13px; font-weight:700; color:var(--text); }
+.zpc-badge  { font-size:10px; font-weight:600; padding:3px 10px; border-radius:20px; }
+.zpc-badge.urgent { background:#fdecea; color:var(--red); }
+.zpc-badge.warn   { background:#fff8e1; color:var(--earth); }
+.zpc-badge.good   { background:#e8f5e9; color:var(--green); }
+.zpc-actions { display:flex; flex-wrap:wrap; gap:6px; }
+.zpc-action {
+  font-size:11px; padding:4px 10px; border-radius:20px; font-weight:500;
+  background:var(--green-pale); color:var(--green); border:1px solid var(--border);
+  display:flex; align-items:center; gap:4px;
+}
+.zpc-action.water  { background:#E3F2FD; color:#0277BD; border-color:#B3E5FC; }
+.zpc-action.lime   { background:#FFF8E1; color:#F57F17; border-color:#FFE082; }
+.zpc-action.npk    { background:#F3E5F5; color:#6A1B9A; border-color:#CE93D8; }
+.zpc-shap { font-size:10px; color:var(--grey); font-style:italic; }
+
+/* ── Module 2: Cultures ── */
+.culture-filter-row {
+  display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px;
+}
+.culture-filter-row::-webkit-scrollbar { display:none; }
+.culture-filter-btn {
+  flex-shrink:0; padding:5px 14px; border-radius:20px; border:1px solid var(--border);
+  background:white; font-size:11px; cursor:pointer; color:var(--grey); font-weight:500;
+  transition:all 0.2s;
+}
+.culture-filter-btn.active { background:#1565C0; color:white; border-color:#1565C0; }
+
+.culture-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px; }
+.culture-card {
+  background:white; border-radius:16px; padding:14px 12px;
+  box-shadow:var(--shadow); text-align:center; position:relative; overflow:hidden;
+}
+.culture-card::before {
+  content:''; position:absolute; top:0; left:0; right:0; height:3px;
+}
+.culture-card.match-high::before  { background:linear-gradient(90deg,#2E7D32,#4CAF50); }
+.culture-card.match-med::before   { background:linear-gradient(90deg,#F57F17,#FFC107); }
+.culture-card.match-low::before   { background:linear-gradient(90deg,#C62828,#E53935); }
+.culture-emoji { font-size:36px; margin-bottom:6px; }
+.culture-name  { font-size:13px; font-weight:700; color:var(--text); margin-bottom:4px; }
+.culture-match-bar { height:5px; background:#e8f5e9; border-radius:5px; margin-bottom:4px; overflow:hidden; }
+.culture-match-fill { height:100%; border-radius:5px; }
+.culture-match-label { font-size:10px; color:var(--grey); }
+.culture-detail-btn {
+  margin-top:8px; width:100%; padding:5px; border:1px solid var(--border);
+  border-radius:8px; background:transparent; font-size:10px; color:var(--green);
+  cursor:pointer; font-weight:600;
+}
+
+/* Culture detail panel */
+.culture-detail-panel {
+  background:white; border-radius:16px; padding:16px;
+  box-shadow:var(--shadow); margin-bottom:14px; display:none;
+}
+.culture-detail-panel.visible { display:block; animation:fadeIn 0.3s ease; }
+.cdp-header { display:flex; align-items:center; gap:12px; margin-bottom:12px; }
+.cdp-emoji { font-size:44px; }
+.cdp-info h3 { font-size:16px; font-weight:700; }
+.cdp-info p  { font-size:11px; color:var(--grey); }
+.cdp-params { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.cdp-param  { background:var(--green-pale); border-radius:10px; padding:8px 10px; }
+.cdp-param-label { font-size:10px; color:var(--grey); font-weight:600; text-transform:uppercase; }
+.cdp-param-val   { font-size:13px; font-weight:700; color:var(--green); }
+
+/* ── Module 3: Suivi temporel ── */
+.temporal-session-selector {
+  display:flex; gap:8px; overflow-x:auto; padding-bottom:4px; margin-bottom:14px;
+}
+.temporal-session-selector::-webkit-scrollbar { display:none; }
+.session-chip {
+  flex-shrink:0; padding:7px 14px; border-radius:20px; border:1px solid var(--border);
+  background:white; font-size:11px; cursor:pointer; font-weight:600; color:var(--grey);
+  transition:all 0.2s;
+}
+.session-chip.active { background:#6A1B9A; color:white; border-color:#6A1B9A; }
+
+.temporal-evolution-card {
+  background:white; border-radius:14px; padding:16px;
+  box-shadow:var(--shadow); margin-bottom:12px;
+}
+.tec-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:10px; }
+.tec-param  { font-size:13px; font-weight:700; color:var(--text); }
+.tec-delta  { font-size:13px; font-weight:700; }
+.tec-delta.up   { color:var(--green); }
+.tec-delta.down { color:var(--red); }
+.tec-delta.flat { color:var(--grey); }
+.tec-chart { height:70px; }
+
+.temporal-insight-card {
+  background:linear-gradient(135deg,#F3E5F5,#EDE7F6);
+  border-radius:14px; padding:14px 16px; margin-bottom:12px;
+  border-left:4px solid #6A1B9A;
+}
+.tic-title { font-size:13px; font-weight:700; color:#4A148C; margin-bottom:6px; }
+.tic-body  { font-size:12px; color:#6A1B9A; line-height:1.6; }
+
+.temporal-heatmap-wrap {
+  background:white; border-radius:14px; padding:14px;
+  box-shadow:var(--shadow); margin-bottom:14px;
+}
+.thm-title { font-size:12px; font-weight:700; color:var(--grey); text-transform:uppercase;
+  letter-spacing:.8px; margin-bottom:10px; }
+.temporal-heatmap {
+  display:grid; grid-template-columns:repeat(5,1fr); gap:4px;
+}
+.thm-cell {
+  aspect-ratio:1; border-radius:6px; display:flex; align-items:center;
+  justify-content:center; font-size:9px; font-weight:700; color:white;
+}
+
+</style>
+</head>
+<body>
+
+<!-- TOAST -->
+<div class="toast" id="toast"></div>
+
+<!-- LANGUAGE SCREEN -->
+<div id="lang-screen">
+  <div style="font-size:60px">🌱</div>
+  <h1>Agri-Botics</h1>
+  <p>Choisissez votre langue / اختر لغتك</p>
+  <div class="lang-btns">
+    <button class="lang-btn" onclick="chooseLang('fr')">🇫🇷 Français</button>
+    <button class="lang-btn" onclick="chooseLang('ar')">🇲🇦 العربية</button>
+    <button class="lang-btn" onclick="chooseLang('da')">🗣️ الدارجة</button>
+  </div>
+</div>
+
+<!-- HEADER -->
+<header>
+  <h1>🌱 Agri-Botics</h1>
+  <div class="header-right">
+    <div class="status-dot"></div>
+    <span class="status-txt" id="statusTxt">Robot actif</span>
+    <span class="lang-badge" onclick="document.getElementById('lang-screen').style.display='flex'" id="langBadge">FR</span>
+  </div>
+</header>
+
+<!-- PAGES -->
+<main class="main">
+
+  <!-- ===== PAGE AGRICULTEUR ===== -->
+  <div class="page active" id="page-farmer">
+
+    <div class="farmer-greeting">
+      <div class="greeting-emoji">👨‍🌾</div>
+      <h2 id="greet-title">Bonjour !</h2>
+      <p id="greet-sub">Voici l'état de votre champ aujourd'hui</p>
+    </div>
+
+    <div class="gauge-grid">
+      <div class="gauge-card warn">
+        <div class="gauge-emoji">💧</div>
+        <div class="gauge-label" id="lbl-water">Eau dans le sol</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face active">😐</span>
+          <span class="gauge-face">😊</span>
+        </div>
+        <span class="gauge-status warn" id="stat-water">Arrosage bientôt</span>
+      </div>
+      <div class="gauge-card good">
+        <div class="gauge-emoji">🧪</div>
+        <div class="gauge-label" id="lbl-ph">Qualité du sol</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-ph">Très bien !</span>
+      </div>
+      <div class="gauge-card bad">
+        <div class="gauge-emoji">⚡</div>
+        <div class="gauge-label" id="lbl-npk">Conductivité (Salinité)</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-npk">Sels équilibrés</span>
+      </div>
+      <div class="gauge-card good">
+        <div class="gauge-emoji">🌡️</div>
+        <div class="gauge-label" id="lbl-temp">Température</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-temp">Parfait !</span>
+      </div>
+    </div>
+
+    <!-- CHATBOT -->
+    <div class="chatbot-card">
+      <div class="chatbot-title">🎙️ <span id="chat-title">Posez votre question</span></div>
+      <div class="chat-messages" id="chatMessages">
+        <div class="chat-bubble bot" id="chat-welcome">Bonjour ! Je suis votre assistant agricole. Posez-moi une question sur votre champ, ou appuyez sur le micro pour parler 🎙️</div>
+      </div>
+      <div class="chat-input-row">
+        <input class="chat-input" id="chatInput" placeholder="Écrire une question..." onkeypress="if(event.key==='Enter')sendChat()"/>
+        <button class="mic-btn" id="micBtn" onclick="toggleMic()">🎙️</button>
+        <button class="send-btn" onclick="sendChat()">➤</button>
+      </div>
+      <div class="suggested-questions" id="sugQuestions">
+        <span class="sug-q" onclick="askSuggested(this)">💧 Quand arroser ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">🌿 Quel engrais ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">📍 Quelle zone ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">🤖 Robot où ?</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE EXPERT ===== -->
+  <div class="page" id="page-expert">
+    <div class="expert-section">
+      <div class="section-title">📊 Données sol — Dernière mesure</div>
+      <div class="data-grid">
+        <div class="data-card warn">
+          <div class="data-name">Humidité</div>
+          <div class="data-value">42<span class="data-unit"> %</span></div>
+          <div class="data-range">Optimal : 50–70%</div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:60%;background:var(--orange)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">pH</div>
+          <div class="data-value">6.4</div>
+          <div class="data-range">Optimal : 6.0–7.0</div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:72%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Conductivité (Salinité)</div>
+          <div class="data-value">1.8<span class="data-unit"> mS/cm</span></div>
+          <div class="data-range">Seuil : &lt; 3.0 mS/cm</div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:60%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Température</div>
+          <div class="data-value">18<span class="data-unit"> °C</span></div>
+          <div class="data-range">Optimal : 15–25°C</div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:52%;background:var(--green-light)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">🌿 NPK — mg/kg</div>
+      <div class="npk-row">
+        <div class="npk-card" style="border-top:3px solid #2d6a35">
+          <div class="npk-letter" style="color:#2d6a35">N</div>
+          <div class="npk-name">Azote</div>
+          <div class="npk-val" style="color:var(--red)">18</div>
+          <div class="npk-unit">mg/kg <br><span style="color:var(--red);font-size:10px">▼ Déficit (seuil: 30)</span></div>
+        </div>
+        <div class="npk-card" style="border-top:3px solid #a8d5ae">
+          <div class="npk-letter" style="color:#a8d5ae">P</div>
+          <div class="npk-name">Phosphore</div>
+          <div class="npk-val" style="color:var(--green)">64</div>
+          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Normal (40–80)</span></div>
+        </div>
+        <div class="npk-card" style="border-top:3px solid #f9c74f">
+          <div class="npk-letter" style="color:#f9c74f">K</div>
+          <div class="npk-name">Potassium</div>
+          <div class="npk-val" style="color:var(--green)">185</div>
+          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Optimal (150–250)</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">📈 Historique pH — 7 jours</div>
+      <div class="history-card">
+        <canvas id="phHistChart" height="80"></canvas>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">🤖 État robot</div>
+      <div class="data-grid">
+        <div class="data-card">
+          <div class="data-name">Batterie</div>
+          <div class="data-value">74<span class="data-unit"> %</span></div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:74%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Panneau solaire</div>
+          <div class="data-value">61<span class="data-unit"> %</span></div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:61%;background:#f9c74f"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Mesures effectuées</div>
+          <div class="data-value">17<span class="data-unit"> /36</span></div>
+          <div class="data-bar"><div class="data-bar-fill" style="width:47%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Zone active</div>
+          <div class="data-value" style="font-size:18px">A3</div>
+          <div class="data-range">Point 17 en cours</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE CARTE ===== -->
+  <div class="page" id="page-map">
+    <div class="map-var-scroll" id="mapVarBtns">
+      <button class="map-var-btn active" onclick="setVar('humidity',this)">💧 Humidité</button>
+      <button class="map-var-btn" onclick="setVar('ph',this)">🧪 pH</button>
+      <button class="map-var-btn" onclick="setVar('ec',this)">⚡ Conductivité (Salinité)</button>
+      <button class="map-var-btn" onclick="setVar('temp',this)">🌡️ Température</button>
+      <button class="map-var-btn" onclick="setVar('npk',this)">🌿 NPK</button>
+      <button class="map-var-btn" onclick="setVar('reco',this)">💡 Recommandations</button>
+    </div>
+    <div class="map-wrap">
+      <div class="map-title" id="mapVarLabel">💧 Humidité du sol</div>
+      <div class="map-container">
+        <canvas id="fieldMap" height="360"></canvas>
+        <div class="map-tooltip" id="mapTooltip"></div>
+      </div>
+      <div id="mapScaleBar" class="map-scale-bar"></div>
+      <div id="mapScaleLabels" class="map-scale-labels"></div>
+      <div class="map-legend-wrap" id="mapLegend"></div>
+    </div>
+    <div class="zone-detail" id="zoneDetail">
+      <div class="zone-detail-title" id="zoneDetailTitle"></div>
+      <div class="zone-tags" id="zoneDetailTags"></div>
+    </div>
+  </div>
+
+
+  <!-- ===== PAGE RECOMMANDATIONS ===== -->
+  <div class="page" id="page-reco">
+
+    <!-- Hero météo -->
+    <div class="reco-hero">
+      <h2>💡 Centre de Recommandations</h2>
+      <p>IA + Open-Meteo · Ben Guerir, Maroc</p>
+      <div class="reco-weather-row">
+        <div class="reco-weather-chip">☀️ 24°C</div>
+        <div class="reco-weather-chip">💧 12% HR</div>
+        <div class="reco-weather-chip">🌬️ 18 km/h</div>
+        <div class="reco-weather-chip">🌧️ 0 mm/3j</div>
+      </div>
+    </div>
+
+    <!-- Onglets des 3 modules -->
+    <div class="reco-tabs">
+      <button class="reco-tab active" onclick="showRecoTab('practices',this)">
+        <span class="rtab-icon">🧪</span>
+        <span>Pratiques sol</span>
+      </button>
+      <button class="reco-tab tab-culture" onclick="showRecoTab('cultures',this)">
+        <span class="rtab-icon">🌾</span>
+        <span>Cultures</span>
+      </button>
+      <button class="reco-tab tab-temporal" onclick="showRecoTab('temporal',this)">
+        <span class="rtab-icon">📈</span>
+        <span>Évolution</span>
+      </button>
+    </div>
+
+    <!-- ── SOUS-PAGE 1 : PRATIQUES SOL ── -->
+    <div class="reco-subpage active" id="reco-practices">
+
+      <!-- Prévisions météo 5 jours -->
+      <div class="weather-banner">
+        <div class="weather-main-icon">☀️</div>
+        <div class="weather-info">
+          <div class="w-temp">24°C</div>
+          <div class="w-desc">Ciel dégagé · Ben Guerir</div>
+          <div class="w-detail">Vent 18 km/h · Humidité air 12% · Pression 1013 hPa</div>
+        </div>
+      </div>
+      <div class="weather-forecast">
+        <div class="forecast-chip"><div class="fc-day">Auj.</div><div class="fc-icon">☀️</div><div class="fc-temp">24°</div><div class="fc-rain">0 mm</div></div>
+        <div class="forecast-chip"><div class="fc-day">Mar.</div><div class="fc-icon">🌤️</div><div class="fc-temp">22°</div><div class="fc-rain">0 mm</div></div>
+        <div class="forecast-chip"><div class="fc-day">Mer.</div><div class="fc-icon">⛅</div><div class="fc-temp">19°</div><div class="fc-rain">3 mm</div></div>
+        <div class="forecast-chip"><div class="fc-day">Jeu.</div><div class="fc-icon">🌧️</div><div class="fc-temp">16°</div><div class="fc-rain">12 mm</div></div>
+        <div class="forecast-chip"><div class="fc-day">Ven.</div><div class="fc-icon">🌤️</div><div class="fc-temp">20°</div><div class="fc-rain">1 mm</div></div>
+      </div>
+
+      <!-- Recommandations par zone -->
+      <div class="section-title">🗺️ Actions par zone — Modèle ML + Météo</div>
+      <div class="zone-practice-list" id="zonePracticeList">
+        <!-- Injected by renderSoilPractices() -->
+      </div>
+    </div>
+
+    <!-- ── SOUS-PAGE 2 : CULTURES ── -->
+    <div class="reco-subpage" id="reco-cultures">
+
+      <div class="section-title">🌾 Cultures adaptées à votre sol</div>
+      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Calculé sur les mesures moyennes de la parcelle · Modèle Random Forest</p>
+
+      <div class="culture-filter-row">
+        <button class="culture-filter-btn active" onclick="filterCultures('all',this)">Tout</button>
+        <button class="culture-filter-btn" onclick="filterCultures('cereale',this)">🌾 Céréales</button>
+        <button class="culture-filter-btn" onclick="filterCultures('legume',this)">🥕 Légumes</button>
+        <button class="culture-filter-btn" onclick="filterCultures('fruit',this)">🍅 Fruits</button>
+        <button class="culture-filter-btn" onclick="filterCultures('legumineuse',this)">🫘 Légumineuses</button>
+      </div>
+
+      <!-- Culture detail panel (shown on click) -->
+      <div class="culture-detail-panel" id="cultureDetailPanel">
+        <div class="cdp-header">
+          <div class="cdp-emoji" id="cdpEmoji">🌾</div>
+          <div class="cdp-info">
+            <h3 id="cdpName">Blé tendre</h3>
+            <p id="cdpDesc">Céréale · Saison : Oct–Mai</p>
+          </div>
+        </div>
+        <div class="cdp-params" id="cdpParams"></div>
+      </div>
+
+      <div class="culture-grid" id="cultureGrid">
+        <!-- injected by JS -->
+      </div>
+
+    </div>
+
+    <!-- ── SOUS-PAGE 3 : SUIVI TEMPOREL ── -->
+    <div class="reco-subpage" id="reco-temporal">
+
+      <div class="section-title">📈 Évolution inter-sessions</div>
+      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Comparer les sessions pour mesurer l'effet des recommandations</p>
+
+      <div class="temporal-session-selector" id="sessionSelector">
+        <div class="session-chip active" onclick="selectSession(0,this)">Session 1<br><span style="font-weight:400;font-size:9px">08 Mar</span></div>
+        <div class="session-chip" onclick="selectSession(1,this)">Session 2<br><span style="font-weight:400;font-size:9px">10 Mar</span></div>
+        <div class="session-chip" onclick="selectSession(2,this)">Session 3<br><span style="font-weight:400;font-size:9px">12 Mar</span></div>
+        <div class="session-chip" style="border-style:dashed;color:var(--grey);opacity:0.5">+ Nouvelle</div>
+      </div>
+
+      <!-- Insight IA -->
+      <div class="temporal-insight-card">
+        <div class="tic-title">💡 Analyse IA — Tendance globale</div>
+        <div class="tic-body" id="temporalInsight">
+          Entre la session 1 et la session 3, le pH moyen a progressé de +0.4 (4.8 → 5.2) suite à l'apport de chaux sur B2.
+          L'humidité est stable. L'azote reste déficitaire en A1 — l'apport d'urée recommandé n'a pas encore été appliqué.
+        </div>
+      </div>
+
+      <!-- Évolution pH -->
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">🧪 pH moyen parcelle</span>
+          <span class="tec-delta up" id="delta-ph">▲ +0.4</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalPhChart" height="70"></canvas></div>
+      </div>
+
+      <!-- Évolution humidité -->
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">💧 Humidité moyenne</span>
+          <span class="tec-delta flat" id="delta-hum">→ stable</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalHumChart" height="70"></canvas></div>
+      </div>
+
+      <!-- Évolution N -->
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">🌿 Azote (N) moyen</span>
+          <span class="tec-delta down" id="delta-n">▼ −3</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalNChart" height="70"></canvas></div>
+      </div>
+
+      <!-- Heatmap zones x sessions -->
+      <div class="temporal-heatmap-wrap">
+        <div class="thm-title">Score de santé sol par zone — 3 sessions</div>
+        <div class="temporal-heatmap" id="temporalHeatmap"></div>
+      </div>
+
+    </div>
+
+  </div>
+
+</main>
+
+<!-- BOTTOM NAV -->
+<nav class="bottom-nav">
+  <button class="bnav-item active" onclick="showPage('farmer',this)">
+    <span class="bnav-icon">👨‍🌾</span>
+    <span class="bnav-label" id="nav-farmer">Agriculteur</span>
+  </button>
+  <button class="bnav-item" onclick="showPage('map',this)">
+    <span class="bnav-icon">🗺️</span>
+    <span class="bnav-label" id="nav-map">Carte</span>
+  </button>
+  <button class="bnav-item" onclick="showPage('expert',this)">
+    <span class="bnav-icon">🔬</span>
+    <span class="bnav-label" id="nav-expert">Expert</span>
+  </button>
+  <button class="bnav-item" onclick="showPage('reco',this)">
+    <span class="bnav-icon">💡</span>
+    <span class="bnav-label" id="nav-reco">Conseils</span>
+  </button>
+</nav>
+
+<script>
+// ======== LANGUAGES ========
+const LANG = {
+  fr: {
+    badge:'FR', status:'Robot actif',
+    greetTitle:'Bonjour !', greetSub:'Voici l\'état de votre champ aujourd\'hui',
+    chatTitle:'Posez votre question',
+    chatWelcome:'Bonjour ! Je suis votre assistant agricole. Posez-moi une question sur votre champ, ou appuyez sur le micro pour parler 🎙️',
+    chatPlaceholder:'Écrire une question...',
+    navFarmer:'Agriculteur', navMap:'Carte', navExpert:'Expert', navReco:'Conseils',
+    lblWater:'Eau dans le sol', lblPh:'Qualité du sol', lblNpk:'Conductivité (Salinité)', lblTemp:'Température',
+    statWaterWarn:'Arrosage bientôt', statPhGood:'Très bien !', statNpkBad:'Sels équilibrés', statTempGood:'Parfait !',
+    sug:['💧 Quand arroser ?','🌿 Quel engrais ?','📍 Quelle zone ?','🤖 Robot où ?'],
+    responses:{
+      water:"💧 Zone B2 a besoin d'eau maintenant ! Arrosez 15 litres par m², tôt le matin entre 6h et 8h pour éviter l'évaporation.",
+      engrais:"🌿 La zone A1 manque d'azote. Ajoutez de l'urée (46%) : environ 30 kg par hectare, avant la prochaine pluie.",
+      zone:"📍 Votre robot est en ce moment dans la zone A3. C'est une bonne zone, tout va bien là-bas !",
+      robot:"🤖 Le robot travaille en zone A3. Il a fait 17 mesures sur 36. Batterie à 74%, tout va bien !",
+      salinity:"⚡ La conductivité est un peu élevée en C3. Un lessivage (arrosage abondant) peut aider à réduire la salinité.",
+      cultures:"🌾 Votre sol est très favorable à l'Olivier, au Palmier Dattier et à l'Orge. Consultez l'onglet 'Conseils' pour plus de détails.",
+      default:"Je n'ai pas bien compris. Essayez : 'quand arroser ?', 'quel engrais ?' ou 'que cultiver ?'"
+    }
+  },
+  ar: {
+    badge:'ع', status:'الروبوت نشيط',
+    greetTitle:'مرحباً !', greetSub:'هذه حالة حقلك اليوم',
+    chatTitle:'اسأل سؤالك',
+    chatWelcome:'مرحباً! أنا مساعدك الزراعي. اسألني عن حقلك أو اضغط على الميكروفون للتحدث 🎙️',
+    chatPlaceholder:'اكتب سؤالاً...',
+    navFarmer:'المزارع', navMap:'الخريطة', navExpert:'خبير', navReco:'نصائح',
+    lblWater:'الماء في التربة', lblPh:'جودة التربة', lblNpk:'الموصلية (الملوحة)', lblTemp:'الحرارة',
+    statWaterWarn:'سقي قريباً', statPhGood:'ممتاز !', statNpkBad:'أملاح متوازنة', statTempGood:'مثالي !',
+    sug:['💧 متى أسقي؟','🌿 أي سماد؟','📍 أي منطقة؟','🤖 أين الروبوت؟'],
+    responses:{
+      water:"💧 المنطقة B2 تحتاج ماء الآن! اسقِ 15 لتر لكل متر مربع، في الصباح الباكر بين 6 و8 صباحاً.",
+      engrais:"🌿 المنطقة A1 تفتقر إلى النيتروجين. أضف اليوريا (46٪): حوالي 30 كجم لكل هكتار قبل المطر القادم.",
+      zone:"📍 روبوتك في المنطقة A3 الآن. هذه منطقة جيدة، كل شيء على ما يرام!",
+      robot:"🤖 الروبوت يعمل في المنطقة A3. أجرى 17 قياساً من 36. البطارية 74٪، كل شيء بخير!",
+      salinity:"⚡ الملوحة مرتفعة قليلاً في المنطقة C3. السقي الوفير يمكن أن يساعد في غسل الأملاح الزائدة.",
+      cultures:"🌾 تربتك مناسبة جداً للزيتون، نخيل التمر والشعير. راجع علامة التبويب 'نصائح' للمزيد.",
+      default:"لم أفهم جيداً. جرب: 'متى أسقي؟'، 'أي سماد؟' أو 'ماذا أزرع؟'"
+    }
+  },
+  da: {
+    badge:'DA', status:'الروبو خدام',
+    greetTitle:'!صباح الخير', greetSub:'هاهو حال الضيعة ديالك اليوم',
+    chatTitle:'سول على شي حاجة',
+    chatWelcome:'!أهلاً بيك! أنا المساعد الزراعي ديالك. سولني على الضيعة ديالك ولا دوز على الميكرو باش تهضر 🎙️',
+    chatPlaceholder:'كتب سوالك...',
+    navFarmer:'الفلاح', navMap:'الخريطة', navExpert:'الخبير', navReco:'النصايح',
+    lblWater:'الما فالتربة', lblPh:'جودة التربة', lblNpk:'الملوحة (الكوندوكتي)', lblTemp:'السخانة',
+    statWaterWarn:'السقي قريب', statPhGood:'!مزيان بزاف', statNpkBad:'الأملاح مقادة', statTempGood:'!ميا ميا',
+    sug:['💧 فين نسقي؟','🌿 أش من سماد؟','📍 أش من زون؟','🤖 فين الروبو؟'],
+    responses:{
+      water:"💧 الزون B2 محتاجة ما دابا! سقيها 15 ليتر ف كل متر مربع، فالصباح بكري بين 6 و8 باش ما يطيرش الما.",
+      engrais:"🌿 الزون A1 ناقصها النيتروجين. زيد اليوريا (46٪): حوالي 30 كيلو فالهكتار قبل شتا الجاي.",
+      zone:"📍 الروبو ديالك فالزون A3 دابا. هادي زون مزيانة، كل شي بخير!",
+      robot:"🤖 الروبو خدام فالزون A3. درتيله 17 قياس من 36. البطاريا 74٪، كل شي مزيان!",
+      salinity:"⚡ الملوحة طالعة شوية ف الزون C3. السقي المجهد يقدر يعاون باش تغسل الأملاح.",
+      cultures:"🌾 الأرض ديالك مزيانة بزاف للزيتون، النخل والشعير. شوف الصفحة ديال 'النصايح' باش تعرف كتر.",
+      default:"ما فهمتش مزيان. جرب: 'فين نسقي؟'، 'أش من سماد؟' ولا 'أش نزرع؟'"
+    }
+  }
+};
+
+let currentLang = 'fr';
+let isListening = false;
+let recognition = null;
+
+function chooseLang(lang) {
+  currentLang = lang;
+  const L = LANG[lang];
+  document.getElementById('lang-screen').style.display = 'none';
+  document.getElementById('langBadge').textContent = L.badge;
+  document.getElementById('statusTxt').textContent = L.status;
+  document.getElementById('greet-title').textContent = L.greetTitle;
+  document.getElementById('greet-sub').textContent = L.greetSub;
+  document.getElementById('chat-title').textContent = L.chatTitle;
+  document.getElementById('chat-welcome').textContent = L.chatWelcome;
+  document.getElementById('chatInput').placeholder = L.chatPlaceholder;
+  document.getElementById('nav-farmer').textContent = L.navFarmer;
+  document.getElementById('nav-map').textContent = L.navMap;
+  document.getElementById('nav-expert').textContent = L.navExpert;
+  if(document.getElementById('nav-reco')) document.getElementById('nav-reco').textContent = L.navReco;
+  document.getElementById('lbl-water').textContent = L.lblWater;
+  document.getElementById('lbl-ph').textContent = L.lblPh;
+  document.getElementById('lbl-npk').textContent = L.lblNpk;
+  document.getElementById('lbl-temp').textContent = L.lblTemp;
+  document.getElementById('stat-water').textContent = L.statWaterWarn;
+  document.getElementById('stat-ph').textContent = L.statPhGood;
+  document.getElementById('stat-npk').textContent = L.statNpkBad;
+  document.getElementById('stat-temp').textContent = L.statTempGood;
+  const sugs = document.getElementById('sugQuestions');
+  sugs.innerHTML = L.sug.map(s => `<span class="sug-q" onclick="askSuggested(this)">${s}</span>`).join('');
+  if(lang==='ar'||lang==='da') document.body.style.direction='rtl';
+  else document.body.style.direction='ltr';
+}
+
+// ======== PAGES ========
+function showPage(id, btn) {
+  document.querySelectorAll('.page').forEach(p=>p.classList.remove('active'));
+  document.querySelectorAll('.bnav-item').forEach(b=>b.classList.remove('active'));
+  document.getElementById('page-'+id).classList.add('active');
+  if(btn) btn.classList.add('active');
+  if(id==='map') { setTimeout(drawMap,100); }
+  if(id==='expert') { setTimeout(drawPhChart,100); }
+}
+
+// ======== CHATBOT ========
+function getResponse(msg) {
+  const L = LANG[currentLang].responses;
+  const m = msg.toLowerCase();
+  if(m.includes('eau')||m.includes('arros')||m.includes('sqi')||m.includes('ما')||m.includes('سقي')||m.includes('water')) return L.water;
+  if(m.includes('engrais')||m.includes('azote')||m.includes('سماد')||m.includes('نيتروجين')||m.includes('سماد')) return L.engrais;
+  if(m.includes('zone')||m.includes('زون')||m.includes('منطقة')) return L.zone;
+  if(m.includes('robot')||m.includes('روبو')||m.includes('روبوت')) return L.robot;
+  if(m.includes('sel')||m.includes('salin')||m.includes('ملح')||m.includes('ملوحة')||m.includes('salt')) return L.salinity;
+  if(m.includes('culti')||m.includes('plant')||m.includes('زرع')||m.includes('نزرع')||m.includes('crop')) return L.cultures;
+  return L.default;
+}
+
+function addMessage(text, who) {
+  const div = document.createElement('div');
+  div.className = 'chat-bubble ' + who;
+  div.textContent = text;
+  const msgs = document.getElementById('chatMessages');
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+}
+
+function sendChat() {
+  const inp = document.getElementById('chatInput');
+  const txt = inp.value.trim();
+  if(!txt) return;
+  addMessage(txt, 'user');
+  inp.value = '';
+  setTimeout(()=>{ addMessage(getResponse(txt), 'bot'); speak(getResponse(txt)); }, 600);
+}
+
+function askSuggested(el) {
+  const txt = el.textContent;
+  addMessage(txt, 'user');
+  setTimeout(()=>{ const r=getResponse(txt); addMessage(r,'bot'); speak(r); }, 600);
+}
+
+// ======== SPEECH SYNTHESIS ========
+function speak(text) {
+  if(!window.speechSynthesis) return;
+  window.speechSynthesis.cancel();
+  const utt = new SpeechSynthesisUtterance(text);
+  utt.lang = currentLang==='fr'?'fr-FR': currentLang==='ar'?'ar-MA':'ar-MA';
+  utt.rate = 0.9;
+  window.speechSynthesis.speak(utt);
+}
+
+// ======== SPEECH RECOGNITION ========
+function toggleMic() {
+  const btn = document.getElementById('micBtn');
+  if(!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    showToast('Micro non supporté sur ce navigateur'); return;
+  }
+  if(isListening) {
+    recognition && recognition.stop();
+    isListening = false;
+    btn.classList.remove('listening');
+    btn.textContent = '🎙️';
+    return;
+  }
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  recognition = new SR();
+  recognition.lang = currentLang==='fr'?'fr-FR':'ar-MA';
+  recognition.interimResults = false;
+  recognition.onresult = e => {
+    const txt = e.results[0][0].transcript;
+    document.getElementById('chatInput').value = txt;
+    sendChat();
+  };
+  recognition.onend = ()=>{
+    isListening=false;
+    btn.classList.remove('listening');
+    btn.textContent='🎙️';
+  };
+  recognition.start();
+  isListening=true;
+  btn.classList.add('listening');
+  btn.textContent='⏹';
+  showToast(currentLang==='fr'?'Parlez maintenant...':currentLang==='ar'?'تحدث الآن...':'هضر دابا...');
+}
+
+// ======== TOAST ========
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2500);
+}
+
+// ======== ORGANIC TERRAIN MAP ========
+let currentVar = 'humidity';
+const mapData = {};
+const ZONE_SEEDS = [];
+const ZONE_NAMES_ARR = [];
+const ZONE_COUNT = 24;
+const robotZoneIdx = 14;
+
+const mapConfigs = {
+  humidity:{
+    label:'💧 Humidité du sol', unit:'%',
+    gen:()=>20+Math.random()*55,
+    colorFn:v=>interpColor(v,20,75,['#c0392b','#f5eed8','#a8d5ae','#1a6b3a']),
+    scaleGrad:'linear-gradient(90deg,#c0392b,#f5eed8,#a8d5ae,#1a6b3a)',
+    scaleMin:'20% Sec', scaleMax:'75% Humide',
+    legend:[{c:'#1a6b3a',l:'Très humide'},{c:'#4a9c55',l:'Humide'},{c:'#a8d5ae',l:'Modéré'},{c:'#f5eed8',l:'Sec'},{c:'#c0392b',l:'Critique'}]
+  },
+  ph:{
+    label:'🧪 pH du sol', unit:'',
+    gen:()=>4.5+Math.random()*3.5,
+    colorFn:v=>v>=6&&v<=7?interpColor(v,6,7,['#2d9c55','#1a6b3a']):v<6?interpColor(v,4.5,6,['#c0392b','#f9c74f']):interpColor(v,7,8,['#f4a261','#c0392b']),
+    scaleGrad:'linear-gradient(90deg,#c0392b,#f9c74f,#1a6b3a,#f4a261,#c0392b)',
+    scaleMin:'4.5 Acide', scaleMax:'8.0 Basique',
+    legend:[{c:'#1a6b3a',l:'6-7 Optimal'},{c:'#f9c74f',l:'Légèrement acide'},{c:'#f4a261',l:'Légèrement basique'},{c:'#c0392b',l:'Hors norme'}]
+  },
+  ec:{
+    label:'⚡ Conductivité (Salinité)', unit:'mS/cm',
+    gen:()=>0.3+Math.random()*3.2,
+    colorFn:v=>interpColor(v,0.3,3.5,['#e8f5e9','#4a9c55','#f9c74f','#c0392b']),
+    scaleGrad:'linear-gradient(90deg,#e8f5e9,#4a9c55,#f9c74f,#c0392b)',
+    scaleMin:'0.3 Faible', scaleMax:'3.5 Critique',
+    legend:[{c:'#4a9c55',l:'1-2 Normal'},{c:'#f9c74f',l:'2-3 Élevé'},{c:'#c0392b',l:'>3 Critique'}]
+  },
+  temp:{
+    label:'🌡️ Température du sol', unit:'°C',
+    gen:()=>8+Math.random()*25,
+    colorFn:v=>interpColor(v,8,33,['#aee4f0','#a8d5ae','#4a9c55','#f4a261','#c0392b']),
+    scaleGrad:'linear-gradient(90deg,#aee4f0,#4a9c55,#f4a261,#c0392b)',
+    scaleMin:'8°C Froid', scaleMax:'33°C Chaud',
+    legend:[{c:'#4a9c55',l:'15-25°C Optimal'},{c:'#a8d5ae',l:'10-15°C Frais'},{c:'#f4a261',l:'25-30°C Chaud'},{c:'#c0392b',l:'Extrême'}]
+  },
+  npk:{
+    label:'🌿 NPK Global', unit:'',
+    gen:()=>10+Math.random()*90,
+    colorFn:v=>interpColor(v,10,100,['#c0392b','#f9c74f','#4a9c55','#1a6b3a']),
+    scaleGrad:'linear-gradient(90deg,#c0392b,#f9c74f,#4a9c55,#1a6b3a)',
+    scaleMin:'Déficit', scaleMax:'Excellent',
+    legend:[{c:'#1a6b3a',l:'>75 Excellent'},{c:'#4a9c55',l:'50-75 Bon'},{c:'#f9c74f',l:'30-50 Faible'},{c:'#c0392b',l:'<30 Déficit'}]
+  },
+  reco:{
+    label:'💡 Recommandations', unit:'',
+    gen:()=>Math.random(),
+    colorFn:v=>v<0.25?'#4a9c55':v<0.5?'#a8d5ae':v<0.75?'#f9c74f':'#c0392b',
+    scaleGrad:'linear-gradient(90deg,#4a9c55,#a8d5ae,#f9c74f,#c0392b)',
+    scaleMin:'Optimal', scaleMax:'Urgent',
+    legend:[{c:'#4a9c55',l:'Optimal'},{c:'#a8d5ae',l:'Surveiller'},{c:'#f9c74f',l:'Action requise'},{c:'#c0392b',l:'Urgent'}]
+  }
+};
+
+function interpColor(v,min,max,stops){
+  const t=Math.max(0,Math.min(1,(v-min)/(max-min)));
+  const seg=(stops.length-1)*t;
+  const i=Math.min(Math.floor(seg),stops.length-2);
+  return lerpColor(stops[i],stops[i+1],seg-i);
+}
+function lerpColor(a,b,t){
+  const ah=a.replace('#',''),bh=b.replace('#','');
+  const ar=parseInt(ah.slice(0,2),16),ag=parseInt(ah.slice(2,4),16),ab2=parseInt(ah.slice(4,6),16);
+  const br=parseInt(bh.slice(0,2),16),bg=parseInt(bh.slice(2,4),16),bb=parseInt(bh.slice(4,6),16);
+  const r=Math.round(ar+(br-ar)*t),g=Math.round(ag+(bg-ag)*t),bl=Math.round(ab2+(bb-ab2)*t);
+  return '#'+[r,g,bl].map(x=>x.toString(16).padStart(2,'0')).join('');
+}
+function hexToRgb(hex){
+  const h=hex.replace('#','');
+  return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];
+}
+
+Object.keys(mapConfigs).forEach(k=>{
+  mapData[k]=Array.from({length:ZONE_COUNT},()=>mapConfigs[k].gen());
+});
+
+function initSeeds(W,H){
+  ZONE_SEEDS.length=0; ZONE_NAMES_ARR.length=0;
+  const cols=6,rows=4;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const jx=(Math.random()-0.5)*W*0.13;
+      const jy=(Math.random()-0.5)*H*0.13;
+      ZONE_SEEDS.push({x:(c+0.5)/cols*W+jx, y:(r+0.5)/rows*H+jy});
+      ZONE_NAMES_ARR.push(String.fromCharCode(65+r)+(c+1));
+    }
+  }
+}
+
+/* ── IDW interpolation ─────────────────────────────────────────────────
+   Inverse Distance Weighting: value at pixel (px,py) =
+   Σ(v_i / d_i^p) / Σ(1 / d_i^p)  with power p=2
+   Falls back to nearest seed if cursor is exactly on a seed.
+─────────────────────────────────────────────────────────────────────── */
+const IDW_POWER = 2;
+function idwValue(wx, wy, values) {
+  let wSum = 0, vSum = 0;
+  for (let i = 0; i < ZONE_SEEDS.length; i++) {
+    const dx = wx - ZONE_SEEDS[i].x;
+    const dy = wy - ZONE_SEEDS[i].y;
+    const d2 = dx*dx + dy*dy;
+    if (d2 < 1) return values[i];
+    const w = 1 / Math.pow(d2, IDW_POWER / 2);
+    wSum += w;
+    vSum += w * values[i];
+  }
+  return vSum / wSum;
+}
+
+/* ── Voronoi edge detection ─────────────────────────────────────────────
+   A pixel is a Voronoi edge when its nearest seed differs from any of
+   its 4 direct neighbours → draws thin contour borders between zones.
+─────────────────────────────────────────────────────────────────────── */
+function nearestSeedIdx(wx, wy) {
+  let minD = Infinity, n = 0;
+  for (let s = 0; s < ZONE_SEEDS.length; s++) {
+    const dx = wx - ZONE_SEEDS[s].x, dy = wy - ZONE_SEEDS[s].y;
+    const d = dx*dx + dy*dy;
+    if (d < minD) { minD = d; n = s; }
+  }
+  return n;
+}
+function nearestSeed(wx, wy) { return nearestSeedIdx(wx, wy); }
+
+function buildVoronoiEdgeMap(oW, oH, sc) {
+  const grid = new Int16Array(oW * oH);
+  for (let py = 0; py < oH; py++)
+    for (let px = 0; px < oW; px++)
+      grid[py * oW + px] = nearestSeedIdx(px * sc + sc/2, py * sc + sc/2);
+  const edge = new Uint8Array(oW * oH);
+  for (let py = 1; py < oH - 1; py++) {
+    for (let px = 1; px < oW - 1; px++) {
+      const c = grid[py * oW + px];
+      if (grid[py * oW + px - 1] !== c ||
+          grid[py * oW + px + 1] !== c ||
+          grid[(py-1) * oW + px] !== c ||
+          grid[(py+1) * oW + px] !== c) {
+        edge[py * oW + px] = 1;
+      }
+    }
+  }
+  return edge;
+}
+
+function drawOrganicMap(){
+  const canvas = document.getElementById('fieldMap');
+  if (!canvas) return;
+  const W = canvas.offsetWidth || 340;
+  canvas.width = W; canvas.height = Math.round(W * 0.68);
+  const H = canvas.height;
+  const ctx = canvas.getContext('2d');
+  const cfg = mapConfigs[currentVar];
+
+  if (ZONE_SEEDS.length === 0) initSeeds(W, H);
+
+  /* ── 1. IDW heatmap at 1/4 resolution ── */
+  const sc = 4;
+  const oW = Math.ceil(W / sc), oH = Math.ceil(H / sc);
+  const off = document.createElement('canvas');
+  off.width = oW; off.height = oH;
+  const octx = off.getContext('2d');
+  const img = octx.createImageData(oW, oH);
+  const d = img.data;
+  const values = mapData[currentVar];
+
+  for (let py = 0; py < oH; py++) {
+    for (let px = 0; px < oW; px++) {
+      const wx = px * sc + sc / 2, wy = py * sc + sc / 2;
+      const val = idwValue(wx, wy, values);
+      const hex = cfg.colorFn(val);
+      const [r2, g2, b2] = hexToRgb(hex);
+      const ii = (py * oW + px) * 4;
+      d[ii] = r2; d[ii+1] = g2; d[ii+2] = b2; d[ii+3] = 255;
+    }
+  }
+  octx.putImageData(img, 0, 0);
+
+  /* ── 2. Voronoi edge overlay ── */
+  const edges = buildVoronoiEdgeMap(oW, oH, sc);
+  const eImg = octx.createImageData(oW, oH);
+  const ed = eImg.data;
+  for (let i = 0; i < edges.length; i++) {
+    if (edges[i]) {
+      ed[i*4] = 255; ed[i*4+1] = 255; ed[i*4+2] = 255; ed[i*4+3] = 85;
+    }
+  }
+  octx.putImageData(eImg, 0, 0);
+
+  /* ── 3. Upscale with smooth interpolation ── */
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(off, 0, 0, W, H);
+  ctx.restore();
+
+  /* ── 4. Organic noise texture ── */
+  const imgFull = ctx.getImageData(0, 0, W, H);
+  const fd = imgFull.data;
+  for (let i = 0; i < fd.length; i += 4) {
+    const n = (Math.random() - 0.5) * 12;
+    fd[i]   = Math.max(0, Math.min(255, fd[i]   + n));
+    fd[i+1] = Math.max(0, Math.min(255, fd[i+1] + n));
+    fd[i+2] = Math.max(0, Math.min(255, fd[i+2] + n));
+  }
+  ctx.putImageData(imgFull, 0, 0);
+
+  /* ── 5. Soft vignette ── */
+  const vig = ctx.createRadialGradient(W/2, H/2, H*0.3, W/2, H/2, H*0.85);
+  vig.addColorStop(0, 'rgba(0,0,0,0)');
+  vig.addColorStop(1, 'rgba(0,0,0,0.22)');
+  ctx.fillStyle = vig; ctx.fillRect(0, 0, W, H);
+
+  /* ── 6. Sensor point markers ── */
+  ZONE_SEEDS.forEach((s, i) => {
+    if (s.x < 12 || s.x > W-12 || s.y < 12 || s.y > H-12) return;
+    const val = values[i];
+    const color = cfg.colorFn(val);
+    // Glow ring
+    const grd = ctx.createRadialGradient(s.x, s.y, 2, s.x, s.y, 10);
+    grd.addColorStop(0, color + 'cc');
+    grd.addColorStop(1, color + '00');
+    ctx.beginPath(); ctx.arc(s.x, s.y, 10, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+    // White dot
+    ctx.beginPath(); ctx.arc(s.x, s.y, 4, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+    // Zone label pill
+    ctx.save();
+    ctx.font = 'bold 9px DM Sans,sans-serif';
+    const nw = ctx.measureText(ZONE_NAMES_ARR[i]).width + 8;
+    ctx.fillStyle = 'rgba(0,0,0,0.45)';
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(s.x - nw/2, s.y + 6, nw, 13, 4);
+    else ctx.rect(s.x - nw/2, s.y + 6, nw, 13);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.95)';
+    ctx.textAlign = 'center'; ctx.fillText(ZONE_NAMES_ARR[i], s.x, s.y + 16);
+    // Value
+    const txt = typeof val === 'number' ? (val % 1 === 0 ? String(val) : val.toFixed(1)) : '';
+    if (txt) {
+      ctx.font = '8px DM Sans,sans-serif';
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.fillText(txt + (cfg.unit ? cfg.unit : ''), s.x, s.y + 28);
+    }
+    ctx.restore();
+  });
+
+  /* ── 7. Robot marker ── */
+  const rs = ZONE_SEEDS[robotZoneIdx];
+  if (rs) {
+    const rx = rs.x, ry = rs.y - 18;
+    const grd = ctx.createRadialGradient(rx, ry, 2, rx, ry, 26);
+    grd.addColorStop(0, 'rgba(255,220,0,0.6)');
+    grd.addColorStop(1, 'rgba(255,220,0,0)');
+    ctx.beginPath(); ctx.arc(rx, ry, 26, 0, Math.PI*2);
+    ctx.fillStyle = grd; ctx.fill();
+    ctx.beginPath(); ctx.arc(rx, ry, 13, 0, Math.PI*2);
+    ctx.fillStyle = 'rgba(255,210,0,0.95)'; ctx.fill();
+    ctx.strokeStyle = '#7a5800'; ctx.lineWidth = 2; ctx.stroke();
+    ctx.font = '12px serif'; ctx.textAlign = 'center';
+    ctx.fillText('🤖', rx, ry + 5);
+  }
+
+  /* ── UI updates ── */
+  const leg = document.getElementById('mapLegend');
+  if (leg) leg.innerHTML = cfg.legend.map(l =>
+    `<div class="leg-item"><div class="leg-dot" style="background:${l.c}"></div>${l.l}</div>`
+  ).join('') + `<div class="leg-item"><div class="leg-dot" style="background:rgba(255,210,0,0.9);border:1px solid #7a5800"></div>🤖 Robot</div>`;
+  const bar = document.getElementById('mapScaleBar');
+  const lbl = document.getElementById('mapScaleLabels');
+  const varLbl = document.getElementById('mapVarLabel');
+  if (bar) bar.style.background = cfg.scaleGrad;
+  if (lbl) lbl.innerHTML = `<span>${cfg.scaleMin}</span><span style="font-size:9px;opacity:0.6">IDW + Voronoi</span><span>${cfg.scaleMax}</span>`;
+  if (varLbl) varLbl.textContent = cfg.label;
+
+  /* ── Interaction ── */
+  const tip = document.getElementById('mapTooltip');
+  const getPos = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    const cx = e.touches ? e.touches[0].clientX : e.clientX;
+    const cy = e.touches ? e.touches[0].clientY : e.clientY;
+    return { x: (cx - rect.left) * W / rect.width,
+             y: (cy - rect.top)  * H / rect.height,
+             cx: cx - rect.left, cy: cy - rect.top };
+  };
+  canvas.onmousemove = canvas.ontouchmove = (e) => {
+    const p = getPos(e);
+    const val = idwValue(p.x, p.y, values);
+    const idx = nearestSeed(p.x, p.y);
+    const vs = val.toFixed(2);
+    tip.textContent = `${ZONE_NAMES_ARR[idx]} — IDW: ${vs}${cfg.unit ? ' ' + cfg.unit : ''}`;
+    tip.style.left = Math.min(p.cx + 10, canvas.offsetWidth - 150) + 'px';
+    tip.style.top  = Math.max(p.cy - 38, 0) + 'px';
+    tip.classList.add('show');
+  };
+  canvas.onmouseleave = canvas.ontouchend = () => tip.classList.remove('show');
+  canvas.onclick = (e) => {
+    const p = getPos(e);
+    const idx = nearestSeed(p.x, p.y);
+    const rawVal = values[idx];
+    const idwVal = idwValue(p.x, p.y, values);
+    const color = cfg.colorFn(rawVal);
+    const det = document.getElementById('zoneDetail');
+    document.getElementById('zoneDetailTitle').textContent =
+      'Zone ' + ZONE_NAMES_ARR[idx] + ' — ' + cfg.label.replace(/^[^ ]+ /, '');
+    document.getElementById('zoneDetailTags').innerHTML =
+      `<span class="zone-tag" style="background:${color}22;color:${color};border:1px solid ${color}80">` +
+        `📍 Sonde: ${typeof rawVal==='number'?(rawVal%1===0?rawVal:rawVal.toFixed(2)):rawVal}${cfg.unit?' '+cfg.unit:''}` +
+      `</span>` +
+      `<span class="zone-tag" style="background:#1565c022;color:#1565c0;border:1px solid #1565c040">` +
+        `〰️ IDW: ${idwVal.toFixed(2)}${cfg.unit?' '+cfg.unit:''}` +
+      `</span>` +
+      (idx === robotZoneIdx
+        ? `<span class="zone-tag" style="background:#fff8e1;color:#7a5800;border:1px solid #f9c74f80">🤖 Robot ici</span>`
+        : '');
+    det.classList.add('visible');
+  };
+}
+
+function setVar(v,el){
+  currentVar=v;
+  document.querySelectorAll('.map-var-btn').forEach(b=>b.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('zoneDetail').classList.remove('visible');
+  drawOrganicMap();
+}
+
+function drawMap(){ drawOrganicMap(); }
+
+
+// ======== PH CHART ========
+function drawPhChart() {
+  const canvas=document.getElementById('phHistChart');
+  if(!canvas) return;
+  canvas.width=canvas.offsetWidth; canvas.height=80;
+  const ctx=canvas.getContext('2d'), W=canvas.width, H=80;
+  const days=['L','M','M','J','V','S','D'], ph=[6.1,6.3,6.2,6.5,6.4,6.3,6.4];
+  const xS=(W-40)/(days.length-1);
+  ctx.strokeStyle='#e8f5e9'; ctx.lineWidth=1;
+  for(let i=0;i<=3;i++){ const y=10+(H-20)*i/3; ctx.beginPath();ctx.moveTo(20,y);ctx.lineTo(W-10,y);ctx.stroke(); }
+  ctx.strokeStyle='#2d6a35'; ctx.lineWidth=2.5; ctx.beginPath();
+  ph.forEach((v,i)=>{ const x=20+i*xS,y=10+(H-20)*(1-(v-5)/3.5); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.stroke();
+  ph.forEach((v,i)=>{
+    const x=20+i*xS,y=10+(H-20)*(1-(v-5)/3.5);
+    ctx.beginPath();ctx.arc(x,y,4,0,Math.PI*2);
+    ctx.fillStyle='white';ctx.fill();ctx.strokeStyle='#2d6a35';ctx.lineWidth=2;ctx.stroke();
+    ctx.fillStyle='#4a6b4e';ctx.font='10px DM Sans';ctx.textAlign='center';
+    ctx.fillText(days[i],x,H-2); ctx.fillText(v,x,y-7);
+  });
+}
+
+
+// ======== RECO PAGE ========
+function showRecoTab(id, btn) {
+  document.querySelectorAll('.reco-subpage').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.reco-tab').forEach(b => b.classList.remove('active'));
+  document.getElementById('reco-' + id).classList.add('active');
+  if (btn) btn.classList.add('active');
+  if (id === 'practices') { renderSoilPractices(); }
+  if (id === 'temporal') { setTimeout(drawTemporalCharts, 80); setTimeout(drawTemporalHeatmap, 80); }
+  if (id === 'cultures')  { renderCultureGrid('all'); }
+}
+
+function renderSoilPractices() {
+  const container = document.getElementById('zonePracticeList');
+  if (!container) return;
+  const practices = [];
+  for (let i = 0; i < ZONE_COUNT; i++) {
+    const ph = mapData.ph[i], hum = mapData.humidity[i], ec = mapData.ec[i];
+    const zone = String.fromCharCode(65 + Math.floor(i/6)) + (i%6 + 1);
+    let priority = 'good', badge = '✓ Optimal', actions = [], reason = 'Paramètres optimaux';
+    if (ph < 5.8) { priority = 'urgent'; badge = '⚠️ Urgent'; actions.push('<span class="zpc-action lime">🪨 Chaux : 1t/ha</span>'); reason = 'pH acide ('+ph.toFixed(1)+')'; }
+    else if (ph > 8.2) { priority = 'warn'; badge = '⚡ Action'; actions.push('<span class="zpc-action lime">🧪 Soufre : 400kg/ha</span>'); reason = 'pH alcalin ('+ph.toFixed(1)+')'; }
+    if (hum < 35) {
+      const p = priority === 'urgent' ? 'urgent' : 'warn';
+      priority = p; badge = p === 'urgent' ? '⚠️ Urgent' : '⚡ Action';
+      actions.push('<span class="zpc-action water">💧 Irrigation : 20mm</span>');
+      reason += (reason==='Paramètres optimaux'?'':'+ ') + 'Sol sec ('+hum.toFixed(0)+'%)';
+    }
+    if (ec > 2.5) {
+      priority = 'urgent'; badge = '⚠️ Urgent';
+      actions.push('<span class="zpc-action water">🌊 Lessivage : 35mm</span>');
+      reason += (reason==='Paramètres optimaux'?'':'+ ') + 'Salinité ('+ec.toFixed(1)+' mS/cm)';
+    }
+    if (priority !== 'good') practices.push({ zone, priority, badge, actions, reason });
+  }
+  practices.sort((a,b) => (a.priority==='urgent'?-1:1));
+  let html = practices.slice(0, 4).map(p => `
+    <div class="zone-practice-card ${p.priority}">
+      <div class="zpc-header"><span class="zpc-zone">Zone ${p.zone}</span><span class="zpc-badge ${p.priority}">${p.badge}</span></div>
+      <div class="zpc-actions">${p.actions.join('')}</div>
+      <div class="zpc-shap">IA : ${p.reason}</div>
+    </div>`).join('');
+  container.innerHTML = html || '<div class="zone-practice-card good"><div class="zpc-header"><span class="zpc-zone">Toutes zones</span><span class="zpc-badge good">✓ Optimal</span></div><div class="zpc-actions"><span class="zpc-action">✅ OK</span></div><div class="zpc-shap">IA : État du sol parfait.</div></div>';
+}
+
+// ── Cultures data ──
+const CULTURES = [
+  { id:'ble',   name:'Blé tendre', emoji:'🌾', cat:'cereale', match:88, color:'#2E7D32',
+    season:'Oct – Mai', water:'350–500 mm', phRange:'6.0–7.5', npk:'N:120 P:60 K:60 kg/ha',
+    desc:'Céréale · Plaine · Semi-aride' },
+  { id:'orge',  name:'Orge',       emoji:'🌾', cat:'cereale', match:92, color:'#388E3C',
+    season:'Oct – Mai', water:'250–400 mm', phRange:'6.0–8.0', npk:'N:90 P:45 K:45 kg/ha',
+    desc:'Céréale · Tolérant sécheresse' },
+  { id:'mais',  name:'Maïs',       emoji:'🌽', cat:'cereale', match:64, color:'#F57F17',
+    season:'Avr – Sep', water:'500–800 mm', phRange:'5.8–7.0', npk:'N:180 P:80 K:80 kg/ha',
+    desc:'Céréale · Besoin eau élevé' },
+  { id:'tomate',name:'Tomate',     emoji:'🍅', cat:'fruit',   match:71, color:'#C62828',
+    season:'Mar – Jul', water:'400–600 mm', phRange:'6.0–6.8', npk:'N:100 P:80 K:150 kg/ha',
+    desc:'Fruit · Maraîchage · Irrigation' },
+  { id:'carotte',name:'Carotte',   emoji:'🥕', cat:'legume',  match:79, color:'#E65100',
+    season:'Sep – Mar', water:'300–450 mm', phRange:'6.0–6.8', npk:'N:60 P:60 K:100 kg/ha',
+    desc:'Légume racine · Semi-aride OK' },
+  { id:'feve',  name:'Fève',       emoji:'🫘', cat:'legumineuse', match:85, color:'#1565C0',
+    season:'Nov – Avr', water:'300–400 mm', phRange:'6.0–7.5', npk:'N:20 P:60 K:60 kg/ha',
+    desc:'Légumineuse · Fixe azote atmosphérique' },
+  { id:'pois',  name:'Pois chiche',emoji:'🫘', cat:'legumineuse', match:90, color:'#0277BD',
+    season:'Nov – Avr', water:'250–400 mm', phRange:'5.5–7.5', npk:'N:15 P:50 K:50 kg/ha',
+    desc:'Légumineuse · Très adapté semi-aride' },
+  { id:'oignon',name:'Oignon',     emoji:'🧅', cat:'legume',  match:68, color:'#6A1B9A',
+    season:'Sep – Mar', water:'350–500 mm', phRange:'6.0–7.0', npk:'N:80 P:60 K:80 kg/ha',
+    desc:'Légume bulbe · Exportateur K' },
+  { id:'olive', name:'Olivier',    emoji:'🫒', cat:'fruit',   match:95, color:'#556B2F',
+    season:'Toute l\'année', water:'200–400 mm', phRange:'6.5–8.5', npk:'N:100 P:40 K:120 kg/ha',
+    desc:'Arboriculture · Emblème du Maroc' },
+  { id:'agrumes', name:'Agrumes',  emoji:'🍊', cat:'fruit',   match:82, color:'#FF8C00',
+    season:'Toute l\'année', water:'600–900 mm', phRange:'5.5–7.5', npk:'N:150 P:60 K:150 kg/ha',
+    desc:'Fruit · Irrigation nécessaire' },
+  { id:'amandier', name:'Amandier', emoji:'🌸', cat:'fruit',   match:89, color:'#FFB6C1',
+    season:'Fév – Aoû', water:'250–500 mm', phRange:'7.0–8.5', npk:'N:80 P:40 K:100 kg/ha',
+    desc:'Arboriculture · Résistant au calcaire' },
+  { id:'dattier', name:'Palmier Dattier', emoji:'🌴', cat:'fruit', match:93, color:'#8B4513',
+    season:'Toute l\'année', water:'15000 m³/ha', phRange:'7.0–8.5', npk:'N:120 P:60 K:150 kg/ha',
+    desc:'Arboriculture · Tolère la salinité' },
+  { id:'lentille', name:'Lentille', emoji:'🍲', cat:'legumineuse', match:87, color:'#A52A2A',
+    season:'Nov – Avr', water:'200–350 mm', phRange:'6.0–8.0', npk:'N:20 P:40 K:40 kg/ha',
+    desc:'Legumineuse · Rotation de culture' },
+  { id:'pdt', name:'Pomme de terre', emoji:'🥔', cat:'legume', match:74, color:'#D2B48C',
+    season:'Oct – Mar', water:'400–600 mm', phRange:'5.0–6.5', npk:'N:150 P:100 K:250 kg/ha',
+    desc:'Légume · Besoin élevé en Potassium' },
+  { id:'betterave', name:'Betterave sucrière', emoji:'🍠', cat:'legume', match:81, color:'#800080',
+    season:'Oct – Jui', water:'500–700 mm', phRange:'6.5–8.0', npk:'N:120 P:80 K:200 kg/ha',
+    desc:'Culture industrielle · Salino-tolérante' },
+];
+
+let currentCultureFilter = 'all';
+let selectedCulture = null;
+
+function renderCultureGrid(filter) {
+  currentCultureFilter = filter;
+  const grid = document.getElementById('cultureGrid');
+  if (!grid) return;
+  const filtered = filter === 'all' ? CULTURES : CULTURES.filter(c => c.cat === filter);
+  const sorted = [...filtered].sort((a,b) => b.match - a.match);
+  grid.innerHTML = sorted.map(c => {
+    const cls = c.match >= 80 ? 'match-high' : c.match >= 65 ? 'match-med' : 'match-low';
+    const fillColor = c.match >= 80 ? '#4CAF50' : c.match >= 65 ? '#FFC107' : '#E53935';
+    return `<div class="culture-card ${cls}">
+      <div class="culture-emoji">${c.emoji}</div>
+      <div class="culture-name">${c.name}</div>
+      <div class="culture-match-bar">
+        <div class="culture-match-fill" style="width:${c.match}%;background:${fillColor}"></div>
+      </div>
+      <div class="culture-match-label">${c.match}% compatibilité</div>
+      <button class="culture-detail-btn" onclick="showCultureDetail('${c.id}')">Voir détails ▾</button>
+    </div>`;
+  }).join('');
+}
+
+function filterCultures(filter, btn) {
+  document.querySelectorAll('.culture-filter-btn').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  renderCultureGrid(filter);
+  document.getElementById('cultureDetailPanel').classList.remove('visible');
+}
+
+function showCultureDetail(id) {
+  const c = CULTURES.find(x => x.id === id);
+  if (!c) return;
+  document.getElementById('cdpEmoji').textContent = c.emoji;
+  document.getElementById('cdpName').textContent = c.name;
+  document.getElementById('cdpDesc').textContent = c.desc;
+  document.getElementById('cdpParams').innerHTML = [
+    ['📅 Saison', c.season],
+    ['💧 Eau', c.water],
+    ['🧪 pH idéal', c.phRange],
+    ['🌿 NPK', c.npk],
+  ].map(([l,v]) => `<div class="cdp-param"><div class="cdp-param-label">${l}</div><div class="cdp-param-val">${v}</div></div>`).join('');
+  const panel = document.getElementById('cultureDetailPanel');
+  panel.classList.add('visible');
+  panel.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+// ── Temporal charts ──
+const TEMPORAL_DATA = {
+  sessions: ['S1 – 08/03', 'S2 – 10/03', 'S3 – 12/03'],
+  ph:  [4.8, 5.0, 5.2],
+  hum: [41,  43,  42],
+  n:   [21,  19,  18],
+};
+
+const ZONES_HEALTH = [
+  [55, 72, 80], [40, 48, 62], [88, 90, 91], [30, 35, 50],
+  [65, 70, 74], [78, 80, 83], [22, 28, 40], [55, 60, 65],
+  [90, 91, 92], [44, 50, 55], [66, 68, 70], [38, 42, 48],
+  [80, 82, 85], [58, 62, 68], [72, 74, 78],
+];
+const ZONE_LABELS_HM = ['A1','A2','A3','B1','B2','B3','C1','C2','C3','D1','D2','D3','D4','E1','E2'];
+
+function healthColor(v) {
+  if (v >= 80) return '#2E7D32';
+  if (v >= 65) return '#4CAF50';
+  if (v >= 50) return '#FFC107';
+  if (v >= 35) return '#FF5722';
+  return '#C62828';
+}
+
+function drawTemporalLine(canvasId, data, color, sessions) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+  canvas.width = canvas.offsetWidth; canvas.height = 70;
+  const ctx = canvas.getContext('2d');
+  const W = canvas.width, H = 70;
+  const minV = Math.min(...data) * 0.95;
+  const maxV = Math.max(...data) * 1.05;
+  const xStep = (W - 40) / (data.length - 1);
+  const yOf = v => 10 + (H - 20) * (1 - (v - minV) / (maxV - minV));
+
+  // Area fill
+  ctx.beginPath();
+  data.forEach((v, i) => { const x = 20 + i * xStep, y = yOf(v); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.lineTo(20 + (data.length-1)*xStep, H); ctx.lineTo(20, H); ctx.closePath();
+  ctx.fillStyle = color + '22'; ctx.fill();
+
+  // Line
+  ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.beginPath();
+  data.forEach((v, i) => { const x = 20 + i * xStep, y = yOf(v); i===0?ctx.moveTo(x,y):ctx.lineTo(x,y); });
+  ctx.stroke();
+
+  // Dots + labels
+  data.forEach((v, i) => {
+    const x = 20 + i * xStep, y = yOf(v);
+    ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2);
+    ctx.fillStyle = 'white'; ctx.fill();
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.stroke();
+    ctx.fillStyle = '#212121'; ctx.font = '9px DM Sans,sans-serif'; ctx.textAlign = 'center';
+    ctx.fillText(typeof v==='number'?(v%1===0?v:v.toFixed(1)):v, x, y - 8);
+    ctx.fillStyle = '#9E9E9E'; ctx.font = '8px DM Sans,sans-serif';
+    ctx.fillText(sessions[i].split(' ')[0], x, H - 2);
+  });
+}
+
+function drawTemporalCharts() {
+  const D = TEMPORAL_DATA;
+  drawTemporalLine('temporalPhChart',  D.ph,  '#2E7D32', D.sessions);
+  drawTemporalLine('temporalHumChart', D.hum, '#0277BD', D.sessions);
+  drawTemporalLine('temporalNChart',   D.n,   '#6A1B9A', D.sessions);
+}
+
+function drawTemporalHeatmap() {
+  const hm = document.getElementById('temporalHeatmap');
+  if (!hm) return;
+  // Header row
+  let html = '<div style="font-size:9px;color:var(--grey);font-weight:700;display:contents">';
+  // Zones x sessions grid (zone label + 3 session cells)
+  // Use 4-col grid: zone label + S1 + S2 + S3
+  hm.style.gridTemplateColumns = 'auto 1fr 1fr 1fr';
+  html = '';
+  // Header
+  ['Zone','S1','S2','S3'].forEach(h => {
+    html += `<div style="font-size:9px;font-weight:700;color:var(--grey);padding:2px 4px;text-align:center">${h}</div>`;
+  });
+  // Rows
+  ZONES_HEALTH.slice(0,10).forEach((vals, zi) => {
+    html += `<div style="font-size:9px;font-weight:700;color:var(--grey);padding:2px 4px;display:flex;align-items:center">${ZONE_LABELS_HM[zi]}</div>`;
+    vals.forEach(v => {
+      html += `<div class="thm-cell" style="background:${healthColor(v)}">${v}</div>`;
+    });
+  });
+  hm.innerHTML = html;
+}
+
+function selectSession(idx, el) {
+  document.querySelectorAll('.session-chip').forEach(c => c.classList.remove('active'));
+  if (el) el.classList.add('active');
+  // Update deltas (mock - compare to previous)
+  const insights = [
+    'Session initiale. Sol acide en B2 (pH 4.8), déficit N en A1. Recommandations émises.',
+    'Légère amélioration pH B2 (+0.2) après apport partiel de chaux. N toujours faible.',
+    'pH B2 progresse (5.2). N en baisse continue — apport urée non appliqué. Action urgente.',
+  ];
+  const insightEl = document.getElementById('temporalInsight');
+  if (insightEl) insightEl.textContent = insights[idx] || insights[0];
+  setTimeout(drawTemporalCharts, 50);
+  setTimeout(drawTemporalHeatmap, 50);
+}
+
+// init cultures on first open
+document.addEventListener('DOMContentLoaded', () => {
+  renderCultureGrid('all');
+  renderSoilPractices();
+});
+
+window.addEventListener('resize',()=>{ drawMap(); drawPhChart(); });
+</script>
+</body>
+</html>
