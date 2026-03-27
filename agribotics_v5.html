@@ -857,7 +857,7 @@ const LANG = {
       robot:"🤖 الروبوت يعمل في المنطقة A3. أجرى 17 قياساً من 36. البطارية 74٪، كل شيء بخير!",
       salinity:"⚡ الملوحة مرتفعة قليلاً في المنطقة C3. السقي الوفير يمكن أن يساعد في غسل الأملاح الزائدة.",
       cultures:"🌾 تربتك مناسبة جداً للزيتون، نخيل التمر والشعير. راجع علامة التبويب 'نصائح' للمزيد.",
-      default:"لم أفهم جيداً. جرب: 'متى أسقي؟'، 'أي سماد؟' أو 'ماذا أزرع؟'"
+      default:"لم أفهم جيداً. جرب: 'متى أسقي؟' أو 'أي سماد أضع؟'"
     }
   },
   da: {
@@ -871,13 +871,13 @@ const LANG = {
     statWaterWarn:'السقي قريب', statPhGood:'!مزيان بزاف', statNpkBad:'الأملاح مقادة', statTempGood:'!ميا ميا',
     sug:['💧 فين نسقي؟','🌿 أش من سماد؟','📍 أش من زون؟','🤖 فين الروبو؟'],
     responses:{
-      water:"💧 الزون B2 محتاجة ما دابا! سقيها 15 ليتر ف كل متر مربع، فالصباح بكري بين 6 و8 باش ما يطيرش الما.",
-      engrais:"🌿 الزون A1 ناقصها النيتروجين. زيد اليوريا (46٪): حوالي 30 كيلو فالهكتار قبل شتا الجاي.",
+      water:"💧 الزون B2 محتاجة ما دابا! سقيها 15 ليتر ف كل متر مربع، فالصباح بكري باش ما يطيرش الما.",
+      engrais:"🌿 الزون A1 ناقصها النيتروجين. زيد اليوريا حوالي 30 كيلو فالهكتار قبل شتا الجاي.",
       zone:"📍 الروبو ديالك فالزون A3 دابا. هادي زون مزيانة، كل شي بخير!",
-      robot:"🤖 الروبو خدام فالزون A3. درتيله 17 قياس من 36. البطاريا 74٪، كل شي مزيان!",
+      robot:"🤖 الروبو خدام فالزون A3. البطاريا 74٪، كل شي مزيان!",
       salinity:"⚡ الملوحة طالعة شوية ف الزون C3. السقي المجهد يقدر يعاون باش تغسل الأملاح.",
       cultures:"🌾 الأرض ديالك مزيانة بزاف للزيتون، النخل والشعير. شوف الصفحة ديال 'النصايح' باش تعرف كتر.",
-      default:"ما فهمتش مزيان. جرب: 'فين نسقي؟'، 'أش من سماد؟' ولا 'أش نزرع؟'"
+      default:"ما فهمتش مزيان. جرب تقول: 'فين نسقي؟' ولا 'أش من سماد نحط؟'"
     }
   }
 };
@@ -928,13 +928,12 @@ function showPage(id, btn) {
 // ======== CHATBOT ========
 function getResponse(msg) {
   const L = LANG[currentLang].responses;
-  const m = msg.toLowerCase();
-  if(m.includes('eau')||m.includes('arros')||m.includes('sqi')||m.includes('ما')||m.includes('سقي')||m.includes('water')) return L.water;
-  if(m.includes('engrais')||m.includes('azote')||m.includes('سماد')||m.includes('نيتروجين')||m.includes('سماد')) return L.engrais;
-  if(m.includes('zone')||m.includes('زون')||m.includes('منطقة')) return L.zone;
-  if(m.includes('robot')||m.includes('روبو')||m.includes('روبوت')) return L.robot;
-  if(m.includes('sel')||m.includes('salin')||m.includes('ملح')||m.includes('ملوحة')||m.includes('salt')) return L.salinity;
-  if(m.includes('culti')||m.includes('plant')||m.includes('زرع')||m.includes('نزرع')||m.includes('crop')) return L.cultures;
+  if(/(eau|arros|irrigu|sqi|s9i|sgi|ma|ماء|سقي|نسقي|نسقيو|الما)/i.test(msg)) return L.water;
+  if(/(engrais|azote|npk|ur[eé]e|سماد|نيتروجين|دوا|لغبار|غبار)/i.test(msg)) return L.engrais;
+  if(/(robot|rbo|روبو|روبوت|مكينة|الة)/i.test(msg)) return L.robot;
+  if(/(zone|place|endroit|زون|منطقة|فين|بلاص|بلاصة)/i.test(msg)) return L.zone;
+  if(/(sel|salin|ملح|ملوحة|salt)/i.test(msg)) return L.salinity;
+  if(/(culti|plant|زرع|نزرع|crop)/i.test(msg)) return L.cultures;
   return L.default;
 }
 
@@ -987,7 +986,7 @@ function toggleMic() {
   }
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
-  recognition.lang = currentLang==='fr'?'fr-FR':'ar-MA';
+  recognition.lang = currentLang==='fr'?'fr-FR': currentLang==='ar'?'ar-SA':'ar-MA';
   recognition.interimResults = false;
   recognition.onresult = e => {
     const txt = e.results[0][0].transcript;
