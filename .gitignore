@@ -1,3 +1,34 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Environnement virtuel
+.env
+.venv/
+venv/
+env/
+
+# Modèles et scalers générés (artefacts ML)
+ml_model/*.pkl
+ml_model/Crop_recommendation.csv
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Système
+.DS_Store
+Thumbs.db
 # Artefacts générés automatiquement par le pipeline ML
 ml_model/moroccan_crop_data.csv
 ml_model/scaler.pkl
