@@ -1,31 +1,53 @@
 """
-app.py – Agribotics FastAPI backend running on the Raspberry Pi.
+app.py – Backend FastAPI d'Agribotics tournant sur la Raspberry Pi.
 
-Responsibility split:
-  • The Raspberry Pi runs the Scikit-Learn ML model locally and reads the
-    physical sensors.  All heavy data-processing stays on-device.
-  • The /chat endpoint forwards the already-computed sensor data and local ML
-    prediction to the cloud LLM solely to produce a natural-language answer in
-    the farmer's preferred language (French, Arabic, or Moroccan Darija).
+Séparation des responsabilités :
+  • La Raspberry Pi exécute le modèle ML Scikit-Learn localement et lit les
+    capteurs physiques.  Tout le traitement lourd reste sur l'appareil.
+  • La route /api/chat transmet les données capteurs déjà calculées et la
+    prédiction ML locale à l'IA cloud pour produire une réponse en langage
+    naturel dans la langue choisie (français, arabe ou darija marocaine).
 """
 
+import os
+from typing import Optional
+
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from chatbot_llm import generate_expert_response
 
+# ---------------------------------------------------------------------------
+# Création de l'application FastAPI
+# ---------------------------------------------------------------------------
 app = FastAPI(title="Agribotics API")
+
+# Configuration CORS : lit les origines autorisées depuis la variable
+# d'environnement CORS_ORIGINS (liste séparée par des virgules).
+# Valeur par défaut : "*" (toutes origines). À restreindre en production
+# via CORS_ORIGINS=http://192.168.x.x:8080 dans le fichier .env.
+_cors_origins_env = os.getenv("CORS_ORIGINS", "*")
+_cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 # ---------------------------------------------------------------------------
-# Request schema for the /chat endpoint
+# Schéma de la requête pour la route /api/chat
 # ---------------------------------------------------------------------------
 
 class ChatRequest(BaseModel):
-    user_query: str
-    lang: str = "fr"          # "fr" | "ar" | "da"
-    sensor_data: dict         # raw sensor readings from the Raspberry Pi
-    ml_prediction: str        # crop recommendation computed locally by ML model
+    message: str                        # Question de l'agriculteur (texte ou transcription vocale)
+    language: str = "fr"               # Langue cible : "fr" | "ar" | "da"
+    sensor_data: Optional[dict] = None  # Lectures des capteurs de la Raspberry Pi (optionnel)
+    ml_prediction: Optional[str] = None # Recommandation de culture calculée localement (optionnel)
 
 
 # ---------------------------------------------------------------------------
@@ -34,28 +56,32 @@ class ChatRequest(BaseModel):
 
 @app.get("/")
 def read_root():
+    """Vérifie que le serveur est en cours d'exécution."""
     return {"message": "Agribotics backend is running"}
 
 
-@app.post("/chat")
+@app.post("/api/chat")
 def chat(request: ChatRequest):
     """
-    Receive the farmer's question together with the Raspberry Pi's local sensor
-    readings and ML crop prediction, then return a concise expert response from
-    the cloud LLM in the chosen language (fr / ar / da).
+    Reçoit la question de l'agriculteur ainsi que les données capteurs de la
+    Raspberry Pi et la prédiction ML locale, puis retourne une réponse experte
+    et concise de l'IA cloud dans la langue choisie (fr / ar / da).
 
-    The cloud LLM is used ONLY to humanise the output – the actual data
-    processing and crop recommendation are done entirely on the Raspberry Pi.
+    L'IA cloud est utilisée UNIQUEMENT pour humaniser la sortie – le traitement
+    réel des données et la recommandation de culture sont effectués entièrement
+    sur la Raspberry Pi.
     """
-    if request.lang not in ("fr", "ar", "da"):
+    # Validation de la langue demandée
+    if request.language not in ("fr", "ar", "da"):
         raise HTTPException(
             status_code=400,
-            detail="Unsupported language. Use 'fr', 'ar', or 'da'.",
+            detail="Langue non supportée. Utilisez 'fr', 'ar', ou 'da'.",
         )
 
+    # Appel au module LLM cloud pour générer la réponse en langage naturel
     answer = generate_expert_response(
-        user_query=request.user_query,
-        lang=request.lang,
+        message=request.message,
+        language=request.language,
         sensor_data=request.sensor_data,
         ml_prediction=request.ml_prediction,
     )
