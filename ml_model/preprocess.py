@@ -1,136 +1,105 @@
-# =============================================================================
-# preprocess.py
-# Prétraitement du dataset de recommandation de cultures :
-#   - Gestion des valeurs manquantes
-#   - Séparation des features (X) et de la cible (y)
-#   - Division entraînement / test (train_test_split)
-#   - Normalisation des features avec StandardScaler
-#   - Sauvegarde du scaler ajusté avec joblib pour les prédictions futures
-# =============================================================================
+"""
+preprocess.py
+-------------
+Charge le dataset des cultures marocaines, sépare features et cible,
+gère les valeurs manquantes, normalise les features avec StandardScaler,
+et sauvegarde le scaler pour une utilisation future (prédictions en temps réel).
+
+Utilisation :
+    python ml_model/preprocess.py
+"""
 
 import os
-import joblib
+import pickle
+import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
 
-# Chemin de sauvegarde du scaler ajusté
-SCALER_PATH = os.path.join(os.path.dirname(__file__), "scaler.pkl")
+# ── Chemins ────────────────────────────────────────────────────────────────────
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+CSV_PATH    = os.path.join(SCRIPT_DIR, "moroccan_crop_data.csv")
+SCALER_PATH = os.path.join(SCRIPT_DIR, "scaler.pkl")
 
-# Colonnes utilisées comme features (capteurs physiques / chimiques)
-FEATURES = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall"]
+# ── Colonnes features ──────────────────────────────────────────────────────────
+FEATURE_COLS = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall", "salinity"]
+TARGET_COL   = "label"
 
-# Colonne cible (culture à recommander)
-TARGET = "label"
+# Ratio de séparation Train / Test
+TEST_SIZE  = 0.20
+RANDOM_STATE = 42
 
 
-def gerer_valeurs_manquantes(df: pd.DataFrame) -> pd.DataFrame:
+def load_and_split(csv_path: str = CSV_PATH):
     """
-    Gère les valeurs manquantes dans le dataset.
-    Stratégie : remplacement par la médiane pour les colonnes numériques.
-
-    Paramètres
-    ----------
-    df : DataFrame brut.
-
-    Retourne
-    --------
-    pd.DataFrame : DataFrame nettoyé sans valeurs manquantes.
+    Charge le CSV, sépare X et y, gère les valeurs manquantes.
+    Retourne : X_train, X_test, y_train, y_test (non scalés).
     """
-    nb_manquants = df.isnull().sum().sum()
-    if nb_manquants > 0:
-        print(f"[INFO] {nb_manquants} valeur(s) manquante(s) détectée(s) → remplacement par la médiane.")
-        for col in df.select_dtypes(include="number").columns:
-            df[col] = df[col].fillna(df[col].median())
-    else:
-        print("[INFO] Aucune valeur manquante détectée.")
-    return df
+    # ── Chargement ─────────────────────────────────────────────────────────────
+    if not os.path.exists(csv_path):
+        # Générer le dataset à la volée si le CSV n'existe pas encore
+        print(f"[preprocess] CSV introuvable ({csv_path}). Génération du dataset...")
+        from data_loader import generate_dataset
+        generate_dataset(output_path=csv_path)
 
+    df = pd.read_csv(csv_path)
+    print(f"[preprocess] Dataset chargé : {df.shape[0]} lignes, {df.shape[1]} colonnes.")
 
-def preparer_donnees(
-    df: pd.DataFrame,
-    taille_test: float = 0.2,
-    graine: int = 42,
-    sauvegarder_scaler: bool = True,
-):
-    """
-    Pipeline complet de prétraitement :
-        1. Nettoyage des valeurs manquantes
-        2. Séparation features / cible
-        3. Division train / test
-        4. Normalisation avec StandardScaler
-        5. Sauvegarde du scaler
+    # ── Vérification des colonnes ───────────────────────────────────────────────
+    missing_cols = [c for c in FEATURE_COLS + [TARGET_COL] if c not in df.columns]
+    if missing_cols:
+        raise ValueError(f"[preprocess] Colonnes manquantes dans le CSV : {missing_cols}")
 
-    Paramètres
-    ----------
-    df               : DataFrame chargé depuis data_loader.
-    taille_test      : Proportion du jeu de test (par défaut 20 %).
-    graine           : Graine aléatoire pour la reproductibilité.
-    sauvegarder_scaler : Si True, sauvegarde le scaler dans SCALER_PATH.
+    # ── Gestion des valeurs manquantes ──────────────────────────────────────────
+    n_missing = df[FEATURE_COLS].isnull().sum().sum()
+    if n_missing > 0:
+        print(f"[preprocess] {n_missing} valeur(s) manquante(s) détectée(s) → remplacement par la médiane.")
+        for col in FEATURE_COLS:
+            df.loc[:, col] = df[col].fillna(df[col].median())
 
-    Retourne
-    --------
-    X_train_sc, X_test_sc, y_train, y_test : Données prêtes pour l'entraînement.
-    """
-    # Étape 1 : Nettoyage
-    df = gerer_valeurs_manquantes(df)
+    # ── Séparation features / cible ─────────────────────────────────────────────
+    X = df[FEATURE_COLS].values.astype(np.float32)
+    y = df[TARGET_COL].values
 
-    # Étape 2 : Séparation features / cible
-    X = df[FEATURES]
-    y = df[TARGET]
-
-    print(f"[INFO] Features utilisées : {FEATURES}")
-    print(f"[INFO] Taille totale du dataset : {len(df)} échantillons")
-
-    # Étape 3 : Division entraînement / test (stratifiée pour équilibrer les classes)
+    # ── Séparation Train / Test ─────────────────────────────────────────────────
     X_train, X_test, y_train, y_test = train_test_split(
-        X, y,
-        test_size=taille_test,
-        random_state=graine,
-        stratify=y,
+        X, y, test_size=TEST_SIZE, random_state=RANDOM_STATE, stratify=y
     )
-    print(f"[INFO] Entraînement : {len(X_train)} | Test : {len(X_test)}")
+    print(f"[preprocess] Train : {X_train.shape[0]} lignes | Test : {X_test.shape[0]} lignes.")
+    return X_train, X_test, y_train, y_test
 
-    # Étape 4 : Normalisation (ajustement uniquement sur les données d'entraînement)
+
+def scale_features(X_train, X_test, scaler_path: str = SCALER_PATH):
+    """
+    Applique StandardScaler sur X_train et transforme X_test.
+    Sauvegarde le scaler ajusté (fit) pour les prédictions futures.
+    Retourne : X_train_scaled, X_test_scaled, scaler.
+    """
     scaler = StandardScaler()
-    X_train_sc = scaler.fit_transform(X_train)
-    X_test_sc = scaler.transform(X_test)
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled  = scaler.transform(X_test)
 
-    # Étape 5 : Sauvegarde du scaler pour les prédictions futures (API, ESP32, etc.)
-    if sauvegarder_scaler:
-        joblib.dump(scaler, SCALER_PATH)
-        print(f"[INFO] Scaler sauvegardé dans : {SCALER_PATH}")
+    # ── Sauvegarde du scaler ────────────────────────────────────────────────────
+    with open(scaler_path, "wb") as f:
+        pickle.dump(scaler, f)
+    print(f"[preprocess] Scaler sauvegardé → {scaler_path}")
 
-    return X_train_sc, X_test_sc, y_train, y_test
+    return X_train_scaled, X_test_scaled, scaler
 
 
-def charger_scaler(chemin: str = SCALER_PATH) -> StandardScaler:
+def preprocess(csv_path: str = CSV_PATH, scaler_path: str = SCALER_PATH):
     """
-    Charge le scaler précédemment sauvegardé pour l'utiliser en production.
-
-    Paramètres
-    ----------
-    chemin : Chemin vers le fichier .pkl du scaler.
-
-    Retourne
-    --------
-    StandardScaler : Scaler prêt à transformer de nouvelles données.
+    Pipeline complet de prétraitement.
+    Retourne : X_train_scaled, X_test_scaled, y_train, y_test, scaler.
     """
-    if not os.path.exists(chemin):
-        raise FileNotFoundError(
-            f"Scaler introuvable à '{chemin}'. Lancez d'abord train.py."
-        )
-    scaler = joblib.load(chemin)
-    print(f"[INFO] Scaler chargé depuis : {chemin}")
-    return scaler
+    X_train, X_test, y_train, y_test = load_and_split(csv_path)
+    X_train_s, X_test_s, scaler = scale_features(X_train, X_test, scaler_path)
+    return X_train_s, X_test_s, y_train, y_test, scaler
 
 
-# --- Exécution directe pour test rapide ---
 if __name__ == "__main__":
-    from data_loader import charger_donnees
-
-    df = charger_donnees()
-    X_train, X_test, y_train, y_test = preparer_donnees(df)
-    print("\n[OK] Prétraitement terminé.")
-    print(f"     X_train shape : {X_train.shape}")
-    print(f"     X_test  shape : {X_test.shape}")
+    X_tr, X_te, y_tr, y_te, sc = preprocess()
+    print(f"\n[preprocess] Dimensions :")
+    print(f"  X_train : {X_tr.shape}")
+    print(f"  X_test  : {X_te.shape}")
+    print(f"  Classes : {sorted(set(y_tr))}")
