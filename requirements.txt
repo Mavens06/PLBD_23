@@ -10,11 +10,16 @@ joblib>=1.3.0
 # --- Téléchargement de données ---
 requests>=2.31.0
 
-# --- Backend API (Flask/FastAPI) ---
+# --- Backend API (FastAPI) ---
 fastapi>=0.115.0
 uvicorn[standard]>=0.29.0
 
-# --- Communication série (ESP32) ---
+# --- LLM Chatbot (cloud) ---
+# Utilisé uniquement pour humaniser les réponses en français, arabe ou darija.
+# Le traitement des données et les prédictions ML se font localement sur la Raspberry Pi.
+openai>=1.82.0
+
+# --- Communication série ---
 pyserial>=3.5
 
 # --- Utilitaires ---
