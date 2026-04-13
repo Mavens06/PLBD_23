@@ -25,8 +25,11 @@ from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 
-# Chargement des variables d'environnement depuis le fichier .env
-load_dotenv()
+# Chargement des variables d'environnement depuis le fichier .env situé à la
+# racine du projet.  On construit le chemin explicitement avec __file__ pour
+# que load_dotenv() trouve le bon fichier quelle que soit la façon dont le
+# serveur est lancé (ex. `uvicorn backend.app:app` depuis la racine).
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 # Noms d'affichage des langues utilisés dans le prompt système pour indiquer
 # à l'IA dans quelle langue répondre.
@@ -49,7 +52,8 @@ def _get_client() -> OpenAI:
             "OPENAI_API_KEY n'est pas définie. "
             "Copiez .env.example vers .env et ajoutez votre clé API OpenAI."
         )
-    return OpenAI(api_key=api_key)
+    base_url = os.getenv("OPENAI_BASE_URL")
+    return OpenAI(api_key=api_key, base_url=base_url)
 
 
 def generate_expert_response(
