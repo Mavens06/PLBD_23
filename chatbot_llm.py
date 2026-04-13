@@ -1,96 +1,131 @@
 """
-chatbot_llm.py – AgriBot conversational layer powered by an OpenAI LLM.
+chatbot_llm.py – Couche conversationnelle d'AgriBot propulsée par un LLM OpenAI.
 
-Architecture note:
-  The Raspberry Pi handles ALL the heavy lifting:
-    • Reading physical sensors (pH, humidity, temperature, N/P/K, salinity)
-    • Running the local Scikit-Learn model (best_model.pkl) to produce a crop
-      recommendation (ml_prediction).
+Note d'architecture :
+  La Raspberry Pi effectue tout le travail lourd :
+    • Lecture des capteurs physiques (pH, humidité, température, N/P/K, salinité)
+    • Exécution du modèle Scikit-Learn local (best_model.pkl) pour produire une
+      recommandation de culture (ml_prediction).
 
-  This module does NOT perform any machine-learning or sensor processing.
-  Its sole responsibility is to take the locally computed prediction and the
-  current sensor readings, combine them with the farmer's question, and call
-  the cloud LLM to generate a natural, context-aware response in the language
-  chosen by the user (French, Arabic, or Moroccan Darija).
+  Ce module n'effectue AUCUN apprentissage automatique ni traitement capteur.
+  Sa seule responsabilité est de prendre la prédiction calculée localement et
+  les lectures actuelles des capteurs, de les combiner avec la question de
+  l'agriculteur, et d'appeler l'IA cloud pour générer une réponse naturelle et
+  contextuelle dans la langue choisie (français, arabe ou darija marocaine).
 
-  Data flow:
-    Sensors → Raspberry Pi ML → (sensor_data + ml_prediction + user_query)
-      → LLM API → natural-language response (fr / ar / da)
+  Flux de données :
+    Capteurs → ML Raspberry Pi → (sensor_data + ml_prediction + message)
+      → API LLM → réponse en langage naturel (fr / ar / da)
 """
 
+import json
 import os
+from typing import Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
 
+# Chargement des variables d'environnement depuis le fichier .env
 load_dotenv()
 
-# Language display names used inside the system prompt so the LLM knows which
-# language to reply in.
+# Noms d'affichage des langues utilisés dans le prompt système pour indiquer
+# à l'IA dans quelle langue répondre.
 _LANG_LABELS = {
     "fr": "français",
     "ar": "arabe classique (العربية الفصحى)",
     "da": "darija marocaine (الدارجة المغربية)",
 }
 
-_api_key = os.getenv("OPENAI_API_KEY")
-if not _api_key:
-    raise EnvironmentError(
-        "OPENAI_API_KEY is not set. "
-        "Copy .env.example to .env and add your OpenAI API key."
-    )
 
-# A single shared client instance.
-_client = OpenAI(api_key=_api_key)
+def _get_client() -> OpenAI:
+    """
+    Crée et retourne un client OpenAI.
+    La clé API est vérifiée à l'exécution (pas à l'import) pour éviter
+    de bloquer le démarrage du serveur si la clé n'est pas encore configurée.
+    """
+    api_key = os.getenv("OPENAI_API_KEY")
+    if not api_key:
+        raise EnvironmentError(
+            "OPENAI_API_KEY n'est pas définie. "
+            "Copiez .env.example vers .env et ajoutez votre clé API OpenAI."
+        )
+    return OpenAI(api_key=api_key)
 
 
 def generate_expert_response(
-    user_query: str,
-    lang: str,
-    sensor_data: dict,
-    ml_prediction: str,
+    message: str,
+    language: str,
+    sensor_data: Optional[dict] = None,
+    ml_prediction: Optional[str] = None,
 ) -> str:
     """
-    Generate a short, expert agricultural response via the cloud LLM.
+    Génère une réponse agricole courte et experte via le LLM cloud.
 
-    Parameters
+    Paramètres
     ----------
-    user_query : str
-        The farmer's question (text or voice-transcription).
-    lang : str
-        Target language code: "fr" (French), "ar" (Arabic), or "da" (Darija).
-    sensor_data : dict
-        Current sensor readings as produced by the Raspberry Pi, e.g.:
+    message : str
+        La question de l'agriculteur (texte ou transcription vocale).
+    language : str
+        Code de langue cible : "fr" (français), "ar" (arabe), ou "da" (darija).
+    sensor_data : dict, optionnel
+        Lectures actuelles des capteurs produites par la Raspberry Pi, ex. :
         {"pH": 6.5, "humidity": 42, "temperature": 28, "N": 120,
          "P": 55, "K": 200, "salinity": 0.8}
-    ml_prediction : str
-        The crop recommendation already calculated locally on the Raspberry Pi
-        by the Scikit-Learn model (e.g. "Olivier" or "Blé dur").
+    ml_prediction : str, optionnel
+        Recommandation de culture déjà calculée localement sur la Raspberry Pi
+        par le modèle Scikit-Learn (ex. "Olivier" ou "Blé dur").
 
-    Returns
-    -------
+    Retourne
+    --------
     str
-        A concise, expert answer in the requested language.
+        Une réponse concise et experte dans la langue demandée.
     """
-    lang_label = _LANG_LABELS.get(lang, _LANG_LABELS["fr"])
+    # Récupération du libellé de langue pour le prompt
+    lang_label = _LANG_LABELS.get(language, _LANG_LABELS["fr"])
 
+    # Construction du contexte capteurs pour le prompt
+    # json.dumps sérialise proprement le dict et évite toute injection de prompt
+    if sensor_data:
+        # Validation : on ne conserve que les champs numériques attendus
+        allowed_keys = {"pH", "humidity", "temperature", "N", "P", "K", "salinity"}
+        safe_data = {
+            k: v for k, v in sensor_data.items()
+            if k in allowed_keys and isinstance(v, (int, float))
+        }
+        sensor_context = (
+            "Voici les données actuelles du sol lues par les capteurs : "
+            f"{json.dumps(safe_data, ensure_ascii=False)}. "
+        )
+    else:
+        sensor_context = "Aucune donnée capteur disponible pour le moment. "
+
+    # Construction du contexte prédiction ML pour le prompt
+    if ml_prediction:
+        ml_context = (
+            "La prédiction locale de culture calculée directement sur la Raspberry Pi "
+            f"par notre modèle d'Intelligence Artificielle est : {ml_prediction}. "
+        )
+    else:
+        ml_context = ""
+
+    # Prompt système dynamique qui positionne l'IA comme assistant agricole marocain
     system_prompt = (
         "Tu es AgriBot, un expert agricole marocain embarqué sur un robot "
         "Adeept Pi Car équipé d'une Raspberry Pi. "
-        "Voici les données actuelles du sol lues par les capteurs : "
-        f"{sensor_data}. "
-        "La prédiction locale de culture calculée directement sur la Raspberry Pi "
-        f"par notre modèle d'Intelligence Artificielle est : {ml_prediction}. "
-        "Réponds à la question de l'agriculteur de manière très courte et précise, "
+        + sensor_context
+        + ml_context
+        + "Réponds à la question de l'agriculteur de manière très courte et précise, "
         f"exclusivement en {lang_label}. "
         "N'ajoute aucune explication sur ta nature ou tes capacités."
     )
 
-    response = _client.chat.completions.create(
+    # Appel à l'API OpenAI pour générer la réponse
+    client = _get_client()
+    response = client.chat.completions.create(
         model="gpt-4o-mini",
         messages=[
             {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_query},
+            {"role": "user", "content": message},
         ],
         max_tokens=200,
         temperature=0.4,
