@@ -1,0 +1,32 @@
+# Artefacts générés automatiquement par le pipeline ML
+ml_model/moroccan_crop_data.csv
+ml_model/scaler.pkl
+ml_model/best_model.pkl
+ml_model/__pycache__/
+
+# Environnements virtuels Python
+venv/
+.venv/
+env/
+
+# Fichiers d'environnement
+.env
+
+# Fichiers Python compilés
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Fichiers de distribution Python
+*.egg-info/
+dist/
+build/
+
+# Jupyter Notebooks checkpoints
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# Logs
+*.log
