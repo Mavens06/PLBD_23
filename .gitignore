@@ -33,6 +33,7 @@ Thumbs.db
 ml_model/moroccan_crop_data.csv
 ml_model/scaler.pkl
 ml_model/best_model.pkl
+ml_model/models/
 ml_model/__pycache__/
 
 # Environnements virtuels Python

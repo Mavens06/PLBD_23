@@ -73,12 +73,12 @@ function chooseLang(lang) {
 const API_URL = 'http://localhost:8000/api/chat';
 
 const DUMMY_SENSOR_DATA = {
-  "pH": 6.5,
-  "humidité": 40,
-  "température": 25,
-  "N": 100,
-  "P": 50,
-  "K": 50
+  "ph": 6.5,
+  "humidity": 40,
+  "temperature": 25,
+  "rainfall": 12,
+  "salinity": 1.8,
+  "soil_moisture": 42
 };
 
 async function callChatAPI(msg) {
@@ -196,4 +196,3 @@ function showToast(msg) {
   t.classList.add('show');
   setTimeout(()=>t.classList.remove('show'), 2500);
 }
-

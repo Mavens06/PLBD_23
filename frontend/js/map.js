@@ -40,7 +40,7 @@ const mapConfigs = {
     legend:[{c:'#4a9c55',l:'15-25°C Optimal'},{c:'#a8d5ae',l:'10-15°C Frais'},{c:'#f4a261',l:'25-30°C Chaud'},{c:'#c0392b',l:'Extrême'}]
   },
   npk:{
-    label:'🌿 NPK Global', unit:'',
+    label:'⚡ Indice salin global', unit:'',
     gen:()=>10+Math.random()*90,
     colorFn:v=>interpColor(v,10,100,['#c0392b','#f9c74f','#4a9c55','#1a6b3a']),
     scaleGrad:'linear-gradient(90deg,#c0392b,#f9c74f,#4a9c55,#1a6b3a)',
@@ -332,5 +332,4 @@ function setVar(v,el){
 }
 
 function drawMap(){ drawOrganicMap(); }
-
 

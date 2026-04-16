@@ -142,25 +142,25 @@
     </div>
 
     <div class="expert-section">
-      <div class="section-title">🌿 NPK — mg/kg</div>
+      <div class="section-title">⚡ Salinité par zone — mS/cm</div>
       <div class="npk-row">
         <div class="npk-card" style="border-top:3px solid #2d6a35">
-          <div class="npk-letter" style="color:#2d6a35">N</div>
-          <div class="npk-name">Azote</div>
-          <div class="npk-val" style="color:var(--red)">18</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--red);font-size:10px">▼ Déficit (seuil: 30)</span></div>
+          <div class="npk-letter" style="color:#2d6a35">A1</div>
+          <div class="npk-name">Zone A1</div>
+          <div class="npk-val" style="color:var(--green)">1.6</div>
+          <div class="npk-unit">mS/cm <br><span style="color:var(--green);font-size:10px">✓ Faible</span></div>
         </div>
         <div class="npk-card" style="border-top:3px solid #a8d5ae">
-          <div class="npk-letter" style="color:#a8d5ae">P</div>
-          <div class="npk-name">Phosphore</div>
-          <div class="npk-val" style="color:var(--green)">64</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Normal (40–80)</span></div>
+          <div class="npk-letter" style="color:#a8d5ae">B2</div>
+          <div class="npk-name">Zone B2</div>
+          <div class="npk-val" style="color:#f9c74f">2.7</div>
+          <div class="npk-unit">mS/cm <br><span style="color:#f9c74f;font-size:10px">⚠ Élevée</span></div>
         </div>
         <div class="npk-card" style="border-top:3px solid #f9c74f">
-          <div class="npk-letter" style="color:#f9c74f">K</div>
-          <div class="npk-name">Potassium</div>
-          <div class="npk-val" style="color:var(--green)">185</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Optimal (150–250)</span></div>
+          <div class="npk-letter" style="color:#f9c74f">C3</div>
+          <div class="npk-name">Zone C3</div>
+          <div class="npk-val" style="color:var(--red)">3.4</div>
+          <div class="npk-unit">mS/cm <br><span style="color:var(--red);font-size:10px">▲ Critique</span></div>
         </div>
       </div>
     </div>
@@ -206,7 +206,6 @@
       <button class="map-var-btn" onclick="setVar('ph',this)">🧪 pH</button>
       <button class="map-var-btn" onclick="setVar('ec',this)">⚡ Conductivité (Salinité)</button>
       <button class="map-var-btn" onclick="setVar('temp',this)">🌡️ Température</button>
-      <button class="map-var-btn" onclick="setVar('npk',this)">🌿 NPK</button>
       <button class="map-var-btn" onclick="setVar('reco',this)">💡 Recommandations</button>
     </div>
     <div class="map-wrap">
@@ -334,7 +333,7 @@
         <div class="tic-title">💡 Analyse IA — Tendance globale</div>
         <div class="tic-body" id="temporalInsight">
           Entre la session 1 et la session 3, le pH moyen a progressé de +0.4 (4.8 → 5.2) suite à l'apport de chaux sur B2.
-          L'humidité est stable. L'azote reste déficitaire en A1 — l'apport d'urée recommandé n'a pas encore été appliqué.
+          L'humidité est stable. La salinité diminue légèrement après lessivage ciblé.
         </div>
       </div>
 
@@ -356,13 +355,13 @@
         <div class="tec-chart"><canvas id="temporalHumChart" height="70"></canvas></div>
       </div>
 
-      <!-- Évolution N -->
+      <!-- Évolution salinité -->
       <div class="temporal-evolution-card">
         <div class="tec-header">
-          <span class="tec-param">🌿 Azote (N) moyen</span>
-          <span class="tec-delta down" id="delta-n">▼ −3</span>
+          <span class="tec-param">⚡ Salinité moyenne</span>
+          <span class="tec-delta down" id="delta-sal">▼ −0.4</span>
         </div>
-        <div class="tec-chart"><canvas id="temporalNChart" height="70"></canvas></div>
+        <div class="tec-chart"><canvas id="temporalSalChart" height="70"></canvas></div>
       </div>
 
       <!-- Heatmap zones x sessions -->

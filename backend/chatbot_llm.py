@@ -3,7 +3,7 @@ chatbot_llm.py – Couche conversationnelle d'AgriBot propulsée par un LLM Open
 
 Note d'architecture :
   La Raspberry Pi effectue tout le travail lourd :
-    • Lecture des capteurs physiques (pH, humidité, température, N/P/K, salinité)
+    • Lecture des capteurs physiques (pH, humidité, température, pluviométrie, salinité)
     • Exécution du modèle Scikit-Learn local (best_model.pkl) pour produire une
       recommandation de culture (ml_prediction).
 
@@ -73,8 +73,8 @@ def generate_expert_response(
         Code de langue cible : "fr" (français), "ar" (arabe), ou "da" (darija).
     sensor_data : dict, optionnel
         Lectures actuelles des capteurs produites par la Raspberry Pi, ex. :
-        {"pH": 6.5, "humidity": 42, "temperature": 28, "N": 120,
-         "P": 55, "K": 200, "salinity": 0.8}
+        {"ph": 6.5, "humidity": 42, "temperature": 28,
+         "rainfall": 12, "salinity": 0.8}
     ml_prediction : str, optionnel
         Recommandation de culture déjà calculée localement sur la Raspberry Pi
         par le modèle Scikit-Learn (ex. "Olivier" ou "Blé dur").
@@ -91,7 +91,7 @@ def generate_expert_response(
     # json.dumps sérialise proprement le dict et évite toute injection de prompt
     if sensor_data:
         # Validation : on ne conserve que les champs numériques attendus
-        allowed_keys = {"pH", "humidity", "temperature", "N", "P", "K", "salinity"}
+        allowed_keys = {"ph", "humidity", "temperature", "rainfall", "salinity", "soil_moisture"}
         safe_data = {
             k: v for k, v in sensor_data.items()
             if k in allowed_keys and isinstance(v, (int, float))

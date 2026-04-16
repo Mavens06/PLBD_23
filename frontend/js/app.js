@@ -92,7 +92,7 @@ function showCultureDetail(id) {
     ['📅 Saison', c.season],
     ['💧 Eau', c.water],
     ['🧪 pH idéal', c.phRange],
-    ['🌿 NPK', c.npk],
+    ['⚡ Tolérance salinité', c.salinity],
   ].map(([l,v]) => `<div class="cdp-param"><div class="cdp-param-label">${l}</div><div class="cdp-param-val">${v}</div></div>`).join('');
   const panel = document.getElementById('cultureDetailPanel');
   panel.classList.add('visible');
@@ -104,9 +104,9 @@ function selectSession(idx, el) {
   if (el) el.classList.add('active');
   // Update deltas (mock - compare to previous)
   const insights = [
-    'Session initiale. Sol acide en B2 (pH 4.8), déficit N en A1. Recommandations émises.',
-    'Légère amélioration pH B2 (+0.2) après apport partiel de chaux. N toujours faible.',
-    'pH B2 progresse (5.2). N en baisse continue — apport urée non appliqué. Action urgente.',
+    'Session initiale. Sol acide en B2 (pH 4.8) et salinité élevée en C3. Recommandations émises.',
+    'Légère amélioration pH B2 (+0.2) après apport partiel de chaux. Salinité encore élevée.',
+    'pH B2 progresse (5.2). Salinité en baisse continue après lessivage ciblé.',
   ];
   const insightEl = document.getElementById('temporalInsight');
   if (insightEl) insightEl.textContent = insights[idx] || insights[0];
