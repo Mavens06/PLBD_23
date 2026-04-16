@@ -13,7 +13,7 @@ Métriques d'évaluation : Accuracy, Précision, Rappel, F1-Score (weighted).
 Critère de sélection : F1-Score (pondéré) — adapté aux classes multiples.
 
 Artefacts produits :
-  ml_model/moroccan_crop_data.csv  — dataset synthétique marocain
+  ml_model/data/final_dataset.csv  — dataset fusionné final
   ml_model/scaler.pkl              — scaler StandardScaler ajusté
   ml_model/best_model.pkl          — meilleur modèle sérialisé
 
@@ -37,11 +37,11 @@ from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_sc
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, SCRIPT_DIR)
 
-from data_loader import generate_dataset
+from data_preparation import create_final_dataset
 from preprocess import preprocess
 
 # ── Chemins ────────────────────────────────────────────────────────────────────
-CSV_PATH        = os.path.join(SCRIPT_DIR, "moroccan_crop_data.csv")
+CSV_PATH        = os.path.join(SCRIPT_DIR, "data", "final_dataset.csv")
 SCALER_PATH     = os.path.join(SCRIPT_DIR, "scaler.pkl")
 BEST_MODEL_PATH = os.path.join(SCRIPT_DIR, "best_model.pkl")
 
@@ -91,7 +91,7 @@ def evaluate_model(model, X_test, y_test) -> dict:
 def train_and_select():
     """
     Orchestre l'ensemble du pipeline :
-      1. Génère (ou recharge) le dataset marocain.
+      1. Génère (ou recharge) le dataset fusionné final.
       2. Prétraite les données.
       3. Entraîne tous les modèles.
       4. Compare leurs métriques.
@@ -100,9 +100,9 @@ def train_and_select():
     # ── Étape 1 : Données ─────────────────────────────────────────────────────
     if not os.path.exists(CSV_PATH):
         print("=" * 60)
-        print("  ÉTAPE 1 : Génération du dataset marocain")
+        print("  ÉTAPE 1 : Préparation du dataset fusionné")
         print("=" * 60)
-        generate_dataset(output_path=CSV_PATH)
+        create_final_dataset(output_path=CSV_PATH)
     else:
         print(f"[train] Dataset existant chargé : {CSV_PATH}")
 
