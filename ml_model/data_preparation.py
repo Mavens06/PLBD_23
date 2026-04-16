@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pandas as pd
+from data_loader import generate_dataset
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
@@ -52,7 +53,7 @@ def _find_available_csvs() -> List[Path]:
         if not directory.exists():
             continue
         for path in directory.rglob("*.csv"):
-            if path.name == "final_dataset.csv":
+            if path.resolve() == OUTPUT_PATH.resolve():
                 continue
             if path.resolve() in seen:
                 continue
@@ -80,8 +81,11 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
 
     for col in keep_cols:
         if col == "label":
-            data[col] = data[col].astype(str).str.strip()
-            data.loc[data[col].isin({"", "nan", "None"}), col] = pd.NA
+            label_series = data[col].astype("string").str.strip()
+            invalid_labels = {"", "nan", "none", "null"}
+            data[col] = label_series.mask(
+                label_series.isna() | label_series.str.lower().isin(invalid_labels)
+            )
         else:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
@@ -95,8 +99,6 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
 def create_final_dataset(output_path: str | os.PathLike = OUTPUT_PATH) -> Tuple[pd.DataFrame, dict]:
     csv_files = _find_available_csvs()
     if not csv_files:
-        from data_loader import generate_dataset
-
         generated_path = SCRIPT_DIR / "moroccan_crop_data.csv"
         generate_dataset(output_path=str(generated_path))
         csv_files = [generated_path]
@@ -124,16 +126,16 @@ def create_final_dataset(output_path: str | os.PathLike = OUTPUT_PATH) -> Tuple[
         cleaned = _clean_selected(df)
         selected_frames.append(cleaned)
         analysis["selected"].append(
-            {"file": str(csv_path), "rows": int(cleaned.shape[0]), "columns": list(cleaned.columns)}
+            {"file": str(csv_path), "rows": cleaned.shape[0], "columns": list(cleaned.columns)}
         )
 
     if not selected_frames:
         raise RuntimeError("Aucun dataset pertinent trouvé pour la fusion.")
 
     merged = pd.concat(selected_frames, ignore_index=True)
-    before_dedup = int(merged.shape[0])
+    before_dedup = merged.shape[0]
     merged = merged.drop_duplicates().reset_index(drop=True)
-    after_dedup = int(merged.shape[0])
+    after_dedup = merged.shape[0]
 
     ordered_cols = ["temperature", "humidity", "ph", "rainfall"] + [
         c for c in OPTIONAL_COLS if c in merged.columns

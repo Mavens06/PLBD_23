@@ -15,6 +15,7 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from data_preparation import create_final_dataset
 
 # ── Chemins ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -22,7 +23,9 @@ CSV_PATH    = os.path.join(SCRIPT_DIR, "data", "final_dataset.csv")
 SCALER_PATH = os.path.join(SCRIPT_DIR, "scaler.pkl")
 
 # ── Colonnes features ──────────────────────────────────────────────────────────
+# Features obligatoires pour garantir l'entraînement sur les capteurs disponibles.
 BASE_FEATURE_COLS = ["temperature", "humidity", "ph", "rainfall"]
+# Features facultatives incluses automatiquement si présentes dans le dataset final.
 OPTIONAL_FEATURE_COLS = ["salinity"]
 TARGET_COL   = "label"
 
@@ -40,7 +43,6 @@ def load_and_split(csv_path: str = CSV_PATH):
     if not os.path.exists(csv_path):
         # Générer le dataset final fusionné si le CSV n'existe pas encore
         print(f"[preprocess] CSV introuvable ({csv_path}). Préparation du dataset final...")
-        from data_preparation import create_final_dataset
         create_final_dataset(output_path=csv_path)
 
     df = pd.read_csv(csv_path)
