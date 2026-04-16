@@ -73,7 +73,7 @@ def generate_expert_response(
         Code de langue cible : "fr" (français), "ar" (arabe), ou "da" (darija).
     sensor_data : dict, optionnel
         Lectures actuelles des capteurs produites par la Raspberry Pi, ex. :
-        {"pH": 6.5, "humidity": 42, "temperature": 28,
+        {"ph": 6.5, "humidity": 42, "temperature": 28,
          "rainfall": 12, "salinity": 0.8}
     ml_prediction : str, optionnel
         Recommandation de culture déjà calculée localement sur la Raspberry Pi
@@ -91,7 +91,7 @@ def generate_expert_response(
     # json.dumps sérialise proprement le dict et évite toute injection de prompt
     if sensor_data:
         # Validation : on ne conserve que les champs numériques attendus
-        allowed_keys = {"pH", "ph", "humidity", "temperature", "rainfall", "salinity", "soil_moisture"}
+        allowed_keys = {"ph", "humidity", "temperature", "rainfall", "salinity", "soil_moisture"}
         safe_data = {
             k: v for k, v in sensor_data.items()
             if k in allowed_keys and isinstance(v, (int, float))

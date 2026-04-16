@@ -73,7 +73,7 @@ function chooseLang(lang) {
 const API_URL = 'http://localhost:8000/api/chat';
 
 const DUMMY_SENSOR_DATA = {
-  "pH": 6.5,
+  "ph": 6.5,
   "humidity": 40,
   "temperature": 25,
   "rainfall": 12,

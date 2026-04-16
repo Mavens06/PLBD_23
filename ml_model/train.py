@@ -23,9 +23,9 @@ from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 from data_preparation import create_final_dataset
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-DATASET_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
-MODELS_DIR = SCRIPT_DIR / "models"
+ML_MODEL_DIR = Path(__file__).resolve().parent
+DATASET_PATH = ML_MODEL_DIR / "data" / "final_dataset.csv"
+MODELS_DIR = ML_MODEL_DIR / "models"
 MODEL_PATH = MODELS_DIR / "model.pkl"
 SCALER_PATH = MODELS_DIR / "scaler.pkl"
 LABEL_ENCODER_PATH = MODELS_DIR / "label_encoder.pkl"

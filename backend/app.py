@@ -46,7 +46,6 @@ app.add_middleware(
 class SensorData(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    pH: Optional[float] = None
     ph: Optional[float] = None
     humidity: Optional[float] = None
     temperature: Optional[float] = None
@@ -58,7 +57,7 @@ class SensorData(BaseModel):
 class ChatRequest(BaseModel):
     message: str                         # Question de l'agriculteur (texte ou transcription vocale)
     language: str = "fr"                # Langue cible : "fr" | "ar" | "da"
-    sensor_data: Optional[SensorData] = None  # Lectures capteurs physiques (sans N/P/K)
+    sensor_data: Optional[SensorData] = None  # Température, humidité, pH, pluie, salinité, humidité du sol
     ml_prediction: Optional[str] = None  # Recommandation de culture calculée localement (optionnel)
 
 
