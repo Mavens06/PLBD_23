@@ -14,7 +14,7 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from chatbot_llm import generate_expert_response
 
@@ -43,11 +43,23 @@ app.add_middleware(
 # Schéma de la requête pour la route /api/chat
 # ---------------------------------------------------------------------------
 
+class SensorData(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    pH: Optional[float] = None
+    ph: Optional[float] = None
+    humidity: Optional[float] = None
+    temperature: Optional[float] = None
+    rainfall: Optional[float] = None
+    salinity: Optional[float] = None
+    soil_moisture: Optional[float] = None
+
+
 class ChatRequest(BaseModel):
-    message: str                        # Question de l'agriculteur (texte ou transcription vocale)
-    language: str = "fr"               # Langue cible : "fr" | "ar" | "da"
-    sensor_data: Optional[dict] = None  # Lectures des capteurs de la Raspberry Pi (optionnel)
-    ml_prediction: Optional[str] = None # Recommandation de culture calculée localement (optionnel)
+    message: str                         # Question de l'agriculteur (texte ou transcription vocale)
+    language: str = "fr"                # Langue cible : "fr" | "ar" | "da"
+    sensor_data: Optional[SensorData] = None  # Lectures capteurs physiques (sans N/P/K)
+    ml_prediction: Optional[str] = None  # Recommandation de culture calculée localement (optionnel)
 
 
 # ---------------------------------------------------------------------------
@@ -82,7 +94,7 @@ def chat(request: ChatRequest):
     answer = generate_expert_response(
         message=request.message,
         language=request.language,
-        sensor_data=request.sensor_data,
+        sensor_data=request.sensor_data.model_dump(exclude_none=True) if request.sensor_data else None,
         ml_prediction=request.ml_prediction,
     )
     return {"response": answer}

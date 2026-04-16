@@ -26,7 +26,7 @@ const TEMPORAL_DATA = {
   sessions: ['S1 – 08/03', 'S2 – 10/03', 'S3 – 12/03'],
   ph:  [4.8, 5.0, 5.2],
   hum: [41,  43,  42],
-  n:   [21,  19,  18],
+  sal: [2.6, 2.4, 2.2],
 };
 
 const ZONES_HEALTH = [
@@ -84,7 +84,7 @@ function drawTemporalCharts() {
   const D = TEMPORAL_DATA;
   drawTemporalLine('temporalPhChart',  D.ph,  '#2E7D32', D.sessions);
   drawTemporalLine('temporalHumChart', D.hum, '#0277BD', D.sessions);
-  drawTemporalLine('temporalNChart',   D.n,   '#6A1B9A', D.sessions);
+  drawTemporalLine('temporalSalChart', D.sal, '#6A1B9A', D.sessions);
 }
 
 function drawTemporalHeatmap() {
@@ -109,4 +109,3 @@ function drawTemporalHeatmap() {
   });
   hm.innerHTML = html;
 }
-

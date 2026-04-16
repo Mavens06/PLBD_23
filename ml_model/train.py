@@ -1,171 +1,114 @@
 """
 train.py
 --------
-Pipeline d'entraînement pour la recommandation de cultures agricoles marocaines.
+Entraîne un modèle de recommandation de cultures SANS N/P/K à partir du
+fichier ml_model/data/final_dataset.csv.
 
-Modèles entraînés :
-  1. Random Forest Classifier
-  2. Support Vector Classifier (SVC)
-  3. Gradient Boosting Classifier
-  4. Logistic Regression
-
-Métriques d'évaluation : Accuracy, Précision, Rappel, F1-Score (weighted).
-Critère de sélection : F1-Score (pondéré) — adapté aux classes multiples.
-
-Artefacts produits :
-  ml_model/data/final_dataset.csv  — dataset fusionné final
-  ml_model/scaler.pkl              — scaler StandardScaler ajusté
-  ml_model/best_model.pkl          — meilleur modèle sérialisé
-
-Utilisation :
-    python ml_model/train.py
+Artefacts sauvegardés:
+  ml_model/models/model.pkl
+  ml_model/models/scaler.pkl
+  ml_model/models/label_encoder.pkl
 """
 
-import os
-import sys
-import pickle
-import time
-import numpy as np
+from __future__ import annotations
+
+from pathlib import Path
+
+import joblib
 import pandas as pd
-
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.svm import SVC
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score
-
-# ── Import local des modules du pipeline ──────────────────────────────────────
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, SCRIPT_DIR)
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import LabelEncoder, StandardScaler
 
 from data_preparation import create_final_dataset
-from preprocess import preprocess
 
-# ── Chemins ────────────────────────────────────────────────────────────────────
-CSV_PATH        = os.path.join(SCRIPT_DIR, "data", "final_dataset.csv")
-SCALER_PATH     = os.path.join(SCRIPT_DIR, "scaler.pkl")
-BEST_MODEL_PATH = os.path.join(SCRIPT_DIR, "best_model.pkl")
+SCRIPT_DIR = Path(__file__).resolve().parent
+DATASET_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
+MODELS_DIR = SCRIPT_DIR / "models"
+MODEL_PATH = MODELS_DIR / "model.pkl"
+SCALER_PATH = MODELS_DIR / "scaler.pkl"
+LABEL_ENCODER_PATH = MODELS_DIR / "label_encoder.pkl"
 
 RANDOM_STATE = 42
+BASE_FEATURES = ["temperature", "humidity", "ph", "rainfall"]
+OPTIONAL_FEATURES = ["salinity", "soil_moisture"]
+TARGET_COL = "label"
 
-# ── Définition des modèles candidats ──────────────────────────────────────────
-MODELS = {
-    "Random Forest": RandomForestClassifier(
-        n_estimators=200,
-        max_depth=None,
-        min_samples_split=2,
+
+def _load_dataset() -> pd.DataFrame:
+    if not DATASET_PATH.exists():
+        print(f"[train] Dataset absent, génération: {DATASET_PATH}")
+        create_final_dataset(output_path=DATASET_PATH)
+    df = pd.read_csv(DATASET_PATH)
+    print(f"[train] Dataset chargé: {df.shape[0]} lignes, {df.shape[1]} colonnes")
+    return df
+
+
+def train() -> None:
+    df = _load_dataset()
+
+    missing = [c for c in BASE_FEATURES + [TARGET_COL] if c not in df.columns]
+    if missing:
+        raise ValueError(f"Colonnes manquantes dans final_dataset.csv: {missing}")
+
+    features = BASE_FEATURES + [c for c in OPTIONAL_FEATURES if c in df.columns]
+    print(f"[train] Features utilisées: {features}")
+
+    X = df[features].copy()
+    for col in features:
+        X[col] = pd.to_numeric(X[col], errors="coerce")
+        if X[col].isna().any():
+            X[col] = X[col].fillna(X[col].median())
+
+    y = df[TARGET_COL].astype(str).str.strip()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X,
+        y,
+        test_size=0.2,
         random_state=RANDOM_STATE,
+        stratify=y,
+    )
+
+    scaler = StandardScaler()
+    X_train_scaled = scaler.fit_transform(X_train)
+    X_test_scaled = scaler.transform(X_test)
+
+    label_encoder = LabelEncoder()
+    y_train_encoded = label_encoder.fit_transform(y_train)
+    y_test_encoded = label_encoder.transform(y_test)
+
+    model = RandomForestClassifier(
+        n_estimators=400,
+        random_state=RANDOM_STATE,
+        class_weight="balanced",
         n_jobs=-1,
-    ),
-    "SVC": SVC(
-        kernel="rbf",
-        C=10,
-        gamma="scale",
-        probability=True,
-        random_state=RANDOM_STATE,
-    ),
-    "Gradient Boosting": GradientBoostingClassifier(
-        n_estimators=150,
-        learning_rate=0.1,
-        max_depth=5,
-        random_state=RANDOM_STATE,
-    ),
-    "Logistic Regression": LogisticRegression(
-        max_iter=1000,
-        solver="lbfgs",
-        random_state=RANDOM_STATE,
-    ),
-}
+    )
+    model.fit(X_train_scaled, y_train_encoded)
 
+    y_pred = model.predict(X_test_scaled)
+    acc = accuracy_score(y_test_encoded, y_pred)
+    f1 = f1_score(y_test_encoded, y_pred, average="weighted")
 
-def evaluate_model(model, X_test, y_test) -> dict:
-    """Calcule les métriques clés sur l'ensemble de test."""
-    y_pred = model.predict(X_test)
-    return {
-        "accuracy":  round(accuracy_score(y_test, y_pred), 4),
-        "precision": round(precision_score(y_test, y_pred, average="weighted", zero_division=0), 4),
-        "recall":    round(recall_score(y_test, y_pred,    average="weighted", zero_division=0), 4),
-        "f1_score":  round(f1_score(y_test, y_pred,        average="weighted", zero_division=0), 4),
-    }
+    print(f"[train] Accuracy: {acc:.4f}")
+    print(f"[train] F1-weighted: {f1:.4f}")
+    print("[train] Rapport:\n" + classification_report(
+        y_test_encoded,
+        y_pred,
+        target_names=label_encoder.classes_,
+        zero_division=0,
+    ))
 
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    joblib.dump(model, MODEL_PATH)
+    joblib.dump(scaler, SCALER_PATH)
+    joblib.dump(label_encoder, LABEL_ENCODER_PATH)
 
-def train_and_select():
-    """
-    Orchestre l'ensemble du pipeline :
-      1. Génère (ou recharge) le dataset fusionné final.
-      2. Prétraite les données.
-      3. Entraîne tous les modèles.
-      4. Compare leurs métriques.
-      5. Sélectionne et sauvegarde le meilleur modèle.
-    """
-    # ── Étape 1 : Données ─────────────────────────────────────────────────────
-    if not os.path.exists(CSV_PATH):
-        print("=" * 60)
-        print("  ÉTAPE 1 : Préparation du dataset fusionné")
-        print("=" * 60)
-        create_final_dataset(output_path=CSV_PATH)
-    else:
-        print(f"[train] Dataset existant chargé : {CSV_PATH}")
-
-    # ── Étape 2 : Prétraitement ───────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("  ÉTAPE 2 : Prétraitement des données")
-    print("=" * 60)
-    X_train, X_test, y_train, y_test, _ = preprocess(CSV_PATH, SCALER_PATH)  # scaler déjà sauvegardé sur disque
-
-    # ── Étape 3 : Entraînement ────────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("  ÉTAPE 3 : Entraînement des modèles")
-    print("=" * 60)
-
-    results = {}
-    trained_models = {}
-
-    for name, model in MODELS.items():
-        print(f"\n  → Entraînement : {name} ...")
-        t0 = time.time()
-        model.fit(X_train, y_train)
-        elapsed = time.time() - t0
-        metrics = evaluate_model(model, X_test, y_test)
-        results[name] = metrics
-        trained_models[name] = model
-        print(
-            f"     Durée : {elapsed:.2f}s | "
-            f"Accuracy={metrics['accuracy']:.4f} | "
-            f"Précision={metrics['precision']:.4f} | "
-            f"Rappel={metrics['recall']:.4f} | "
-            f"F1={metrics['f1_score']:.4f}"
-        )
-
-    # ── Étape 4 : Comparaison ─────────────────────────────────────────────────
-    print("\n" + "=" * 60)
-    print("  ÉTAPE 4 : Comparaison des modèles")
-    print("=" * 60)
-
-    results_df = pd.DataFrame(results).T.sort_values("f1_score", ascending=False)
-    results_df.index.name = "Modèle"
-    print(results_df.to_string())
-
-    # ── Étape 5 : Sélection du meilleur modèle ────────────────────────────────
-    best_name = results_df["f1_score"].idxmax()
-    best_model = trained_models[best_name]
-    best_metrics = results[best_name]
-
-    print("\n" + "=" * 60)
-    print("  ÉTAPE 5 : Sélection du meilleur modèle")
-    print("=" * 60)
-    print(f"\n  ✅ Meilleur modèle : {best_name}")
-    print(f"     F1-Score  : {best_metrics['f1_score']:.4f}")
-    print(f"     Accuracy  : {best_metrics['accuracy']:.4f}")
-    print(f"     Précision : {best_metrics['precision']:.4f}")
-    print(f"     Rappel    : {best_metrics['recall']:.4f}")
-
-    # ── Sauvegarde ────────────────────────────────────────────────────────────
-    with open(BEST_MODEL_PATH, "wb") as f:
-        pickle.dump(best_model, f)
-    print(f"\n  💾 Modèle sauvegardé → {BEST_MODEL_PATH}")
-
-    return best_name, best_model, results_df
+    print(f"[train] Modèle sauvegardé -> {MODEL_PATH}")
+    print(f"[train] Scaler sauvegardé -> {SCALER_PATH}")
+    print(f"[train] LabelEncoder sauvegardé -> {LABEL_ENCODER_PATH}")
 
 
 if __name__ == "__main__":
-    train_and_select()
+    train()
