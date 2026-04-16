@@ -1,7 +1,7 @@
 """
 preprocess.py
 -------------
-Charge le dataset des cultures marocaines, sépare features et cible,
+Charge le dataset fusionné final, sépare features et cible,
 gère les valeurs manquantes, normalise les features avec StandardScaler,
 et sauvegarde le scaler pour une utilisation future (prédictions en temps réel).
 
@@ -15,14 +15,18 @@ import numpy as np
 import pandas as pd
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import train_test_split
+from data_preparation import create_final_dataset
 
 # ── Chemins ────────────────────────────────────────────────────────────────────
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-CSV_PATH    = os.path.join(SCRIPT_DIR, "moroccan_crop_data.csv")
+CSV_PATH    = os.path.join(SCRIPT_DIR, "data", "final_dataset.csv")
 SCALER_PATH = os.path.join(SCRIPT_DIR, "scaler.pkl")
 
 # ── Colonnes features ──────────────────────────────────────────────────────────
-FEATURE_COLS = ["N", "P", "K", "temperature", "humidity", "ph", "rainfall", "salinity"]
+# Features obligatoires pour garantir l'entraînement sur les capteurs disponibles.
+BASE_FEATURE_COLS = ["temperature", "humidity", "ph", "rainfall"]
+# Features facultatives incluses automatiquement si présentes dans le dataset final.
+OPTIONAL_FEATURE_COLS = ["salinity"]
 TARGET_COL   = "label"
 
 # Ratio de séparation Train / Test
@@ -37,28 +41,28 @@ def load_and_split(csv_path: str = CSV_PATH):
     """
     # ── Chargement ─────────────────────────────────────────────────────────────
     if not os.path.exists(csv_path):
-        # Générer le dataset à la volée si le CSV n'existe pas encore
-        print(f"[preprocess] CSV introuvable ({csv_path}). Génération du dataset...")
-        from data_loader import generate_dataset
-        generate_dataset(output_path=csv_path)
+        # Générer le dataset final fusionné si le CSV n'existe pas encore
+        print(f"[preprocess] CSV introuvable ({csv_path}). Préparation du dataset final...")
+        create_final_dataset(output_path=csv_path)
 
     df = pd.read_csv(csv_path)
     print(f"[preprocess] Dataset chargé : {df.shape[0]} lignes, {df.shape[1]} colonnes.")
 
     # ── Vérification des colonnes ───────────────────────────────────────────────
-    missing_cols = [c for c in FEATURE_COLS + [TARGET_COL] if c not in df.columns]
+    feature_cols = BASE_FEATURE_COLS + [c for c in OPTIONAL_FEATURE_COLS if c in df.columns]
+    missing_cols = [c for c in BASE_FEATURE_COLS + [TARGET_COL] if c not in df.columns]
     if missing_cols:
         raise ValueError(f"[preprocess] Colonnes manquantes dans le CSV : {missing_cols}")
 
     # ── Gestion des valeurs manquantes ──────────────────────────────────────────
-    n_missing = df[FEATURE_COLS].isnull().sum().sum()
+    n_missing = df[feature_cols].isnull().sum().sum()
     if n_missing > 0:
         print(f"[preprocess] {n_missing} valeur(s) manquante(s) détectée(s) → remplacement par la médiane.")
-        for col in FEATURE_COLS:
+        for col in feature_cols:
             df.loc[:, col] = df[col].fillna(df[col].median())
 
     # ── Séparation features / cible ─────────────────────────────────────────────
-    X = df[FEATURE_COLS].values.astype(np.float32)
+    X = df[feature_cols].values.astype(np.float32)
     y = df[TARGET_COL].values
 
     # ── Séparation Train / Test ─────────────────────────────────────────────────
