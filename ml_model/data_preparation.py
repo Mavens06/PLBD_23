@@ -2,8 +2,8 @@
 data_preparation.py
 -------------------
 Analyse les datasets CSV disponibles, sélectionne les plus pertinents pour
-la recommandation de cultures (sans N/P/K), harmonise les colonnes,
-nettoie les données puis fusionne le tout dans un dataset final.
+la recommandation de cultures sur 4 capteurs (humidité, pH, EC, température),
+harmonise les colonnes, nettoie les données puis fusionne le tout.
 """
 
 from __future__ import annotations
@@ -26,14 +26,11 @@ COLUMN_ALIASES = {
     "rainfall": {"rainfall", "rain", "precipitation", "rainfall_mm"},
     "label": {"label", "crop", "crop_label", "class", "target"},
     "salinity": {"salinity", "ec", "electrical_conductivity"},
-    "N": {"n", "nitrogen"},
-    "P": {"p", "phosphorus", "phosphore"},
-    "K": {"k", "potassium"},
 }
 
 REQUIRED_COLS = {"temperature", "humidity", "ph", "rainfall", "label"}
 OPTIONAL_COLS = ["salinity"]
-DROP_COLS = {"N", "P", "K"}
+DROP_COLS = {"N", "P", "K", "n", "p", "k", "nitrogen", "phosphorus", "phosphore", "potassium"}
 
 
 def _norm(name: str) -> str:

@@ -1,24 +1,31 @@
-# Python
+# Python cache
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
-*.so
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Environment files
+.env
+
+# Databases
+*.db
+
+# OS files
+DS_Store
+.DS_Store
+Thumbs.db
+
+# Build and packaging
 *.egg
 *.egg-info/
 dist/
 build/
 .eggs/
-
-# Environnement virtuel
-.env
-.venv/
-venv/
-env/
-
-# Modèles et scalers générés (artefacts ML)
-ml_model/*.pkl
-ml_model/Crop_recommendation.csv
 
 # IDE
 .vscode/
@@ -26,38 +33,9 @@ ml_model/Crop_recommendation.csv
 *.swp
 *.swo
 
-# Système
-.DS_Store
-Thumbs.db
-# Artefacts générés automatiquement par le pipeline ML
-ml_model/moroccan_crop_data.csv
-ml_model/scaler.pkl
-ml_model/best_model.pkl
-ml_model/__pycache__/
-
-# Environnements virtuels Python
-venv/
-.venv/
-env/
-
-# Fichiers d'environnement
-.env
-
-# Fichiers Python compilés
-__pycache__/
-*.py[cod]
-*.pyo
-
-# Fichiers de distribution Python
-*.egg-info/
-dist/
-build/
-
-# Jupyter Notebooks checkpoints
-.ipynb_checkpoints/
-
-# macOS
-.DS_Store
-
 # Logs
 *.log
+
+# Generated ML artifacts
+ml_model/*.pkl
+ml_model/moroccan_crop_data.csv
