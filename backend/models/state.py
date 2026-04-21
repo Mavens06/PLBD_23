@@ -1,8 +1,8 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 
 def _ts(minutes_ago: int) -> datetime:
-    return datetime.utcnow() - timedelta(minutes=minutes_ago)
+    return datetime.now(timezone.utc) - timedelta(minutes=minutes_ago)
 
 
 SENSOR_HISTORY = [
