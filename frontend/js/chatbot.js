@@ -1,39 +1,27 @@
-// ======== LANGUAGES ========
 const LANG = {
   fr: {
-    badge:'FR', status:'Robot actif',
-    greetTitle:'Bonjour !', greetSub:'Voici l\'état de votre champ aujourd\'hui',
-    chatTitle:'Posez votre question',
-    chatWelcome:'Bonjour ! Je suis votre assistant agricole. Posez-moi une question sur votre champ, ou appuyez sur le micro pour parler 🎙️',
-    chatPlaceholder:'Écrire une question...',
-    navFarmer:'Agriculteur', navMap:'Carte', navExpert:'Expert', navReco:'Conseils',
-    lblWater:'Eau dans le sol', lblPh:'Qualité du sol', lblNpk:'Conductivité (Salinité)', lblTemp:'Température',
-    statWaterWarn:'Arrosage bientôt', statPhGood:'Très bien !', statNpkBad:'Sels équilibrés', statTempGood:'Parfait !',
-    sug:['💧 Quand arroser ?','🌿 Quel engrais ?','📍 Quelle zone ?','🤖 Robot où ?']
+    badge: 'FR', status: 'Robot actif', greetTitle: 'Bonjour !', greetSub: "Voici l'état de votre champ aujourd'hui",
+    chatTitle: 'Posez votre question', chatWelcome: 'Bonjour ! Je suis votre assistant agricole.',
+    chatPlaceholder: 'Écrire une question...', navFarmer: 'Terrain', navMap: 'Carte', navReco: 'Conseils', navTech: 'Technique',
+    lblWater: 'Humidité', lblPh: 'pH', lblEc: 'Conductivité', lblTemp: 'Température',
+    sug: ['💧 Quand arroser ?', '🌾 Quelle culture choisir ?', '📍 Zone critique ?', '🤖 Où est le robot ?'],
   },
   ar: {
-    badge:'ع', status:'الروبوت نشيط',
-    greetTitle:'مرحباً !', greetSub:'هذه حالة حقلك اليوم',
-    chatTitle:'اسأل سؤالك',
-    chatWelcome:'مرحباً! أنا مساعدك الزراعي. اسألني عن حقلك أو اضغط على الميكروفون للتحدث 🎙️',
-    chatPlaceholder:'اكتب سؤالاً...',
-    navFarmer:'المزارع', navMap:'الخريطة', navExpert:'خبير', navReco:'نصائح',
-    lblWater:'الماء في التربة', lblPh:'جودة التربة', lblNpk:'الموصلية (الملوحة)', lblTemp:'الحرارة',
-    statWaterWarn:'سقي قريباً', statPhGood:'ممتاز !', statNpkBad:'أملاح متوازنة', statTempGood:'مثالي !',
-    sug:['💧 متى أسقي؟','🌿 أي سماد؟','📍 أي منطقة؟','🤖 أين الروبوت؟']
+    badge: 'ع', status: 'الروبوت نشيط', greetTitle: 'مرحباً !', greetSub: 'هذه حالة حقلك اليوم',
+    chatTitle: 'اسأل سؤالك', chatWelcome: 'مرحباً! أنا مساعدك الزراعي.', chatPlaceholder: 'اكتب سؤالاً...',
+    navFarmer: 'الميدان', navMap: 'الخريطة', navReco: 'النصائح', navTech: 'تقني',
+    lblWater: 'الرطوبة', lblPh: 'الـpH', lblEc: 'الموصلية', lblTemp: 'الحرارة',
+    sug: ['💧 متى أسقي؟', '🌾 أي محصول؟', '📍 أي منطقة حرجة؟', '🤖 أين الروبوت؟'],
   },
   da: {
-    badge:'DA', status:'الروبو خدام',
-    greetTitle:'!صباح الخير', greetSub:'هاهو حال الضيعة ديالك اليوم',
-    chatTitle:'سول على شي حاجة',
-    chatWelcome:'!أهلاً بيك! أنا المساعد الزراعي ديالك. سولني على الضيعة ديالك ولا دوز على الميكرو باش تهضر 🎙️',
-    chatPlaceholder:'كتب سوالك...',
-    navFarmer:'الفلاح', navMap:'الخريطة', navExpert:'الخبير', navReco:'النصايح',
-    lblWater:'الما فالتربة', lblPh:'جودة التربة', lblNpk:'الملوحة (الكوندوكتي)', lblTemp:'السخانة',
-    statWaterWarn:'السقي قريب', statPhGood:'!مزيان بزاف', statNpkBad:'الأملاح مقادة', statTempGood:'!ميا ميا',
-    sug:['💧 فين نسقي؟','🌿 أش من سماد؟','📍 أش من زون؟','🤖 فين الروبو؟']
-  }
+    badge: 'DA', status: 'الروبو خدام', greetTitle: 'مرحبا!', greetSub: 'هاهي حالة الضيعة اليوم',
+    chatTitle: 'سول سؤالك', chatWelcome: 'أنا المساعد الفلاحي ديالك.', chatPlaceholder: 'كتب سؤالك...',
+    navFarmer: 'التيران', navMap: 'الخريطة', navReco: 'النصائح', navTech: 'تقني',
+    lblWater: 'الرطوبة', lblPh: 'pH', lblEc: 'الكوندوكتيڤيتي', lblTemp: 'الحرارة',
+    sug: ['💧 فوقاش نسقي؟', '🌾 أشمن زراعة؟', '📍 فين الزون الصعيبة؟', '🤖 فين الروبو؟'],
+  },
 };
+const TOAST_DISPLAY_DURATION_MS = 2200;
 
 let currentLang = 'fr';
 let isListening = false;
@@ -41,6 +29,7 @@ let recognition = null;
 
 function chooseLang(lang) {
   currentLang = lang;
+  APP_STATE.language = lang;
   const L = LANG[lang];
   document.getElementById('lang-screen').style.display = 'none';
   document.getElementById('langBadge').textContent = L.badge;
@@ -52,64 +41,50 @@ function chooseLang(lang) {
   document.getElementById('chatInput').placeholder = L.chatPlaceholder;
   document.getElementById('nav-farmer').textContent = L.navFarmer;
   document.getElementById('nav-map').textContent = L.navMap;
-  document.getElementById('nav-expert').textContent = L.navExpert;
-  if(document.getElementById('nav-reco')) document.getElementById('nav-reco').textContent = L.navReco;
+  document.getElementById('nav-reco').textContent = L.navReco;
+  document.getElementById('nav-tech').textContent = L.navTech;
   document.getElementById('lbl-water').textContent = L.lblWater;
   document.getElementById('lbl-ph').textContent = L.lblPh;
-  document.getElementById('lbl-npk').textContent = L.lblNpk;
+  document.getElementById('lbl-ec').textContent = L.lblEc;
   document.getElementById('lbl-temp').textContent = L.lblTemp;
-  document.getElementById('stat-water').textContent = L.statWaterWarn;
-  document.getElementById('stat-ph').textContent = L.statPhGood;
-  document.getElementById('stat-npk').textContent = L.statNpkBad;
-  document.getElementById('stat-temp').textContent = L.statTempGood;
-  const sugs = document.getElementById('sugQuestions');
-  sugs.innerHTML = L.sug.map(s => `<span class="sug-q" onclick="askSuggested(this)">${s}</span>`).join('');
-  if(lang==='ar'||lang==='da') document.body.style.direction='rtl';
-  else document.body.style.direction='ltr';
+  document.getElementById('sugQuestions').innerHTML = L.sug.map((s) => `<span class="sug-q" onclick="askSuggested(this)">${s}</span>`).join('');
+  document.body.style.direction = lang === 'fr' ? 'ltr' : 'rtl';
 }
 
-
-// ======== CHATBOT API ========
-const API_URL = 'http://localhost:8000/api/chat';
-
-const DUMMY_SENSOR_DATA = {
-  "pH": 6.5,
-  "humidité": 40,
-  "température": 25,
-  "N": 100,
-  "P": 50,
-  "K": 50
-};
-
-async function callChatAPI(msg) {
+async function callChatAPI(message) {
   const payload = {
-    message: msg,
+    message,
     language: currentLang,
-    sensor_data: DUMMY_SENSOR_DATA,
-    ml_prediction: "Arganier"
+    sensor_data: {
+      humidity: APP_STATE.sensors.humidity,
+      ph: APP_STATE.sensors.ph,
+      ec: APP_STATE.sensors.ec,
+      temp: APP_STATE.sensors.temp,
+    },
+    robot_state: `${APP_STATE.robot.mission} - ${APP_STATE.robot.activePoint}`,
   };
+
   try {
-    const res = await fetch(API_URL, {
+    const res = await fetch('http://localhost:8000/api/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
-    if (!res.ok) throw new Error('Réponse serveur invalide');
+    if (!res.ok) throw new Error('chat failed');
     const data = await res.json();
     return data.response;
-  } catch (e) {
-    const errMsgs = {
-      fr: '⚠️ Erreur de connexion au serveur IA. Veuillez réessayer.',
-      ar: '⚠️ خطأ في الاتصال بخادم الذكاء الاصطناعي. حاول مرة أخرى.',
-      da: '⚠️ كاين مشكل في الاتصال بالسيرفر ديال الذكاء الاصطناعي. عاود جرب.'
-    };
-    return errMsgs[currentLang] || errMsgs.fr;
+  } catch (_) {
+    return {
+      fr: 'Je ne peux pas joindre le serveur IA, mais vos mesures indiquent de surveiller humidité et conductivité.',
+      ar: 'لا يمكنني الوصول إلى الخادم الآن، لكن القياسات تشير إلى متابعة الرطوبة والموصلية.',
+      da: 'ماقدرتش نوصل للسيرفر دابا، ولكن خاص نراقبو الرطوبة والكوندوكتيڤيتي.',
+    }[currentLang];
   }
 }
 
 function addMessage(text, who) {
   const div = document.createElement('div');
-  div.className = 'chat-bubble ' + who;
+  div.className = `chat-bubble ${who}`;
   div.textContent = text;
   const msgs = document.getElementById('chatMessages');
   msgs.appendChild(div);
@@ -117,20 +92,15 @@ function addMessage(text, who) {
   return div;
 }
 
-function addLoadingMessage() {
-  const loadingTexts = { fr: '⏳ ...', ar: '⏳ ...', da: '⏳ ...' };
-  return addMessage(loadingTexts[currentLang] || '⏳ ...', 'bot');
-}
-
 async function sendChat() {
   const inp = document.getElementById('chatInput');
   const txt = inp.value.trim();
-  if(!txt) return;
+  if (!txt) return;
   addMessage(txt, 'user');
   inp.value = '';
-  const loadingDiv = addLoadingMessage();
+  const wait = addMessage('⏳ ...', 'bot');
   const response = await callChatAPI(txt);
-  loadingDiv.remove();
+  wait.remove();
   addMessage(response, 'bot');
   speak(response);
 }
@@ -138,62 +108,57 @@ async function sendChat() {
 async function askSuggested(el) {
   const txt = el.textContent;
   addMessage(txt, 'user');
-  const loadingDiv = addLoadingMessage();
+  const wait = addMessage('⏳ ...', 'bot');
   const response = await callChatAPI(txt);
-  loadingDiv.remove();
+  wait.remove();
   addMessage(response, 'bot');
   speak(response);
 }
 
-// ======== SPEECH SYNTHESIS ========
 function speak(text) {
-  if(!window.speechSynthesis) return;
+  if (!window.speechSynthesis) return;
   window.speechSynthesis.cancel();
   const utt = new SpeechSynthesisUtterance(text);
-  utt.lang = currentLang==='fr'?'fr-FR': currentLang==='ar'?'ar-SA':'ar-MA';
-  utt.rate = 0.9;
+  utt.lang = currentLang === 'fr' ? 'fr-FR' : 'ar-MA';
+  utt.rate = 0.92;
   window.speechSynthesis.speak(utt);
 }
 
-// ======== SPEECH RECOGNITION ========
 function toggleMic() {
   const btn = document.getElementById('micBtn');
-  if(!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
-    showToast('Micro non supporté sur ce navigateur'); return;
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) {
+    showToast('Micro non supporté');
+    return;
   }
-  if(isListening) {
-    recognition && recognition.stop();
+  if (isListening) {
+    recognition?.stop();
     isListening = false;
     btn.classList.remove('listening');
     btn.textContent = '🎙️';
     return;
   }
+
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
   recognition = new SR();
-  recognition.lang = currentLang==='fr'?'fr-FR': currentLang==='ar'?'ar-SA':'ar-MA';
-  recognition.interimResults = false;
-  recognition.onresult = e => {
-    const txt = e.results[0][0].transcript;
-    document.getElementById('chatInput').value = txt;
+  recognition.lang = currentLang === 'fr' ? 'fr-FR' : 'ar-MA';
+  recognition.onresult = (e) => {
+    document.getElementById('chatInput').value = e.results[0][0].transcript;
     sendChat();
   };
-  recognition.onend = ()=>{
-    isListening=false;
+  recognition.onend = () => {
+    isListening = false;
     btn.classList.remove('listening');
-    btn.textContent='🎙️';
+    btn.textContent = '🎙️';
   };
   recognition.start();
-  isListening=true;
+  isListening = true;
   btn.classList.add('listening');
-  btn.textContent='⏹';
-  showToast(currentLang==='fr'?'Parlez maintenant...':currentLang==='ar'?'تحدث الآن...':'هضر دابا...');
+  btn.textContent = '⏹';
 }
 
-// ======== TOAST ========
 function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(()=>t.classList.remove('show'), 2500);
+  setTimeout(() => t.classList.remove('show'), TOAST_DISPLAY_DURATION_MS);
 }
-

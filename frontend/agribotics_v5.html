@@ -9,10 +9,8 @@
 </head>
 <body>
 
-<!-- TOAST -->
 <div class="toast" id="toast"></div>
 
-<!-- LANGUAGE SCREEN -->
 <div id="lang-screen">
   <div style="font-size:60px">🌱</div>
   <h1>Agri-Botics</h1>
@@ -24,7 +22,6 @@
   </div>
 </div>
 
-<!-- HEADER -->
 <header>
   <h1>🌱 Agri-Botics</h1>
   <div class="header-right">
@@ -34,66 +31,46 @@
   </div>
 </header>
 
-<!-- PAGES -->
 <main class="main">
-
-  <!-- ===== PAGE AGRICULTEUR ===== -->
   <div class="page active" id="page-farmer">
-
     <div class="farmer-greeting">
       <div class="greeting-emoji">👨‍🌾</div>
       <h2 id="greet-title">Bonjour !</h2>
       <p id="greet-sub">Voici l'état de votre champ aujourd'hui</p>
     </div>
 
+    <div class="mission-strip">
+      <div><strong id="missionName">Mission</strong> · <span id="robotPoint">Point B3</span></div>
+      <div id="missionProgress">58%</div>
+    </div>
+
     <div class="gauge-grid">
       <div class="gauge-card warn">
         <div class="gauge-emoji">💧</div>
-        <div class="gauge-label" id="lbl-water">Eau dans le sol</div>
-        <div class="gauge-faces">
-          <span class="gauge-face">😰</span>
-          <span class="gauge-face active">😐</span>
-          <span class="gauge-face">😊</span>
-        </div>
+        <div class="gauge-label" id="lbl-water">Humidité</div>
         <span class="gauge-status warn" id="stat-water">Arrosage bientôt</span>
       </div>
       <div class="gauge-card good">
         <div class="gauge-emoji">🧪</div>
-        <div class="gauge-label" id="lbl-ph">Qualité du sol</div>
-        <div class="gauge-faces">
-          <span class="gauge-face">😰</span>
-          <span class="gauge-face">😐</span>
-          <span class="gauge-face active">😊</span>
-        </div>
-        <span class="gauge-status good" id="stat-ph">Très bien !</span>
+        <div class="gauge-label" id="lbl-ph">pH</div>
+        <span class="gauge-status good" id="stat-ph">Bon équilibre</span>
       </div>
-      <div class="gauge-card bad">
+      <div class="gauge-card warn">
         <div class="gauge-emoji">⚡</div>
-        <div class="gauge-label" id="lbl-npk">Conductivité (Salinité)</div>
-        <div class="gauge-faces">
-          <span class="gauge-face">😰</span>
-          <span class="gauge-face">😐</span>
-          <span class="gauge-face active">😊</span>
-        </div>
-        <span class="gauge-status good" id="stat-npk">Sels équilibrés</span>
+        <div class="gauge-label" id="lbl-ec">Conductivité</div>
+        <span class="gauge-status warn" id="stat-ec">Surveillance</span>
       </div>
       <div class="gauge-card good">
         <div class="gauge-emoji">🌡️</div>
         <div class="gauge-label" id="lbl-temp">Température</div>
-        <div class="gauge-faces">
-          <span class="gauge-face">😰</span>
-          <span class="gauge-face">😐</span>
-          <span class="gauge-face active">😊</span>
-        </div>
-        <span class="gauge-status good" id="stat-temp">Parfait !</span>
+        <span class="gauge-status good" id="stat-temp">Stable</span>
       </div>
     </div>
 
-    <!-- CHATBOT -->
     <div class="chatbot-card">
       <div class="chatbot-title">🎙️ <span id="chat-title">Posez votre question</span></div>
       <div class="chat-messages" id="chatMessages">
-        <div class="chat-bubble bot" id="chat-welcome">Bonjour ! Je suis votre assistant agricole. Posez-moi une question sur votre champ, ou appuyez sur le micro pour parler 🎙️</div>
+        <div class="chat-bubble bot" id="chat-welcome">Bonjour ! Je suis votre assistant agricole.</div>
       </div>
       <div class="chat-input-row">
         <input class="chat-input" id="chatInput" placeholder="Écrire une question..." onkeypress="if(event.key==='Enter')sendChat()"/>
@@ -102,122 +79,28 @@
       </div>
       <div class="suggested-questions" id="sugQuestions">
         <span class="sug-q" onclick="askSuggested(this)">💧 Quand arroser ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">🌿 Quel engrais ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">📍 Quelle zone ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">🤖 Robot où ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">🌾 Quelle culture choisir ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">📍 Zone critique ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">🤖 Où est le robot ?</span>
       </div>
     </div>
   </div>
 
-  <!-- ===== PAGE EXPERT ===== -->
-  <div class="page" id="page-expert">
-    <div class="expert-section">
-      <div class="section-title">📊 Données sol — Dernière mesure</div>
-      <div class="data-grid">
-        <div class="data-card warn">
-          <div class="data-name">Humidité</div>
-          <div class="data-value">42<span class="data-unit"> %</span></div>
-          <div class="data-range">Optimal : 50–70%</div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:60%;background:var(--orange)"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">pH</div>
-          <div class="data-value">6.4</div>
-          <div class="data-range">Optimal : 6.0–7.0</div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:72%;background:var(--green-light)"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">Conductivité (Salinité)</div>
-          <div class="data-value">1.8<span class="data-unit"> mS/cm</span></div>
-          <div class="data-range">Seuil : &lt; 3.0 mS/cm</div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:60%;background:var(--green-light)"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">Température</div>
-          <div class="data-value">18<span class="data-unit"> °C</span></div>
-          <div class="data-range">Optimal : 15–25°C</div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:52%;background:var(--green-light)"></div></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">🌿 NPK — mg/kg</div>
-      <div class="npk-row">
-        <div class="npk-card" style="border-top:3px solid #2d6a35">
-          <div class="npk-letter" style="color:#2d6a35">N</div>
-          <div class="npk-name">Azote</div>
-          <div class="npk-val" style="color:var(--red)">18</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--red);font-size:10px">▼ Déficit (seuil: 30)</span></div>
-        </div>
-        <div class="npk-card" style="border-top:3px solid #a8d5ae">
-          <div class="npk-letter" style="color:#a8d5ae">P</div>
-          <div class="npk-name">Phosphore</div>
-          <div class="npk-val" style="color:var(--green)">64</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Normal (40–80)</span></div>
-        </div>
-        <div class="npk-card" style="border-top:3px solid #f9c74f">
-          <div class="npk-letter" style="color:#f9c74f">K</div>
-          <div class="npk-name">Potassium</div>
-          <div class="npk-val" style="color:var(--green)">185</div>
-          <div class="npk-unit">mg/kg <br><span style="color:var(--green);font-size:10px">✓ Optimal (150–250)</span></div>
-        </div>
-      </div>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">📈 Historique pH — 7 jours</div>
-      <div class="history-card">
-        <canvas id="phHistChart" height="80"></canvas>
-      </div>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">🤖 État robot</div>
-      <div class="data-grid">
-        <div class="data-card">
-          <div class="data-name">Batterie</div>
-          <div class="data-value">74<span class="data-unit"> %</span></div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:74%;background:var(--green-light)"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">Panneau solaire</div>
-          <div class="data-value">61<span class="data-unit"> %</span></div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:61%;background:#f9c74f"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">Mesures effectuées</div>
-          <div class="data-value">17<span class="data-unit"> /36</span></div>
-          <div class="data-bar"><div class="data-bar-fill" style="width:47%;background:var(--green-light)"></div></div>
-        </div>
-        <div class="data-card">
-          <div class="data-name">Zone active</div>
-          <div class="data-value" style="font-size:18px">A3</div>
-          <div class="data-range">Point 17 en cours</div>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ===== PAGE CARTE ===== -->
   <div class="page" id="page-map">
     <div class="map-var-scroll" id="mapVarBtns">
       <button class="map-var-btn active" onclick="setVar('humidity',this)">💧 Humidité</button>
       <button class="map-var-btn" onclick="setVar('ph',this)">🧪 pH</button>
-      <button class="map-var-btn" onclick="setVar('ec',this)">⚡ Conductivité (Salinité)</button>
+      <button class="map-var-btn" onclick="setVar('ec',this)">⚡ Conductivité</button>
       <button class="map-var-btn" onclick="setVar('temp',this)">🌡️ Température</button>
-      <button class="map-var-btn" onclick="setVar('npk',this)">🌿 NPK</button>
-      <button class="map-var-btn" onclick="setVar('reco',this)">💡 Recommandations</button>
     </div>
     <div class="map-wrap">
       <div class="map-title" id="mapVarLabel">💧 Humidité du sol</div>
       <div class="map-container">
-        <canvas id="fieldMap" height="360"></canvas>
+        <canvas id="fieldMap" height="320"></canvas>
         <div class="map-tooltip" id="mapTooltip"></div>
       </div>
       <div id="mapScaleBar" class="map-scale-bar"></div>
       <div id="mapScaleLabels" class="map-scale-labels"></div>
-      <div class="map-legend-wrap" id="mapLegend"></div>
     </div>
     <div class="zone-detail" id="zoneDetail">
       <div class="zone-detail-title" id="zoneDetailTitle"></div>
@@ -225,178 +108,64 @@
     </div>
   </div>
 
-
-  <!-- ===== PAGE RECOMMANDATIONS ===== -->
   <div class="page" id="page-reco">
-
-    <!-- Hero météo -->
     <div class="reco-hero">
-      <h2>💡 Centre de Recommandations</h2>
-      <p>IA + Open-Meteo · Ben Guerir, Maroc</p>
-      <div class="reco-weather-row">
-        <div class="reco-weather-chip">☀️ 24°C</div>
-        <div class="reco-weather-chip">💧 12% HR</div>
-        <div class="reco-weather-chip">🌬️ 18 km/h</div>
-        <div class="reco-weather-chip">🌧️ 0 mm/3j</div>
-      </div>
+      <h2>💡 Conseils prioritaires</h2>
+      <p id="weatherLine">Ben Guerir · 24°C · Vent 16 km/h · Pluie 0 mm</p>
     </div>
 
-    <!-- Onglets des 3 modules -->
-    <div class="reco-tabs">
-      <button class="reco-tab active" onclick="showRecoTab('practices',this)">
-        <span class="rtab-icon">🧪</span>
-        <span>Pratiques sol</span>
-      </button>
-      <button class="reco-tab tab-culture" onclick="showRecoTab('cultures',this)">
-        <span class="rtab-icon">🌾</span>
-        <span>Cultures</span>
-      </button>
-      <button class="reco-tab tab-temporal" onclick="showRecoTab('temporal',this)">
-        <span class="rtab-icon">📈</span>
-        <span>Évolution</span>
-      </button>
+    <div class="expert-section">
+      <div class="section-title">Top 3 actions</div>
+      <div id="topActions" class="zone-practice-list"></div>
     </div>
 
-    <!-- ── SOUS-PAGE 1 : PRATIQUES SOL ── -->
-    <div class="reco-subpage active" id="reco-practices">
-
-      <!-- Prévisions météo 5 jours -->
-      <div class="weather-banner">
-        <div class="weather-main-icon">☀️</div>
-        <div class="weather-info">
-          <div class="w-temp">24°C</div>
-          <div class="w-desc">Ciel dégagé · Ben Guerir</div>
-          <div class="w-detail">Vent 18 km/h · Humidité air 12% · Pression 1013 hPa</div>
-        </div>
-      </div>
-      <div class="weather-forecast">
-        <div class="forecast-chip"><div class="fc-day">Auj.</div><div class="fc-icon">☀️</div><div class="fc-temp">24°</div><div class="fc-rain">0 mm</div></div>
-        <div class="forecast-chip"><div class="fc-day">Mar.</div><div class="fc-icon">🌤️</div><div class="fc-temp">22°</div><div class="fc-rain">0 mm</div></div>
-        <div class="forecast-chip"><div class="fc-day">Mer.</div><div class="fc-icon">⛅</div><div class="fc-temp">19°</div><div class="fc-rain">3 mm</div></div>
-        <div class="forecast-chip"><div class="fc-day">Jeu.</div><div class="fc-icon">🌧️</div><div class="fc-temp">16°</div><div class="fc-rain">12 mm</div></div>
-        <div class="forecast-chip"><div class="fc-day">Ven.</div><div class="fc-icon">🌤️</div><div class="fc-temp">20°</div><div class="fc-rain">1 mm</div></div>
-      </div>
-
-      <!-- Recommandations par zone -->
-      <div class="section-title">🗺️ Actions par zone — Modèle ML + Météo</div>
-      <div class="zone-practice-list" id="zonePracticeList">
-        <!-- Injected by renderSoilPractices() -->
-      </div>
+    <div class="expert-section">
+      <div class="section-title">Top 5 cultures recommandées</div>
+      <div class="culture-grid" id="cultureGrid"></div>
     </div>
-
-    <!-- ── SOUS-PAGE 2 : CULTURES ── -->
-    <div class="reco-subpage" id="reco-cultures">
-
-      <div class="section-title">🌾 Cultures adaptées à votre sol</div>
-      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Calculé sur les mesures moyennes de la parcelle · Modèle Random Forest</p>
-
-      <div class="culture-filter-row">
-        <button class="culture-filter-btn active" onclick="filterCultures('all',this)">Tout</button>
-        <button class="culture-filter-btn" onclick="filterCultures('cereale',this)">🌾 Céréales</button>
-        <button class="culture-filter-btn" onclick="filterCultures('legume',this)">🥕 Légumes</button>
-        <button class="culture-filter-btn" onclick="filterCultures('fruit',this)">🍅 Fruits</button>
-        <button class="culture-filter-btn" onclick="filterCultures('legumineuse',this)">🫘 Légumineuses</button>
-      </div>
-
-      <!-- Culture detail panel (shown on click) -->
-      <div class="culture-detail-panel" id="cultureDetailPanel">
-        <div class="cdp-header">
-          <div class="cdp-emoji" id="cdpEmoji">🌾</div>
-          <div class="cdp-info">
-            <h3 id="cdpName">Blé tendre</h3>
-            <p id="cdpDesc">Céréale · Saison : Oct–Mai</p>
-          </div>
-        </div>
-        <div class="cdp-params" id="cdpParams"></div>
-      </div>
-
-      <div class="culture-grid" id="cultureGrid">
-        <!-- injected by JS -->
-      </div>
-
-    </div>
-
-    <!-- ── SOUS-PAGE 3 : SUIVI TEMPOREL ── -->
-    <div class="reco-subpage" id="reco-temporal">
-
-      <div class="section-title">📈 Évolution inter-sessions</div>
-      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Comparer les sessions pour mesurer l'effet des recommandations</p>
-
-      <div class="temporal-session-selector" id="sessionSelector">
-        <div class="session-chip active" onclick="selectSession(0,this)">Session 1<br><span style="font-weight:400;font-size:9px">08 Mar</span></div>
-        <div class="session-chip" onclick="selectSession(1,this)">Session 2<br><span style="font-weight:400;font-size:9px">10 Mar</span></div>
-        <div class="session-chip" onclick="selectSession(2,this)">Session 3<br><span style="font-weight:400;font-size:9px">12 Mar</span></div>
-        <div class="session-chip" style="border-style:dashed;color:var(--grey);opacity:0.5">+ Nouvelle</div>
-      </div>
-
-      <!-- Insight IA -->
-      <div class="temporal-insight-card">
-        <div class="tic-title">💡 Analyse IA — Tendance globale</div>
-        <div class="tic-body" id="temporalInsight">
-          Entre la session 1 et la session 3, le pH moyen a progressé de +0.4 (4.8 → 5.2) suite à l'apport de chaux sur B2.
-          L'humidité est stable. L'azote reste déficitaire en A1 — l'apport d'urée recommandé n'a pas encore été appliqué.
-        </div>
-      </div>
-
-      <!-- Évolution pH -->
-      <div class="temporal-evolution-card">
-        <div class="tec-header">
-          <span class="tec-param">🧪 pH moyen parcelle</span>
-          <span class="tec-delta up" id="delta-ph">▲ +0.4</span>
-        </div>
-        <div class="tec-chart"><canvas id="temporalPhChart" height="70"></canvas></div>
-      </div>
-
-      <!-- Évolution humidité -->
-      <div class="temporal-evolution-card">
-        <div class="tec-header">
-          <span class="tec-param">💧 Humidité moyenne</span>
-          <span class="tec-delta flat" id="delta-hum">→ stable</span>
-        </div>
-        <div class="tec-chart"><canvas id="temporalHumChart" height="70"></canvas></div>
-      </div>
-
-      <!-- Évolution N -->
-      <div class="temporal-evolution-card">
-        <div class="tec-header">
-          <span class="tec-param">🌿 Azote (N) moyen</span>
-          <span class="tec-delta down" id="delta-n">▼ −3</span>
-        </div>
-        <div class="tec-chart"><canvas id="temporalNChart" height="70"></canvas></div>
-      </div>
-
-      <!-- Heatmap zones x sessions -->
-      <div class="temporal-heatmap-wrap">
-        <div class="thm-title">Score de santé sol par zone — 3 sessions</div>
-        <div class="temporal-heatmap" id="temporalHeatmap"></div>
-      </div>
-
-    </div>
-
   </div>
 
+  <div class="page" id="page-tech">
+    <div class="expert-section">
+      <div class="section-title">Mesure active</div>
+      <div class="data-grid" id="techMetrics"></div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">Historique pH (7 points)</div>
+      <div class="history-card">
+        <canvas id="phHistChart" height="80"></canvas>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">Qualité acquisition & logs</div>
+      <div class="history-card" id="techLogs"></div>
+    </div>
+  </div>
 </main>
 
-<!-- BOTTOM NAV -->
 <nav class="bottom-nav">
   <button class="bnav-item active" onclick="showPage('farmer',this)">
     <span class="bnav-icon">👨‍🌾</span>
-    <span class="bnav-label" id="nav-farmer">Agriculteur</span>
+    <span class="bnav-label" id="nav-farmer">Terrain</span>
   </button>
   <button class="bnav-item" onclick="showPage('map',this)">
     <span class="bnav-icon">🗺️</span>
     <span class="bnav-label" id="nav-map">Carte</span>
   </button>
-  <button class="bnav-item" onclick="showPage('expert',this)">
-    <span class="bnav-icon">🔬</span>
-    <span class="bnav-label" id="nav-expert">Expert</span>
-  </button>
   <button class="bnav-item" onclick="showPage('reco',this)">
     <span class="bnav-icon">💡</span>
     <span class="bnav-label" id="nav-reco">Conseils</span>
   </button>
+  <button class="bnav-item" onclick="showPage('tech',this)">
+    <span class="bnav-icon">🔬</span>
+    <span class="bnav-label" id="nav-tech">Technique</span>
+  </button>
 </nav>
 
+<script src="js/state.js"></script>
+<script src="js/api.js"></script>
 <script src="js/data_model.js"></script>
 <script src="js/map.js"></script>
 <script src="js/charts.js"></script>
