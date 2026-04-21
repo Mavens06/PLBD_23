@@ -9,7 +9,12 @@ FALLBACK_MESSAGES = {
 }
 
 
-def build_chat_response(message: str, language: str, sensor_data=None, robot_state: str | None = None):
+def build_chat_response(
+    message: str,
+    language: str,
+    sensor_data: dict | None = None,
+    robot_state: str | None = None,
+):
     context_data = sensor_data or latest_sensor_dict()
     try:
         return generate_expert_response(

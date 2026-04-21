@@ -12,6 +12,7 @@ _LANG_LABELS = {
     'ar': 'arabe classique (العربية الفصحى)',
     'da': 'darija marocaine (الدارجة المغربية)',
 }
+MAX_CHAT_RESPONSE_TOKENS = 200
 
 
 def _get_client() -> OpenAI:
@@ -57,7 +58,7 @@ def generate_expert_response(
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': message},
         ],
-        max_tokens=200,
+        max_tokens=MAX_CHAT_RESPONSE_TOKENS,
         temperature=0.3,
     )
     return response.choices[0].message.content or ''

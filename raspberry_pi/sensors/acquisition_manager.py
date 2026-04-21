@@ -9,9 +9,16 @@ from .temperature_sensor import TemperatureSensor
 
 
 class AcquisitionManager:
+    MIN_STABILIZATION_SECONDS = 3
+    MAX_STABILIZATION_SECONDS = 5
+    MIN_READ_COUNT = 10
+
     def __init__(self, stabilization_seconds: int = 3, read_count: int = 10):
-        self.stabilization_seconds = max(3, min(5, stabilization_seconds))
-        self.read_count = max(10, read_count)
+        self.stabilization_seconds = max(
+            self.MIN_STABILIZATION_SECONDS,
+            min(self.MAX_STABILIZATION_SECONDS, stabilization_seconds),
+        )
+        self.read_count = max(self.MIN_READ_COUNT, read_count)
         self._sensors = {
             'humidity': MoistureSensor(),
             'ph': PHSensor(),

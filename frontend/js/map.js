@@ -1,4 +1,7 @@
 let currentVar = 'humidity';
+const GRID_POINT_OFFSETS = [-6, -2, 1, -4, 0, 2, -5, -1, 3];
+const PH_OFFSET_MULTIPLIER = 0.05;
+const DEFAULT_OFFSET_MULTIPLIER = 0.3;
 const ZONE_POINTS = [
   { zone: 'A1', x: 0.15, y: 0.2 }, { zone: 'A2', x: 0.5, y: 0.2 }, { zone: 'A3', x: 0.85, y: 0.2 },
   { zone: 'B1', x: 0.15, y: 0.5 }, { zone: 'B2', x: 0.5, y: 0.5 }, { zone: 'B3', x: 0.85, y: 0.5 },
@@ -14,9 +17,10 @@ const mapConfigs = {
 
 function variableValue(pointIdx) {
   const s = APP_STATE.sensors;
-  const offsets = [-6, -2, 1, -4, 0, 2, -5, -1, 3];
   const base = { humidity: s.humidity, ph: s.ph, ec: s.ec, temp: s.temp }[currentVar];
-  return +(base + (currentVar === 'ph' ? offsets[pointIdx] * 0.05 : offsets[pointIdx] * 0.3)).toFixed(2);
+  return +(base + (currentVar === 'ph'
+    ? GRID_POINT_OFFSETS[pointIdx] * PH_OFFSET_MULTIPLIER
+    : GRID_POINT_OFFSETS[pointIdx] * DEFAULT_OFFSET_MULTIPLIER)).toFixed(2);
 }
 
 function colorFor(v, min, max) {

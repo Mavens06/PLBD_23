@@ -77,13 +77,18 @@ function renderTech() {
 }
 
 async function boot() {
-  await syncFromBackend();
-  renderMission();
-  renderGauges();
-  renderReco();
-  renderTech();
-  drawMap();
-  drawPhChart();
+  try {
+    await syncFromBackend();
+  } catch (_) {
+    showToast('Mode local: backend non joignable');
+  } finally {
+    renderMission();
+    renderGauges();
+    renderReco();
+    renderTech();
+    drawMap();
+    drawPhChart();
+  }
 }
 
 document.addEventListener('DOMContentLoaded', boot);

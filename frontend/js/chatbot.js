@@ -21,6 +21,7 @@ const LANG = {
     sug: ['💧 فوقاش نسقي؟', '🌾 أشمن زراعة؟', '📍 فين الزون الصعيبة؟', '🤖 فين الروبو؟'],
   },
 };
+const TOAST_DISPLAY_DURATION_MS = 2200;
 
 let currentLang = 'fr';
 let isListening = false;
@@ -159,5 +160,5 @@ function showToast(msg) {
   const t = document.getElementById('toast');
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2200);
+  setTimeout(() => t.classList.remove('show'), TOAST_DISPLAY_DURATION_MS);
 }

@@ -32,6 +32,7 @@ async function syncFromBackend() {
 
     window.RECO_ACTIONS = recommendations.actions || [];
   } catch (_) {
+    console.warn('Backend sync unavailable, fallback to local demo state.');
     window.RECO_ACTIONS = window.RECO_ACTIONS || [];
   }
 }

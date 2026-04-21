@@ -22,9 +22,9 @@ CROPS = {
 }
 
 
-def _generate_crop_rows(label: str, params: dict) -> pd.DataFrame:
+def _generate_crop_rows(crop_name: str, params: dict) -> pd.DataFrame:
     n = params['n_samples']
-    rng = np.random.default_rng(SEED + abs(hash(label)) % 10000)
+    rng = np.random.default_rng(SEED + abs(hash(crop_name)) % 10000)
 
     def uniform(lo, hi):
         return rng.uniform(lo, hi, n)
@@ -36,7 +36,7 @@ def _generate_crop_rows(label: str, params: dict) -> pd.DataFrame:
             'ph': np.round(uniform(*params['ph']), 2),
             'rainfall': np.round(uniform(*params['rainfall']), 1),
             'salinity': np.round(uniform(*params['salinity']), 2),
-            'label': label,
+            'label': crop_name,
         }
     )
 
