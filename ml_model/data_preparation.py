@@ -96,8 +96,12 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
         else:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
+    rows_before_v1_filter = len(data)
     data["label"] = data["label"].map(lambda v: V1_LABEL_MAP.get(_slug_text(v)))
     data = data.dropna(subset=["label"])
+    filtered_out = rows_before_v1_filter - len(data)
+    if filtered_out > 0:
+        print(f"[data_preparation] {filtered_out} ligne(s) écartée(s) (label hors catalogue V1).")
     for col in [c for c in keep_cols if c != "label"]:
         if data[col].isna().any():
             data[col] = data[col].fillna(data[col].median())
