@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pandas as pd
 from data_loader import generate_dataset
+from rules.crop_catalog import CROP_CATALOG
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
@@ -31,6 +33,15 @@ COLUMN_ALIASES = {
 REQUIRED_COLS = {"temperature", "humidity", "ph", "rainfall", "label"}
 OPTIONAL_COLS = ["salinity"]
 DROP_COLS = {"N", "P", "K", "n", "p", "k", "nitrogen", "phosphorus", "phosphore", "potassium"}
+
+
+def _slug_text(value: str) -> str:
+    """Normalise un texte de label (accents/casse/séparateurs) pour le matching V1."""
+    ascii_text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
+
+
+V1_LABEL_MAP = {_slug_text(crop['name']): crop['name'] for crop in CROP_CATALOG}
 
 
 def _norm(name: str) -> str:
@@ -86,7 +97,13 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
         else:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
+    rows_before_v1_filter = len(data)
+    label_slug = data["label"].map(_slug_text)
+    data["label"] = label_slug.map(V1_LABEL_MAP)
     data = data.dropna(subset=["label"])
+    filtered_out = rows_before_v1_filter - len(data)
+    if filtered_out > 0:
+        print(f"[data_preparation] {filtered_out} ligne(s) écartée(s) (label hors catalogue V1).")
     for col in [c for c in keep_cols if c != "label"]:
         if data[col].isna().any():
             data[col] = data[col].fillna(data[col].median())

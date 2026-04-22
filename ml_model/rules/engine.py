@@ -1,4 +1,8 @@
 from .crop_catalog import CROP_CATALOG
+try:
+    from ml_model.feature_mapping import to_runtime_features
+except ModuleNotFoundError:  # Exécution directe depuis le dossier ml_model/
+    from feature_mapping import to_runtime_features
 
 MAX_RECOMMENDED_CROPS = 10
 
@@ -16,10 +20,11 @@ def _ec_score(ec: float, ec_max: float) -> float:
 
 
 def recommend_crops(sensor_data: dict, top_n: int = 5):
-    humidity = float(sensor_data.get('humidity', 0))
-    ph = float(sensor_data.get('ph', 0))
-    ec = float(sensor_data.get('ec', 0))
-    temp = float(sensor_data.get('temp', 0))
+    data = to_runtime_features(sensor_data)
+    humidity = float(data.get('humidity', 0))
+    ph = float(data.get('ph', 0))
+    ec = float(data.get('ec', 0))
+    temp = float(data.get('temp', 0))
 
     scored = []
     for crop in CROP_CATALOG:
@@ -34,14 +39,15 @@ def recommend_crops(sensor_data: dict, top_n: int = 5):
 
 
 def recommend_actions(sensor_data: dict):
+    data = to_runtime_features(sensor_data)
     actions = []
-    if sensor_data.get('humidity', 0) < 45:
+    if data.get('humidity', 0) < 45:
         actions.append('Augmenter l\'irrigation localisée sur les zones les plus sèches.')
-    if sensor_data.get('ec', 0) > 1.8:
+    if data.get('ec', 0) > 1.8:
         actions.append('Prévoir un lessivage court pour limiter l\'accumulation de sels.')
-    if sensor_data.get('ph', 0) < 6.0:
+    if data.get('ph', 0) < 6.0:
         actions.append('Programmer un amendement calcique progressif.')
-    if sensor_data.get('temp', 0) > 30:
+    if data.get('temp', 0) > 30:
         actions.append('Réduire les opérations en milieu de journée et privilégier matin/soir.')
     if not actions:
         actions.append('Maintenir la stratégie actuelle et poursuivre le suivi des 4 capteurs.')

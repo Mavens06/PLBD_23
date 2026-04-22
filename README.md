@@ -15,6 +15,14 @@ Le robot se déplace sur des points fixes, insère une sonde sol, mesure **4 cap
 - **Frontend Web** : dashboard léger avec 4 espaces (Terrain, Carte, Conseils, Technique).
 - **ML/Règles métier** : moteur léger de scoring cultures + actions pratiques (sans complexité inutile).
 
+## Mapping officiel des variables capteurs
+- Schéma runtime (frontend/backend/robot): `humidity`, `ph`, `ec`, `temp`
+- Schéma ML (entraînement/inférence): `humidity`, `ph`, `salinity`, `temperature`, `rainfall`
+- Mapping unique:
+  - `ec -> salinity`
+  - `temp -> temperature`
+  - `rainfall` provient de la météo (`rain_mm_next_24h`) quand disponible
+
 ## Structure du repo
 ```
 PLBD_23/
