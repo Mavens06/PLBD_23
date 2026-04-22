@@ -96,7 +96,6 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
         else:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
-    data = data.dropna(subset=["label"])
     data["label"] = data["label"].map(lambda v: V1_LABEL_MAP.get(_slug_text(v)))
     data = data.dropna(subset=["label"])
     for col in [c for c in keep_cols if c != "label"]:
