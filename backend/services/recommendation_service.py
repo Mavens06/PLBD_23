@@ -4,6 +4,7 @@ from ml_model.inference.predict import predict
 from ml_model.rules.crop_catalog import CROP_CATALOG
 
 DEFAULT_CROPS = [crop['name'] for crop in CROP_CATALOG]
+MAX_ACTION_TITLE_LENGTH = 90
 
 
 def _priority_from_text(text: str) -> str:
@@ -24,7 +25,7 @@ def _to_action_item(action) -> dict:
         }
     detail = str(action).strip()
     return {
-        'title': detail.split('.')[0][:90] or 'Action recommandée',
+        'title': detail.split('.')[0][:MAX_ACTION_TITLE_LENGTH] or 'Action recommandée',
         'detail': detail or 'Maintenir le suivi des capteurs.',
         'priority': _priority_from_text(detail),
     }

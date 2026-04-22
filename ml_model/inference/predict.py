@@ -37,7 +37,9 @@ def _title_case_label(label: str) -> str:
 
 def _build_vector(sensor_data: Dict[str, float], scaler) -> np.ndarray:
     ml_data = to_ml_features(sensor_data=sensor_data)
-    feature_order = DEFAULT_FEATURE_ORDER[: getattr(scaler, 'n_features_in_', len(DEFAULT_FEATURE_ORDER))]
+    if not hasattr(scaler, 'n_features_in_'):
+        raise ValueError("Scaler invalide: attribut 'n_features_in_' manquant.")
+    feature_order = DEFAULT_FEATURE_ORDER[:scaler.n_features_in_]
     row = [float(ml_data.get(name, 0.0)) for name in feature_order]
     return np.array([row], dtype=np.float32)
 

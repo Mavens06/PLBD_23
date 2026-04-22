@@ -36,6 +36,7 @@ DROP_COLS = {"N", "P", "K", "n", "p", "k", "nitrogen", "phosphorus", "phosphore"
 
 
 def _slug_text(value: str) -> str:
+    """Normalise un texte de label (accents/casse/séparateurs) pour le matching V1."""
     ascii_text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
     return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
 
