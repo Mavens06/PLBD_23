@@ -9,8 +9,10 @@
 </head>
 <body>
 
+<!-- TOAST -->
 <div class="toast" id="toast"></div>
 
+<!-- LANGUAGE SCREEN -->
 <div id="lang-screen">
   <div style="font-size:60px">🌱</div>
   <h1>Agri-Botics</h1>
@@ -22,6 +24,7 @@
   </div>
 </div>
 
+<!-- HEADER -->
 <header>
   <h1>🌱 Agri-Botics</h1>
   <div class="header-right">
@@ -31,46 +34,96 @@
   </div>
 </header>
 
+<!-- PAGES -->
 <main class="main">
+
+  <!-- ===== PAGE AGRICULTEUR ===== -->
   <div class="page active" id="page-farmer">
+
     <div class="farmer-greeting">
       <div class="greeting-emoji">👨‍🌾</div>
       <h2 id="greet-title">Bonjour !</h2>
       <p id="greet-sub">Voici l'état de votre champ aujourd'hui</p>
     </div>
 
-    <div class="mission-strip">
-      <div><strong id="missionName">Mission</strong> · <span id="robotPoint">Point B3</span></div>
-      <div id="missionProgress">58%</div>
+    <div class="mission-card">
+      <div class="mission-head">
+        <div class="mission-title" id="missionTitle">🤖 Mission terrain</div>
+        <span class="mission-badge" id="missionStateBadge">Mesure en cours</span>
+      </div>
+      <div class="mission-grid">
+        <div class="mission-stat">
+          <div class="mission-stat-label" id="missionLblPoint">Point actif</div>
+          <div class="mission-stat-value" id="missionPoint">C3</div>
+        </div>
+        <div class="mission-stat">
+          <div class="mission-stat-label" id="missionLblMode">Mode</div>
+          <div class="mission-stat-value" id="missionMode">Points fixes</div>
+        </div>
+        <div class="mission-stat">
+          <div class="mission-stat-label" id="missionLblBattery">Batterie</div>
+          <div class="mission-stat-value" id="missionBattery">74%</div>
+        </div>
+        <div class="mission-stat">
+          <div class="mission-stat-label" id="missionLblDepth">Sonde</div>
+          <div class="mission-stat-value" id="missionProbe">4 capteurs</div>
+        </div>
+      </div>
+      <div class="mission-progress-row">
+        <div class="mission-progress-label" id="missionProgressTxt">17 / 24 points relevés</div>
+        <div class="mission-progress-label" id="missionEtaTxt">mise à jour en direct</div>
+      </div>
+      <div class="data-bar"><div class="data-bar-fill" id="missionProgressBar" style="width:71%;background:var(--green-light)"></div></div>
     </div>
 
     <div class="gauge-grid">
-      <div class="gauge-card warn">
+      <div class="gauge-card warn" id="card-water">
         <div class="gauge-emoji">💧</div>
-        <div class="gauge-label" id="lbl-water">Humidité</div>
+        <div class="gauge-label" id="lbl-water">Eau dans le sol</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face active">😐</span>
+          <span class="gauge-face">😊</span>
+        </div>
         <span class="gauge-status warn" id="stat-water">Arrosage bientôt</span>
       </div>
-      <div class="gauge-card good">
+      <div class="gauge-card good" id="card-ph">
         <div class="gauge-emoji">🧪</div>
-        <div class="gauge-label" id="lbl-ph">pH</div>
-        <span class="gauge-status good" id="stat-ph">Bon équilibre</span>
+        <div class="gauge-label" id="lbl-ph">pH du sol</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-ph">Très bien !</span>
       </div>
-      <div class="gauge-card warn">
+      <div class="gauge-card good" id="card-ec">
         <div class="gauge-emoji">⚡</div>
-        <div class="gauge-label" id="lbl-ec">Conductivité</div>
-        <span class="gauge-status warn" id="stat-ec">Surveillance</span>
+        <div class="gauge-label" id="lbl-ec">Conductivité (Salinité)</div>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-ec">Sels équilibrés</span>
       </div>
-      <div class="gauge-card good">
+      <div class="gauge-card good" id="card-temp">
         <div class="gauge-emoji">🌡️</div>
         <div class="gauge-label" id="lbl-temp">Température</div>
-        <span class="gauge-status good" id="stat-temp">Stable</span>
+        <div class="gauge-faces">
+          <span class="gauge-face">😰</span>
+          <span class="gauge-face">😐</span>
+          <span class="gauge-face active">😊</span>
+        </div>
+        <span class="gauge-status good" id="stat-temp">Parfait !</span>
       </div>
     </div>
 
+    <!-- CHATBOT -->
     <div class="chatbot-card">
       <div class="chatbot-title">🎙️ <span id="chat-title">Posez votre question</span></div>
       <div class="chat-messages" id="chatMessages">
-        <div class="chat-bubble bot" id="chat-welcome">Bonjour ! Je suis votre assistant agricole.</div>
+        <div class="chat-bubble bot" id="chat-welcome">Bonjour ! Je suis votre assistant agricole. Posez-moi une question sur votre champ, ou appuyez sur le micro pour parler 🎙️</div>
       </div>
       <div class="chat-input-row">
         <input class="chat-input" id="chatInput" placeholder="Écrire une question..." onkeypress="if(event.key==='Enter')sendChat()"/>
@@ -79,28 +132,122 @@
       </div>
       <div class="suggested-questions" id="sugQuestions">
         <span class="sug-q" onclick="askSuggested(this)">💧 Quand arroser ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">🌾 Quelle culture choisir ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">📍 Zone critique ?</span>
-        <span class="sug-q" onclick="askSuggested(this)">🤖 Où est le robot ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">🌾 Quelle culture ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">📍 Quelle zone ?</span>
+        <span class="sug-q" onclick="askSuggested(this)">⚡ Salinité élevée ?</span>
       </div>
     </div>
   </div>
 
+  <!-- ===== PAGE EXPERT ===== -->
+  <div class="page" id="page-expert">
+    <div class="expert-section">
+      <div class="section-title">📊 Données sol — Dernière mesure</div>
+      <div class="data-grid">
+        <div class="data-card warn">
+          <div class="data-name">Humidité</div>
+          <div class="data-value"><span id="expertHumidity">42</span><span class="data-unit"> %</span></div>
+          <div class="data-range">Optimal : 50–70%</div>
+          <div class="data-bar"><div class="data-bar-fill" id="barHumidity" style="width:60%;background:var(--orange)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">pH</div>
+          <div class="data-value" id="expertPh">6.4</div>
+          <div class="data-range">Optimal : 6.0–7.0</div>
+          <div class="data-bar"><div class="data-bar-fill" id="barPh" style="width:72%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Conductivité (Salinité)</div>
+          <div class="data-value"><span id="expertEc">1.8</span><span class="data-unit"> mS/cm</span></div>
+          <div class="data-range">Seuil : &lt; 3.0 mS/cm</div>
+          <div class="data-bar"><div class="data-bar-fill" id="barEc" style="width:60%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Température</div>
+          <div class="data-value"><span id="expertTemp">18</span><span class="data-unit"> °C</span></div>
+          <div class="data-range">Optimal : 15–25°C</div>
+          <div class="data-bar"><div class="data-bar-fill" id="barTemp" style="width:52%;background:var(--green-light)"></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">🧷 Protocole de mesure</div>
+      <div class="npk-row">
+        <div class="npk-card" style="border-top:3px solid #2d6a35">
+          <div class="npk-letter" style="color:#2d6a35">T</div>
+          <div class="npk-name">Stabilisation</div>
+          <div class="npk-val" id="protoStab">4 s</div>
+          <div class="npk-unit">avant acquisition</div>
+        </div>
+        <div class="npk-card" style="border-top:3px solid #a8d5ae">
+          <div class="npk-letter" style="color:#a8d5ae">L</div>
+          <div class="npk-name">Lectures</div>
+          <div class="npk-val" id="protoReads">10</div>
+          <div class="npk-unit">moyennées par point</div>
+        </div>
+        <div class="npk-card" style="border-top:3px solid #f9c74f">
+          <div class="npk-letter" style="color:#f9c74f">Q</div>
+          <div class="npk-name">Qualité</div>
+          <div class="npk-val" id="protoQuality" style="color:var(--green)">OK</div>
+          <div class="npk-unit">dispersion faible</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">📈 Historique pH — 7 jours</div>
+      <div class="history-card">
+        <canvas id="phHistChart" height="80"></canvas>
+      </div>
+    </div>
+
+    <div class="expert-section">
+      <div class="section-title">🤖 État robot</div>
+      <div class="data-grid">
+        <div class="data-card">
+          <div class="data-name">Batterie</div>
+          <div class="data-value"><span id="robotBattery">74</span><span class="data-unit"> %</span></div>
+          <div class="data-bar"><div class="data-bar-fill" id="robotBatteryBar" style="width:74%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Mode mission</div>
+          <div class="data-value" id="robotMode" style="font-size:18px">Points fixes</div>
+          <div class="data-range">Trajet prédéfini</div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Mesures effectuées</div>
+          <div class="data-value"><span id="robotDone">17</span><span class="data-unit"> /24</span></div>
+          <div class="data-bar"><div class="data-bar-fill" id="robotDoneBar" style="width:71%;background:var(--green-light)"></div></div>
+        </div>
+        <div class="data-card">
+          <div class="data-name">Point actif</div>
+          <div class="data-value" id="robotActivePoint" style="font-size:18px">C3</div>
+          <div class="data-range" id="robotStateRange">Mesure en cours</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ===== PAGE CARTE ===== -->
   <div class="page" id="page-map">
     <div class="map-var-scroll" id="mapVarBtns">
       <button class="map-var-btn active" onclick="setVar('humidity',this)">💧 Humidité</button>
       <button class="map-var-btn" onclick="setVar('ph',this)">🧪 pH</button>
       <button class="map-var-btn" onclick="setVar('ec',this)">⚡ Conductivité</button>
       <button class="map-var-btn" onclick="setVar('temp',this)">🌡️ Température</button>
+      <button class="map-var-btn" onclick="setVar('reco',this)">💡 Recommandations</button>
     </div>
     <div class="map-wrap">
       <div class="map-title" id="mapVarLabel">💧 Humidité du sol</div>
+      <div class="map-subtitle">Points de mesure fixes · cartographie dynamique en direct</div>
       <div class="map-container">
-        <canvas id="fieldMap" height="320"></canvas>
+        <canvas id="fieldMap" height="360"></canvas>
         <div class="map-tooltip" id="mapTooltip"></div>
       </div>
       <div id="mapScaleBar" class="map-scale-bar"></div>
       <div id="mapScaleLabels" class="map-scale-labels"></div>
+      <div class="map-legend-wrap" id="mapLegend"></div>
     </div>
     <div class="zone-detail" id="zoneDetail">
       <div class="zone-detail-title" id="zoneDetailTitle"></div>
@@ -108,64 +255,152 @@
     </div>
   </div>
 
+  <!-- ===== PAGE RECOMMANDATIONS ===== -->
   <div class="page" id="page-reco">
+
     <div class="reco-hero">
-      <h2>💡 Conseils prioritaires</h2>
-      <p id="weatherLine">Ben Guerir · 24°C · Vent 16 km/h · Pluie 0 mm</p>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">Top 3 actions</div>
-      <div id="topActions" class="zone-practice-list"></div>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">Top 5 cultures recommandées</div>
-      <div class="culture-grid" id="cultureGrid"></div>
-    </div>
-  </div>
-
-  <div class="page" id="page-tech">
-    <div class="expert-section">
-      <div class="section-title">Mesure active</div>
-      <div class="data-grid" id="techMetrics"></div>
-    </div>
-
-    <div class="expert-section">
-      <div class="section-title">Historique pH (7 points)</div>
-      <div class="history-card">
-        <canvas id="phHistChart" height="80"></canvas>
+      <h2>💡 Centre de Recommandations</h2>
+      <p id="weatherLocation">Raspberry Pi + Open-Meteo · Ben Guerir, Maroc</p>
+      <div class="reco-weather-row">
+        <div class="reco-weather-chip" id="chipTemp">☀️ 24°C</div>
+        <div class="reco-weather-chip" id="chipHumidity">💧 12% HR</div>
+        <div class="reco-weather-chip" id="chipWind">🌬️ 18 km/h</div>
+        <div class="reco-weather-chip" id="chipRain">🌧️ 0 mm/3j</div>
       </div>
     </div>
 
-    <div class="expert-section">
-      <div class="section-title">Qualité acquisition & logs</div>
-      <div class="history-card" id="techLogs"></div>
+    <div class="reco-tabs">
+      <button class="reco-tab active" onclick="showRecoTab('practices',this)">
+        <span class="rtab-icon">🧪</span>
+        <span>Pratiques sol</span>
+      </button>
+      <button class="reco-tab tab-culture" onclick="showRecoTab('cultures',this)">
+        <span class="rtab-icon">🌾</span>
+        <span>Cultures</span>
+      </button>
+      <button class="reco-tab tab-temporal" onclick="showRecoTab('temporal',this)">
+        <span class="rtab-icon">📈</span>
+        <span>Évolution</span>
+      </button>
     </div>
+
+    <div class="reco-subpage active" id="reco-practices">
+      <div class="weather-banner">
+        <div class="weather-main-icon" id="weatherMainIcon">☀️</div>
+        <div class="weather-info">
+          <div class="w-temp" id="weatherMainTemp">24°C</div>
+          <div class="w-desc" id="weatherMainDesc">Ciel dégagé · Ben Guerir</div>
+          <div class="w-detail" id="weatherMainDetail">Vent 18 km/h · Humidité air 12% · Pluie 0 mm aujourd'hui</div>
+        </div>
+      </div>
+      <div class="weather-forecast" id="forecastRow">
+        <div class="forecast-chip"><div class="fc-day">Auj.</div><div class="fc-icon">☀️</div><div class="fc-temp">24°</div><div class="fc-rain">0 mm</div></div>
+      </div>
+
+      <div class="section-title">🗺️ Actions par zone — Règles métier + contexte météo</div>
+      <div class="zone-practice-list" id="zonePracticeList"></div>
+    </div>
+
+    <div class="reco-subpage" id="reco-cultures">
+      <div class="section-title">🌾 Cultures adaptées à votre sol</div>
+      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Classement local pour un prototype terrain ciblant le Maroc et l'Afrique</p>
+
+      <div class="culture-filter-row">
+        <button class="culture-filter-btn active" onclick="filterCultures('all',this)">Tout</button>
+        <button class="culture-filter-btn" onclick="filterCultures('cereale',this)">🌾 Céréales</button>
+        <button class="culture-filter-btn" onclick="filterCultures('legume',this)">🥔 Légumes</button>
+        <button class="culture-filter-btn" onclick="filterCultures('fruit',this)">🍊 Fruits</button>
+        <button class="culture-filter-btn" onclick="filterCultures('fourrage',this)">🌿 Fourrage</button>
+      </div>
+
+      <div class="culture-detail-panel" id="cultureDetailPanel">
+        <div class="cdp-header">
+          <div class="cdp-emoji" id="cdpEmoji">🌾</div>
+          <div class="cdp-info">
+            <h3 id="cdpName">Blé tendre</h3>
+            <p id="cdpDesc">Céréale · Saison : Oct–Mai</p>
+          </div>
+        </div>
+        <div class="cdp-params" id="cdpParams"></div>
+      </div>
+
+      <div class="culture-grid" id="cultureGrid"></div>
+    </div>
+
+    <div class="reco-subpage" id="reco-temporal">
+      <div class="section-title">📈 Évolution inter-sessions</div>
+      <p style="font-size:12px;color:var(--grey);margin-bottom:12px">Comparer les sessions pour mesurer l'effet des recommandations terrain</p>
+
+      <div class="temporal-session-selector" id="sessionSelector">
+        <div class="session-chip active" onclick="selectSession(0,this)">Session 1<br><span style="font-weight:400;font-size:9px">08 Mar</span></div>
+        <div class="session-chip" onclick="selectSession(1,this)">Session 2<br><span style="font-weight:400;font-size:9px">10 Mar</span></div>
+        <div class="session-chip" onclick="selectSession(2,this)">Session 3<br><span style="font-weight:400;font-size:9px">12 Mar</span></div>
+        <div class="session-chip" style="border-style:dashed;color:var(--grey);opacity:0.5">+ Nouvelle</div>
+      </div>
+
+      <div class="temporal-insight-card">
+        <div class="tic-title">💡 Analyse IA — Tendance globale</div>
+        <div class="tic-body" id="temporalInsight">
+          Entre la session 1 et la session 3, le pH moyen a progressé de +0.4 et la conductivité reste sous contrôle.
+          L'humidité demeure légèrement faible sur les zones centrales : priority à l'irrigation ciblée.
+        </div>
+      </div>
+
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">🧪 pH moyen parcelle</span>
+          <span class="tec-delta up" id="delta-ph">▲ +0.4</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalPhChart" height="70"></canvas></div>
+      </div>
+
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">💧 Humidité moyenne</span>
+          <span class="tec-delta flat" id="delta-hum">→ stable</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalHumChart" height="70"></canvas></div>
+      </div>
+
+      <div class="temporal-evolution-card">
+        <div class="tec-header">
+          <span class="tec-param">⚡ Conductivité moyenne</span>
+          <span class="tec-delta down" id="delta-ec">▼ −0.2</span>
+        </div>
+        <div class="tec-chart"><canvas id="temporalEcChart" height="70"></canvas></div>
+      </div>
+
+      <div class="temporal-heatmap-wrap">
+        <div class="thm-title">Score de santé sol par zone — 3 sessions</div>
+        <div class="temporal-heatmap" id="temporalHeatmap"></div>
+      </div>
+
+    </div>
+
   </div>
+
 </main>
 
+<!-- BOTTOM NAV -->
 <nav class="bottom-nav">
   <button class="bnav-item active" onclick="showPage('farmer',this)">
     <span class="bnav-icon">👨‍🌾</span>
-    <span class="bnav-label" id="nav-farmer">Terrain</span>
+    <span class="bnav-label" id="nav-farmer">Agriculteur</span>
   </button>
   <button class="bnav-item" onclick="showPage('map',this)">
     <span class="bnav-icon">🗺️</span>
     <span class="bnav-label" id="nav-map">Carte</span>
   </button>
+  <button class="bnav-item" onclick="showPage('expert',this)">
+    <span class="bnav-icon">🔬</span>
+    <span class="bnav-label" id="nav-expert">Expert</span>
+  </button>
   <button class="bnav-item" onclick="showPage('reco',this)">
     <span class="bnav-icon">💡</span>
     <span class="bnav-label" id="nav-reco">Conseils</span>
   </button>
-  <button class="bnav-item" onclick="showPage('tech',this)">
-    <span class="bnav-icon">🔬</span>
-    <span class="bnav-label" id="nav-tech">Technique</span>
-  </button>
 </nav>
 
-<script src="js/state.js"></script>
-<script src="js/api.js"></script>
 <script src="js/data_model.js"></script>
 <script src="js/map.js"></script>
 <script src="js/charts.js"></script>
