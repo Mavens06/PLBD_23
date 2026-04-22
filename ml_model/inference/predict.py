@@ -7,8 +7,12 @@ from typing import Dict, List
 
 import numpy as np
 
-from ml_model.feature_mapping import to_ml_features, to_runtime_features
-from ml_model.rules.engine import recommend_actions, recommend_crops
+try:
+    from ml_model.feature_mapping import to_ml_features, to_runtime_features
+    from ml_model.rules.engine import recommend_actions, recommend_crops
+except ModuleNotFoundError:  # Exécution directe depuis le dossier ml_model/
+    from feature_mapping import to_ml_features, to_runtime_features
+    from rules.engine import recommend_actions, recommend_crops
 
 SCRIPT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MODEL_PATH = os.path.join(SCRIPT_DIR, 'best_model.pkl')

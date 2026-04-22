@@ -1,5 +1,8 @@
 from .crop_catalog import CROP_CATALOG
-from ml_model.feature_mapping import to_runtime_features
+try:
+    from ml_model.feature_mapping import to_runtime_features
+except ModuleNotFoundError:  # Exécution directe depuis le dossier ml_model/
+    from feature_mapping import to_runtime_features
 
 MAX_RECOMMENDED_CROPS = 10
 
