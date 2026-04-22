@@ -1,20 +1,58 @@
-from backend.models.state import SENSOR_HISTORY
+from backend.models.state import SENSOR_HISTORY, WEATHER
+from ml_model.feature_mapping import to_ml_features, to_runtime_features
+from ml_model.inference.predict import predict
+from ml_model.rules.crop_catalog import CROP_CATALOG
 
-CROPS = [
-    'Blé', 'Orge', 'Maïs', 'Tomate', 'Pomme de terre',
-    'Oignon', 'Olivier', 'Agrumes', 'Luzerne', 'Pois chiche',
-]
+DEFAULT_CROPS = [crop['name'] for crop in CROP_CATALOG]
+
+
+def _priority_from_text(text: str) -> str:
+    lower = text.lower()
+    if any(token in lower for token in ('urgent', 'immédiat', 'salinit', 'lessivage', 'irrigation')):
+        return 'high'
+    if any(token in lower for token in ('ph', 'amendement', 'température')):
+        return 'medium'
+    return 'low'
+
+
+def _to_action_item(action) -> dict:
+    if isinstance(action, dict):
+        return {
+            'title': action.get('title', 'Action recommandée'),
+            'detail': action.get('detail', ''),
+            'priority': action.get('priority', 'medium'),
+        }
+    detail = str(action).strip()
+    return {
+        'title': detail.split('.')[0][:90] or 'Action recommandée',
+        'detail': detail or 'Maintenir le suivi des capteurs.',
+        'priority': _priority_from_text(detail),
+    }
 
 
 def get_recommendations():
-    latest = SENSOR_HISTORY[-1]
-    actions = []
-    if latest['humidity'] < 45:
-        actions.append({'title': 'Irrigation légère', 'detail': 'Appliquer 12–18 mm en priorité sur A1/B1.', 'priority': 'high'})
-    if latest['ec'] >= 1.8:
-        actions.append({'title': 'Réduire la salinité', 'detail': 'Prévoir un lessivage contrôlé sur zones critiques.', 'priority': 'high'})
-    if latest['ph'] < 6.0:
-        actions.append({'title': 'Corriger le pH', 'detail': 'Amendement calcique progressif sur la prochaine tournée.', 'priority': 'medium'})
-    if len(actions) < 3:
-        actions.append({'title': 'Maintenir la cadence de mesure', 'detail': 'Conserver un cycle de 24 points pour stabiliser la carte.', 'priority': 'low'})
-    return {'actions': actions[:3], 'crops': CROPS[:5]}
+    latest_runtime = to_runtime_features(SENSOR_HISTORY[-1])
+    latest_ml = to_ml_features(
+        sensor_data=latest_runtime,
+        rainfall=float(WEATHER.get('rain_mm_next_24h', 0.0)),
+    )
+
+    result = predict(latest_ml)
+    actions = [_to_action_item(action) for action in result.get('actions', [])][:3]
+    if not actions:
+        actions = [{
+            'title': 'Maintenir la cadence de mesure',
+            'detail': 'Conserver un cycle de mesures stable pour fiabiliser la carte.',
+            'priority': 'low',
+        }]
+
+    crops = []
+    for item in result.get('top_crops', []):
+        if isinstance(item, dict):
+            name = item.get('name')
+        else:
+            name = str(item)
+        if name:
+            crops.append(name)
+
+    return {'actions': actions, 'crops': crops[:5] or DEFAULT_CROPS[:5]}

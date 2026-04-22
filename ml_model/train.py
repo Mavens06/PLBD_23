@@ -98,13 +98,11 @@ def train_and_select():
       5. Sélectionne et sauvegarde le meilleur modèle.
     """
     # ── Étape 1 : Données ─────────────────────────────────────────────────────
-    if not os.path.exists(CSV_PATH):
-        print("=" * 60)
-        print("  ÉTAPE 1 : Préparation du dataset fusionné")
-        print("=" * 60)
-        create_final_dataset(output_path=CSV_PATH)
-    else:
-        print(f"[train] Dataset existant chargé : {CSV_PATH}")
+    print("=" * 60)
+    print("  ÉTAPE 1 : Préparation du dataset fusionné")
+    print("=" * 60)
+    create_final_dataset(output_path=CSV_PATH)
+    print(f"[train] Dataset final régénéré : {CSV_PATH}")
 
     # ── Étape 2 : Prétraitement ───────────────────────────────────────────────
     print("\n" + "=" * 60)

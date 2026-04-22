@@ -10,11 +10,13 @@ from __future__ import annotations
 
 import os
 import re
+import unicodedata
 from pathlib import Path
 from typing import Dict, List, Tuple
 
 import pandas as pd
 from data_loader import generate_dataset
+from rules.crop_catalog import CROP_CATALOG
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 OUTPUT_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
@@ -31,6 +33,14 @@ COLUMN_ALIASES = {
 REQUIRED_COLS = {"temperature", "humidity", "ph", "rainfall", "label"}
 OPTIONAL_COLS = ["salinity"]
 DROP_COLS = {"N", "P", "K", "n", "p", "k", "nitrogen", "phosphorus", "phosphore", "potassium"}
+
+
+def _slug_text(value: str) -> str:
+    ascii_text = unicodedata.normalize("NFKD", str(value)).encode("ascii", "ignore").decode("ascii")
+    return re.sub(r"[^a-z0-9]+", " ", ascii_text.lower()).strip()
+
+
+V1_LABEL_MAP = {_slug_text(crop['name']): crop['name'] for crop in CROP_CATALOG}
 
 
 def _norm(name: str) -> str:
@@ -86,6 +96,8 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
         else:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
+    data = data.dropna(subset=["label"])
+    data.loc[:, "label"] = data["label"].map(lambda v: V1_LABEL_MAP.get(_slug_text(v)))
     data = data.dropna(subset=["label"])
     for col in [c for c in keep_cols if c != "label"]:
         if data[col].isna().any():

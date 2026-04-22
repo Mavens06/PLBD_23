@@ -4,6 +4,7 @@ from typing import Optional
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from ml_model.feature_mapping import to_runtime_features
 
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), '.env'))
 
@@ -31,8 +32,7 @@ def generate_expert_response(
     lang_label = _LANG_LABELS.get(language, _LANG_LABELS['fr'])
 
     if sensor_data:
-        allowed_keys = {'ph', 'humidity', 'ec', 'temp'}
-        safe_data = {k: v for k, v in sensor_data.items() if k in allowed_keys and isinstance(v, (int, float))}
+        safe_data = to_runtime_features(sensor_data)
         sensor_context = (
             'Données terrain mesurées par la Raspberry Pi : '
             f"{json.dumps(safe_data, ensure_ascii=False)}. "
