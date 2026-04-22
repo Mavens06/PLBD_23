@@ -97,7 +97,8 @@ def _clean_selected(df: pd.DataFrame) -> pd.DataFrame:
             data[col] = pd.to_numeric(data[col], errors="coerce")
 
     rows_before_v1_filter = len(data)
-    data["label"] = data["label"].map(lambda v: V1_LABEL_MAP.get(_slug_text(v)))
+    label_slug = data["label"].map(_slug_text)
+    data["label"] = label_slug.map(V1_LABEL_MAP)
     data = data.dropna(subset=["label"])
     filtered_out = rows_before_v1_filter - len(data)
     if filtered_out > 0:

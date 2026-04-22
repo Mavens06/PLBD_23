@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Dict
+from typing import Dict, Optional
 
 RUNTIME_FEATURES = ('humidity', 'ph', 'ec', 'temp')
 ML_FEATURES = ('temperature', 'humidity', 'ph', 'rainfall', 'salinity')
@@ -13,16 +13,17 @@ def _to_float(value, default: float = 0.0) -> float:
         return float(default)
 
 
-def to_ml_features(sensor_data: Dict[str, float] | None = None, rainfall: float = 0.0) -> Dict[str, float]:
+def to_ml_features(sensor_data: Dict[str, float] | None = None, rainfall: Optional[float] = None) -> Dict[str, float]:
     """Convertit les données runtime (ec/temp) vers le schéma ML (salinity/temperature)."""
     sensor_data = sensor_data or {}
     temperature = sensor_data.get('temperature', sensor_data.get('temp', 0.0))
     salinity = sensor_data.get('salinity', sensor_data.get('ec', 0.0))
+    rainfall_value = rainfall if rainfall is not None else sensor_data.get('rainfall', 0.0)
     return {
         'temperature': _to_float(temperature, 0.0),
         'humidity': _to_float(sensor_data.get('humidity', 0.0), 0.0),
         'ph': _to_float(sensor_data.get('ph', 0.0), 0.0),
-        'rainfall': _to_float(sensor_data.get('rainfall', rainfall), rainfall),
+        'rainfall': _to_float(rainfall_value, 0.0),
         'salinity': _to_float(salinity, 0.0),
     }
 
