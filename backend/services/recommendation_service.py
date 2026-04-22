@@ -1,5 +1,5 @@
 from backend.models.state import SENSOR_HISTORY, WEATHER
-from ml_model.feature_mapping import to_ml_features, to_runtime_features
+from ml_model.feature_mapping import to_runtime_features
 from ml_model.inference.predict import predict
 from ml_model.rules.crop_catalog import CROP_CATALOG
 
@@ -32,12 +32,12 @@ def _to_action_item(action) -> dict:
 
 def get_recommendations():
     latest_runtime = to_runtime_features(SENSOR_HISTORY[-1])
-    latest_ml = to_ml_features(
-        sensor_data=latest_runtime,
-        rainfall=float(WEATHER.get('rain_mm_next_24h', 0.0)),
-    )
+    latest_for_inference = {
+        **latest_runtime,
+        'rainfall': WEATHER.get('rain_mm_next_24h', 0.0),
+    }
 
-    result = predict(latest_ml)
+    result = predict(latest_for_inference)
     actions = [_to_action_item(action) for action in result.get('actions', [])][:3]
     if not actions:
         actions = [{
