@@ -1,0 +1,7 @@
+{
+  "mission_name": "Premiere simulation terrain",
+  "movement_code": "AUTONOMOUS_GRID_V1",
+  "points": ["A1", "A2", "B2", "C3"],
+  "stabilization_seconds": 3,
+  "read_count": 10
+}

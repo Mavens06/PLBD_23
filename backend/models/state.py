@@ -17,6 +17,7 @@ ROBOT_STATE = {
     'mission': 'Cartographie parcelle nord',
     'active_point': 'B3',
     'progress_pct': 58,
+    'mission_active': False,
     'total_points': 24,
     'measured_points': 14,
 }

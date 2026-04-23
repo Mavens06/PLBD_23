@@ -260,20 +260,55 @@ async function loadWeather() {
 }
 
 // init
+let pollInterval = null;
+
+function startPolling() {
+    if (pollInterval) clearInterval(pollInterval);
+    pollInterval = setInterval(async () => {
+        try {
+            const resM = await apiGet('/api/measurements');
+            if (resM && resM.latest) {
+                LATEST_MEASURE.humidity = resM.latest.humidity;
+                LATEST_MEASURE.ph = resM.latest.ph;
+                LATEST_MEASURE.ec = resM.latest.ec;
+                LATEST_MEASURE.temp = resM.latest.temp;
+            }
+            
+            const resS = await apiGet('/api/mission');
+            if (resS && resS.robot) {
+                MISSION_STATE.status = resS.robot.status;
+                MISSION_STATE.mode = resS.robot.mission;
+                MISSION_STATE.activePoint = resS.robot.active_point;
+                MISSION_STATE.completedPoints = resS.measured_points;
+                MISSION_STATE.totalPoints = resS.total_points;
+            }
+            
+            renderDashboard();
+            renderExpertData();
+        } catch(e) {
+            console.warn("Polling error:", e);
+        }
+    }, 2000); 
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     try {
         const resM = await apiGet('/api/measurements');
-        LATEST_MEASURE.humidity = resM.latest.humidity;
-        LATEST_MEASURE.ph = resM.latest.ph;
-        LATEST_MEASURE.ec = resM.latest.ec;
-        LATEST_MEASURE.temp = resM.latest.temp;
+        if (resM && resM.latest) {
+            LATEST_MEASURE.humidity = resM.latest.humidity;
+            LATEST_MEASURE.ph = resM.latest.ph;
+            LATEST_MEASURE.ec = resM.latest.ec;
+            LATEST_MEASURE.temp = resM.latest.temp;
+        }
         
         const resS = await apiGet('/api/mission');
-        MISSION_STATE.status = resS.robot.status;
-        MISSION_STATE.mode = resS.robot.mission;
-        MISSION_STATE.activePoint = resS.robot.active_point;
-        MISSION_STATE.completedPoints = resS.measured_points;
-        MISSION_STATE.totalPoints = resS.total_points;
+        if (resS && resS.robot) {
+            MISSION_STATE.status = resS.robot.status;
+            MISSION_STATE.mode = resS.robot.mission;
+            MISSION_STATE.activePoint = resS.robot.active_point;
+            MISSION_STATE.completedPoints = resS.measured_points;
+            MISSION_STATE.totalPoints = resS.total_points;
+        }
     } catch(e) {
         console.error("Backend fetch error, using fallback data", e);
     }
@@ -286,25 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   loadWeather();
   initChatbot();
 
-  setInterval(async () => {
-      try {
-        const resM = await apiGet('/api/measurements');
-        LATEST_MEASURE.humidity = resM.latest.humidity;
-        LATEST_MEASURE.ph = resM.latest.ph;
-        LATEST_MEASURE.ec = resM.latest.ec;
-        LATEST_MEASURE.temp = resM.latest.temp;
-        
-        const resS = await apiGet('/api/mission');
-        MISSION_STATE.status = resS.robot.status;
-        MISSION_STATE.mode = resS.robot.mission;
-        MISSION_STATE.activePoint = resS.robot.active_point;
-        MISSION_STATE.completedPoints = resS.measured_points;
-        MISSION_STATE.totalPoints = resS.total_points;
-        
-        renderDashboard();
-        renderExpertData();
-      } catch(e) {}
-  }, 5000);
+  startPolling();
 });
 
 window.addEventListener('resize',()=>{ drawMap(); drawPhChart(); });

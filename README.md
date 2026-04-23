@@ -66,6 +66,37 @@ Ouvrir directement :
 python -m raspberry_pi.main
 ```
 
+## Scenario JSON (mission personnalisable)
+Vous pouvez definir un scenario avec vos points et vos parametres de mission:
+
+Exemple de fichier: [raspberry_pi/scenarios/first_demo.json](raspberry_pi/scenarios/first_demo.json)
+
+Lancer le scenario:
+```bash
+python3 raspberry_pi/main.py --scenario-file raspberry_pi/scenarios/first_demo.json
+```
+
+Ou sans fichier scenario:
+```bash
+python3 raspberry_pi/main.py --points A1,B2,C3 --stabilization 3 --read-count 10
+```
+
+## Entrainement modele + preparation chatbot multilingue
+Pipeline complet (modele ML + corpus chatbot + test inference):
+```bash
+python3 scripts/prepare_simulation.py
+```
+
+Ce pipeline genere:
+- `ml_model/best_model.pkl`
+- `ml_model/scaler.pkl`
+- `backend/data/chatbot_multilang_train.jsonl`
+
+Generation seule du corpus chatbot:
+```bash
+python3 backend/chatbot_language_training.py
+```
+
 ## Réel vs simulé
 ### Réel dans l’architecture
 - séparation claire embarqué / backend / frontend

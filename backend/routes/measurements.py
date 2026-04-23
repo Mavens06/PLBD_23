@@ -17,3 +17,9 @@ def upload_measurement(meas: Measurement):
 def measurements():
     latest, history = get_measurements()
     return {'latest': latest, 'history': history[-10:]}
+
+
+@router.get('/latest', response_model=Measurement)
+def get_latest_measurement():
+    latest, _ = get_measurements()
+    return latest
