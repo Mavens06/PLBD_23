@@ -20,6 +20,12 @@ class RobotState(BaseModel):
     progress_pct: int
 
 
+class RobotStateUpdate(BaseModel):
+    status: str
+    active_point: str
+    progress_pct: int
+    measured_points: int
+
 class MissionResponse(BaseModel):
     robot: RobotState
     total_points: int

@@ -1,24 +1,29 @@
-const APP_STATE = {
+const appState = {
   language: 'fr',
-  robot: {
-    status: 'Robot actif',
-    mission: 'Mission parcelle nord',
-    activePoint: 'B3',
-    progress: 58,
+  mission: null,
+  latestMeasurement: null,
+  map: [],
+  recommendations: null,
+  weather: null,
+};
+
+const I18N = {
+  fr: {
+    title: 'Vue mission',
+    subtitle: 'Suivi temps réel du robot, des capteurs et des recommandations.',
+    ask: 'Posez votre question...',
+    botIntro: 'Bonjour. Je peux expliquer l’état du champ, la prochaine action et les cultures recommandées.',
   },
-  sensors: {
-    humidity: 42,
-    ph: 6.3,
-    ec: 1.8,
-    temp: 22.9,
+  ar: {
+    title: 'واجهة المهمة',
+    subtitle: 'متابعة مباشرة للروبوت والقياسات والتوصيات.',
+    ask: 'اكتب سؤالك...',
+    botIntro: 'مرحباً. أستطيع شرح حالة الحقل والإجراء التالي والمحاصيل المقترحة.',
   },
-  weather: {
-    temperature: 24,
-    humidity: 35,
-    wind: 16,
-    rain: 0,
-  },
-  history: {
-    ph: [6.1, 6.3, 6.2, 6.4, 6.3, 6.2, 6.3],
+  da: {
+    title: 'واجهة الميسيون',
+    subtitle: 'تتبع مباشر ديال الروبو والقياسات والنصايح.',
+    ask: 'كتب سؤالك...',
+    botIntro: 'سلام. نقدر نشرح ليك حالة الحقل، الخطوة الجاية، والمحاصيل المناسبة.',
   },
 };
