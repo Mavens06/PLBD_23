@@ -110,16 +110,71 @@ function compatibilityScore(z, cropName){
   return Math.round(clamp(100-penalty, 0, 100));
 }
 
+// Encodage SÉMANTIQUE CONSTANT pour la carte : quelle que soit la variable,
+// vert = bon · ambre = limite · rouge = à corriger · gris = non mesuré.
+// (Auparavant le bleu signifiait "humidité faible" et le rouge "pH hors plage",
+//  ce qui rendait la même couleur ambiguë d'une variable à l'autre.)
+const MAP_STATUS_COLORS = { good:'#4a9c55', warn:'#e6a817', bad:'#c0392b', none:'#d9e3da' };
+
+// Bandes de santé par variable : [bad<, warn<, GOOD entre, warn>, bad>]
+// good si dans [g0,g1] ; warn dans les marges ; bad au-delà.
+const VARIABLE_BANDS = {
+  humidity: { good:[45,82], warn:[35,90] },
+  ph:       { good:[6.2,7.2], warn:[5.8,7.8] },
+  temp:     { good:[16,30], warn:[12,34] },
+  ec:       { good:[0,1.5], warn:[0,2.5] },   // EC : plus c'est haut, pire (salinité)
+};
+const VARIABLE_KEY = { humidity:'humidity', ph:'ph', temp:'temp', ec:'ec' };
+
+function variableStatus(z, variable){
+  if (!z) return 'none';
+  const val = z[VARIABLE_KEY[variable] || variable];
+  if (val == null) return 'none';
+  const b = VARIABLE_BANDS[variable];
+  if (!b) return 'good';
+  if (val >= b.good[0] && val <= b.good[1]) return 'good';
+  if (val >= b.warn[0] && val <= b.warn[1]) return 'warn';
+  return 'bad';
+}
+
 function colorForVariable(z, variable){
-  if (!z) return '#d9e3da';
-  if (variable === 'humidity') return z.humidity < 45 ? '#2f80ed' : z.humidity > 82 ? '#e6a817' : '#4a9c55';
-  if (variable === 'ph') return (z.ph < 5.8 || z.ph > 7.8) ? '#c0392b' : (z.ph < 6.2 || z.ph > 7.2) ? '#e6a817' : '#4a9c55';
-  if (variable === 'temp') return (z.temp < 14 || z.temp > 32) ? '#e6a817' : '#4a9c55';
-  if (variable === 'ec') {
-    const ec = z.ec || 0;
-    return ec > 2.5 ? '#c0392b' : ec > 1.5 ? '#e6a817' : '#4a9c55';
-  }
-  return '#4a9c55';
+  return MAP_STATUS_COLORS[variableStatus(z, variable)];
+}
+
+// Cultures naturellement les mieux adaptées au sol mesuré (hors culture courante).
+// Équivalent frontend du champ "better_suited" du backend (rules.correction).
+function betterSuitedCrops(z, currentCrop, k = 3){
+  if (!z) return [];
+  return cropNames()
+    .filter((n) => n !== currentCrop)
+    .map((n) => ({ name:n, score: compatibilityScore(z, n) }))
+    .sort((a, b) => b.score - a.score)
+    .slice(0, k);
+}
+
+// Diagnostic par variable pour la culture cible : statut + plage cible + valeur.
+// Équivalent frontend de rules.correction.diagnose().
+function diagnoseZoneForCrop(z, cropName){
+  if (!z) return null;
+  const c = getCrop(cropName);
+  const defs = [
+    { key:'ph',       label:t('ph'),          val:z.ph,       range:c.ph,       unit:'' },
+    { key:'humidity', label:t('humidity'),    val:z.humidity, range:c.humidity, unit:'%' },
+    { key:'temp',     label:t('temperature'), val:z.temp,     range:c.temp,     unit:'°C' },
+    { key:'ec',       label:t('mapEc'),       val:z.ec ?? 0,  range:c.ec,       unit:' mS/cm' },
+  ];
+  const items = defs.map((d) => {
+    let status = 'good';
+    if (d.val < d.range[0]) status = 'low';
+    else if (d.val > d.range[1]) status = 'high';
+    return { ...d, status };
+  });
+  return {
+    crop: cropName,
+    compatibility: compatibilityScore(z, cropName),
+    items,
+    betterSuited: betterSuitedCrops(z, cropName),
+  };
 }
 
 function evaluateZoneForCrop(z, cropName){

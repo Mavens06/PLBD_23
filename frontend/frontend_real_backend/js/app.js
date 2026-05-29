@@ -117,24 +117,13 @@ function renderSelectedZone() {
   const zoneSelect = document.getElementById('zoneCropSelect');
   if (zoneSelect) zoneSelect.value = crop;
 
-  const measures = document.getElementById('selectedZoneMeasures');
-  if (measures) {
-    measures.innerHTML = data ? `
-      <div class="zone-measure-card"><div class="zone-measure-label">${t('humidity')}</div><div class="zone-measure-value">${data.humidity}%</div></div>
-      <div class="zone-measure-card"><div class="zone-measure-label">${t('ph')}</div><div class="zone-measure-value">${data.ph}</div></div>
-      <div class="zone-measure-card"><div class="zone-measure-label">${t('temperature')}</div><div class="zone-measure-value">${data.temp}°C</div></div>
-      <div class="zone-measure-card"><div class="zone-measure-label">${t('mapEc')}</div><div class="zone-measure-value">${data.ec ?? '—'} mS/cm</div></div>`
-      : `<div class="zone-measure-card"><div class="zone-measure-label">${t('measure')}</div><div class="zone-measure-value">${t('waiting')}</div></div>`;
-  }
-
-  const actions = recommendActionsForZone(data, crop);
-  const practices = document.getElementById('selectedZonePractices');
-  if (practices) {
-    practices.innerHTML = actions.map((a) => `
-      <div class="practice-card ${a.type}">
-        <div class="practice-title">${a.title}</div>
-        <div class="practice-detail"><strong>${a.value}</strong> · ${a.detail}</div>
-      </div>`).join('');
+  // Rendu local immédiat (fonctionne hors-ligne et identique dans les deux
+  // frontends), puis enrichissement par le backend si fetchCorrection existe.
+  renderDiagnostic(diagnoseZoneForCrop(data, crop), recommendActionsForZone(data, crop));
+  if (data && typeof window.fetchCorrection === 'function') {
+    window.fetchCorrection(z, crop)
+      .then((diag) => { if (diag && APP_STATE.selectedZone === z) renderDiagnostic(diag.local, diag.actions); })
+      .catch(() => {});
   }
 
   const zt = document.getElementById('zoneDetailTitle');
@@ -142,6 +131,63 @@ function renderSelectedZone() {
   if (zt && zg) {
     zt.textContent = `${t('selectedZone')} ${z}`;
     zg.innerHTML = `<span class="zone-tag" style="background:${ev.color};color:white">${ev.label}</span><span class="zone-tag" style="background:${cropColor(crop)};color:white">${cropLabel(crop)}</span>`;
+  }
+}
+
+// Affichage premium du diagnostic d'une zone pour la culture cible :
+// anneau de compatibilité + pastilles par variable + actions + "mieux adapté".
+function renderDiagnostic(diag, actions) {
+  const measures = document.getElementById('selectedZoneMeasures');
+  const practices = document.getElementById('selectedZonePractices');
+
+  if (!diag) {
+    if (measures) measures.innerHTML = `<div class="zone-measure-card"><div class="zone-measure-label">${t('measure')}</div><div class="zone-measure-value">${t('waiting')}</div></div>`;
+    if (practices) practices.innerHTML = '';
+    return;
+  }
+
+  const score = diag.compatibility;
+  const ringColor = score >= 70 ? 'var(--green-light)' : score >= 45 ? 'var(--orange)' : 'var(--red)';
+  const emoji = getCrop(diag.crop).emoji;
+
+  if (measures) {
+    const pills = diag.items.map((it) => {
+      const cls = it.status === 'good' ? 'good' : 'off';
+      const icon = it.status === 'good' ? '✓' : it.status === 'low' ? '↓' : '↑';
+      const v = (it.val ?? '—') + (it.unit || '');
+      return `<div class="diag-pill ${cls}">
+        <div class="diag-pill-top"><span class="diag-pill-label">${it.label}</span><span class="diag-pill-icon">${icon}</span></div>
+        <div class="diag-pill-val">${v}</div>
+        <div class="diag-pill-range">${t('target')} ${it.range[0]}–${it.range[1]}${it.unit||''}</div>
+      </div>`;
+    }).join('');
+    measures.innerHTML = `
+      <div class="diag-head">
+        <div class="diag-ring" style="background:conic-gradient(${ringColor} ${score*3.6}deg, #eef3ee 0deg)">
+          <div class="diag-ring-inner"><span class="diag-ring-pct">${score}%</span></div>
+        </div>
+        <div class="diag-head-txt">
+          <div class="diag-head-crop">${emoji} ${cropLabel(diag.crop)}</div>
+          <div class="diag-head-sub">${t('compatibility')}</div>
+        </div>
+      </div>
+      <div class="diag-pill-grid">${pills}</div>`;
+  }
+
+  if (practices) {
+    const actionCards = (actions || []).map((a) => `
+      <div class="practice-card ${a.type}">
+        <div class="practice-title">${a.title}</div>
+        <div class="practice-detail"><strong>${a.value}</strong> · ${a.detail}</div>
+      </div>`).join('');
+    let better = '';
+    if (diag.betterSuited && diag.betterSuited.length) {
+      const chips = diag.betterSuited.map((b) =>
+        `<span class="better-chip" style="--crop-color:${cropColor(b.name)}">${getCrop(b.name).emoji} ${cropLabel(b.name)} · ${b.score}%</span>`
+      ).join('');
+      better = `<div class="better-suited"><div class="better-suited-title">🌱 ${t('betterSuited')}</div><div class="better-chips">${chips}</div></div>`;
+    }
+    practices.innerHTML = actionCards + better;
   }
 }
 

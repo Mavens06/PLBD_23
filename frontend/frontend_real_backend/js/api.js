@@ -49,3 +49,33 @@ async function postBackend(path, payload = {}) {
     body: JSON.stringify(payload),
   });
 }
+
+// Diagnostic de correction faisant autorité, calculé par le backend
+// (rules.correction). Normalisé pour renderDiagnostic(). Repli silencieux
+// sur le rendu local si le backend est injoignable.
+const _CORR_UNIT  = { ph:'', humidity:'%', temperature:'°C', ec:' mS/cm' };
+const _CORR_LABEL = { ph:'ph', humidity:'humidity', temperature:'temperature', ec:'mapEc' };
+
+window.fetchCorrection = async function (zone, crop) {
+  const data = APP_STATE.fieldData[zone];
+  if (!data) return null;
+  try {
+    const r = await fetchJSON(`/recommendation/${zone}/correction?crop=${encodeURIComponent(crop)}`);
+    const items = (r.diagnostics || []).map((d) => ({
+      label: t(_CORR_LABEL[d.variable] || d.variable),
+      val: d.value,
+      unit: _CORR_UNIT[d.variable] ?? '',
+      range: d.range,
+      status: d.status === 'ok' ? 'good' : d.status,   // ok | low | high
+    }));
+    const local = {
+      crop: r.target_crop || crop,
+      compatibility: Math.round(r.compatibility),
+      items,
+      betterSuited: (r.better_suited || []).map((b) => ({ name: b.crop, score: Math.round(b.score) })),
+    };
+    return { local, actions: recommendActionsForZone(data, crop) };
+  } catch (_) {
+    return null;
+  }
+};

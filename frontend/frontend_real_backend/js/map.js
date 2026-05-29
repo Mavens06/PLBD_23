@@ -21,16 +21,14 @@ function valueLabel(z) {
 }
 
 function legendForMode() {
-  if (currentMapVar === 'humidity') {
-    return `<div class="leg-item"><span class="leg-dot" style="background:#2f80ed"></span>${t('weak')}</div><div class="leg-item"><span class="leg-dot" style="background:#4a9c55"></span>${t('correct')}</div><div class="leg-item"><span class="leg-dot" style="background:#e6a817"></span>${t('high')}</div><div class="leg-item"><span class="leg-dot" style="background:#d9e3da"></span>${t('unmeasured')}</div>`;
-  }
-  if (currentMapVar === 'ph') {
-    return `<div class="leg-item"><span class="leg-dot" style="background:#c0392b"></span>${t('outRange')}</div><div class="leg-item"><span class="leg-dot" style="background:#e6a817"></span>${t('borderline')}</div><div class="leg-item"><span class="leg-dot" style="background:#4a9c55"></span>${t('correct')}</div><div class="leg-item"><span class="leg-dot" style="background:#d9e3da"></span>${t('unmeasured')}</div>`;
-  }
-  if (currentMapVar === 'ec') {
-    return `<div class="leg-item"><span class="leg-dot" style="background:#c0392b"></span>&gt; 2.5 mS/cm</div><div class="leg-item"><span class="leg-dot" style="background:#e6a817"></span>1.5–2.5 mS/cm</div><div class="leg-item"><span class="leg-dot" style="background:#4a9c55"></span>&lt; 1.5 mS/cm</div><div class="leg-item"><span class="leg-dot" style="background:#d9e3da"></span>${t('unmeasured')}</div>`;
-  }
-  return `<div class="leg-item"><span class="leg-dot" style="background:#e6a817"></span>${t('borderline')}</div><div class="leg-item"><span class="leg-dot" style="background:#4a9c55"></span>${t('correct')}</div><div class="leg-item"><span class="leg-dot" style="background:#d9e3da"></span>${t('unmeasured')}</div>`;
+  // Légende sémantique CONSTANTE (mêmes couleurs = même sens partout).
+  const c = MAP_STATUS_COLORS;
+  return (
+    `<div class="leg-item"><span class="leg-dot" style="background:${c.good}"></span>${t('correct')}</div>` +
+    `<div class="leg-item"><span class="leg-dot" style="background:${c.warn}"></span>${t('borderline')}</div>` +
+    `<div class="leg-item"><span class="leg-dot" style="background:${c.bad}"></span>${t('outRange')}</div>` +
+    `<div class="leg-item"><span class="leg-dot" style="background:${c.none}"></span>${t('unmeasured')}</div>`
+  );
 }
 
 function drawMap() {
@@ -96,19 +94,39 @@ function drawMap() {
   const scaleEl = document.getElementById('mapScaleLabels');
   if (labelEl) labelEl.textContent = labelForMode();
   if (legendEl) legendEl.innerHTML = legendForMode();
-  if (barEl) barEl.style.background = 'linear-gradient(90deg,#2f80ed,#c0392b,#e6a817,#4a9c55)';
-  if (scaleEl) scaleEl.innerHTML = `<span>${t('scaleLow')}</span><span>${t('scaleGood')}</span>`;
+  // Échelle séquentielle cohérente : bon (vert) → limite (ambre) → à corriger (rouge).
+  if (barEl) barEl.style.background = `linear-gradient(90deg,${MAP_STATUS_COLORS.good},${MAP_STATUS_COLORS.warn},${MAP_STATUS_COLORS.bad})`;
+  if (scaleEl) scaleEl.innerHTML = `<span>${t('correct')}</span><span>${t('outRange')}</span>`;
 
-  canvas.onclick = (e) => {
+  const zoneAt = (e) => {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    const nearest = ZONES
+    return ZONES
       .map((z) => ({ z, d: Math.hypot(x - ZONE_POS[z].x*W, y - ZONE_POS[z].y*H) }))
       .sort((a, b) => a.d - b.d)[0].z;
-    selectZone(nearest);
+  };
+
+  canvas.onclick = (e) => {
+    selectZone(zoneAt(e));
     showPage('reco', document.querySelector('[onclick*=reco]'));
   };
+
+  // Survol : info-bulle avec la valeur de la zone la plus proche.
+  const tip = document.getElementById('mapTooltip');
+  if (tip) {
+    canvas.onmousemove = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const z = zoneAt(e);
+      const data = APP_STATE.fieldData[z];
+      const status = { good:t('correct'), warn:t('borderline'), bad:t('outRange'), none:t('unmeasured') }[variableStatus(data, currentMapVar)];
+      tip.innerHTML = `<strong>${z}</strong> · ${valueLabel(data)}<br><span style="opacity:.8">${status}</span>`;
+      tip.style.left = (e.clientX - rect.left + 12) + 'px';
+      tip.style.top = (e.clientY - rect.top + 12) + 'px';
+      tip.classList.add('show');
+    };
+    canvas.onmouseleave = () => tip.classList.remove('show');
+  }
 }
 
 function roundRect(ctx, x, y, w, h, r) {

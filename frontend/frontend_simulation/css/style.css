@@ -506,3 +506,30 @@ body.rtl .zone-card { text-align:right; }
 body.rtl .zone-card::before { left:auto; right:0; }
 body.rtl .chat-input-row { direction:rtl; }
 body.rtl .bottom-nav { direction:rtl; }
+
+/* --- Diagnostic premium (section Conseils) ------------------------------- */
+.diag-head { display:flex; align-items:center; gap:14px; margin:6px 0 16px; }
+.diag-ring { width:74px; height:74px; border-radius:50%; display:grid; place-items:center; flex-shrink:0; box-shadow:var(--shadow); }
+.diag-ring-inner { width:56px; height:56px; border-radius:50%; background:white; display:grid; place-items:center; }
+.diag-ring-pct { font-weight:800; font-size:16px; color:var(--text); }
+.diag-head-crop { font-weight:800; font-size:17px; }
+.diag-head-sub { color:var(--grey); font-size:11px; text-transform:uppercase; letter-spacing:.6px; margin-top:2px; }
+.diag-pill-grid { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+.diag-pill { background:#f8fcf8; border:1px solid var(--border); border-left:4px solid var(--green-light); border-radius:14px; padding:10px 12px; transition:.2s transform; }
+.diag-pill:hover { transform:translateY(-2px); }
+.diag-pill.off { border-left-color:var(--red); background:#fff8f6; }
+.diag-pill-top { display:flex; justify-content:space-between; align-items:center; }
+.diag-pill-label { color:var(--grey); text-transform:uppercase; font-size:10px; letter-spacing:.5px; font-weight:700; }
+.diag-pill-icon { font-weight:800; font-size:13px; }
+.diag-pill.good .diag-pill-icon { color:var(--green-light); }
+.diag-pill.off .diag-pill-icon { color:var(--red); }
+.diag-pill-val { font-size:18px; font-weight:800; margin-top:3px; }
+.diag-pill-range { font-size:10px; color:var(--grey); margin-top:1px; }
+.better-suited { margin-top:16px; }
+.better-suited-title { font-weight:700; font-size:13px; margin-bottom:8px; }
+.better-chips { display:flex; flex-wrap:wrap; gap:8px; }
+.better-chip { font-size:12px; font-weight:700; padding:6px 12px; border-radius:20px; color:white; background:var(--crop-color,#4a9c55); box-shadow:var(--shadow); }
+body.rtl .diag-head { flex-direction:row-reverse; text-align:right; }
+body.rtl .diag-pill { border-left:none; border-right:4px solid var(--green-light); }
+body.rtl .diag-pill.off { border-right-color:var(--red); }
+@media(max-width:720px){ .diag-pill-grid{ grid-template-columns:1fr 1fr; } }
