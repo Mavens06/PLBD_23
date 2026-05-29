@@ -13,12 +13,22 @@ async function syncFromBackend() {
   ]);
 
   if (mission.status === 'fulfilled' && mission.value.robot) {
-    const r = mission.value.robot;
+    const mv = mission.value;
+    // Adopter le plan du backend (défini via l'UI puis exécuté par le robot) :
+    // la carte reflète exactement les points que le robot va mesurer.
+    if (Array.isArray(mv.plan) && mv.plan.length) {
+      const sameLabels =
+        mv.plan.length === APP_STATE.plan.length &&
+        mv.plan.every((p, i) => p.label === APP_STATE.plan[i].label
+          && p.x === APP_STATE.plan[i].x && p.y === APP_STATE.plan[i].y);
+      if (!sameLabels) applyPlanPoints(mv.plan);
+    }
+    const r = mv.robot;
     APP_STATE.robot.status = r.status || APP_STATE.robot.status;
     APP_STATE.robot.activePoint = r.active_point || r.activePoint || APP_STATE.robot.activePoint;
     APP_STATE.robot.progress = Number(r.progress_pct ?? r.progress ?? APP_STATE.robot.progress);
-    APP_STATE.robot.measuredPoints = Number(mission.value.measured_points ?? APP_STATE.robot.measuredPoints);
-    APP_STATE.robot.totalPoints = Number(mission.value.total_points ?? APP_STATE.robot.totalPoints);
+    APP_STATE.robot.measuredPoints = Number(mv.measured_points ?? APP_STATE.robot.measuredPoints);
+    APP_STATE.robot.totalPoints = Number(mv.total_points ?? APP_STATE.robot.totalPoints);
   }
 
   if (measurements.status === 'fulfilled') {
@@ -26,7 +36,7 @@ async function syncFromBackend() {
     const all = payload.history || (payload.latest ? [payload.latest] : []);
     all.forEach((m, idx) => {
       const point = m.point || m.zone || (APP_STATE.missionRoute[idx] || APP_STATE.robot.activePoint);
-      if (ZONES.includes(point)) {
+      if (planLabels().includes(point)) {
         APP_STATE.fieldData[point] = {
           point,
           measured: true,

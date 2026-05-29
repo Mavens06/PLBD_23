@@ -1,9 +1,69 @@
-const ZONES = ['A1','A2','A3','B1','B2','B3','C1','C2','C3'];
-const ZONE_POS = {
-  A1:{x:.17,y:.22}, A2:{x:.5,y:.22}, A3:{x:.83,y:.22},
-  B1:{x:.17,y:.5},  B2:{x:.5,y:.5},  B3:{x:.83,y:.5},
-  C1:{x:.17,y:.78}, C2:{x:.5,y:.78}, C3:{x:.83,y:.78},
-};
+// Plan de mission par défaut : grille 3×3, espacement 3 m. Coordonnées (x,y) en
+// mètres. La source de vérité DYNAMIQUE est APP_STATE.plan (défini dans state.js) ;
+// ce tableau sert d'amorçage et de repli. N points → N blocs sur la carte.
+const DEFAULT_PLAN = [
+  {label:'A1',x:0,y:0}, {label:'A2',x:3,y:0}, {label:'A3',x:6,y:0},
+  {label:'B1',x:0,y:3}, {label:'B2',x:3,y:3}, {label:'B3',x:6,y:3},
+  {label:'C1',x:0,y:6}, {label:'C2',x:3,y:6}, {label:'C3',x:6,y:6},
+];
+const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
+
+// Plan courant (lu à l'exécution). Repli sur DEFAULT_PLAN tant qu'APP_STATE n'existe pas.
+function currentPlan(){
+  return (typeof APP_STATE !== 'undefined' && APP_STATE && APP_STATE.plan && APP_STATE.plan.length)
+    ? APP_STATE.plan : DEFAULT_PLAN;
+}
+function planLabels(){ return currentPlan().map((p) => p.label); }
+function planPoint(label){ return currentPlan().find((p) => p.label === label) || null; }
+
+// Position NORMALISÉE [0..1] d'un point pour le dessin de la carte : fit-to-bounds
+// des coordonnées du plan, avec marge. Remplace l'ancien ZONE_POS figé.
+function posForPoint(label){
+  const plan = currentPlan();
+  const p = plan.find((q) => q.label === label);
+  if (!p) return { x:.5, y:.5 };
+  const xs = plan.map((q) => q.x), ys = plan.map((q) => q.y);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  const pad = 0.14;
+  const norm = (v, mn, mx) => (mx - mn < 1e-9) ? .5 : pad + (1 - 2 * pad) * (v - mn) / (mx - mn);
+  return { x: norm(p.x, minX, maxX), y: norm(p.y, minY, maxY) };
+}
+
+// Champ de sol synthétique DÉTERMINISTE en fonction de (x,y) en mètres.
+// MIROIR EXACT de soil_at() dans raspberry_pi/sensors/rs485_4in1.py — toute
+// modification doit être répercutée des deux côtés (mock backend ↔ simulation).
+function soilAt(x, y){
+  const humidity = 58 + 22 * Math.sin(0.35 * x + 0.6) * Math.cos(0.28 * y - 0.4) + 3 * Math.sin(0.9 * y);
+  const ph = 6.6 + 1.1 * Math.sin(0.25 * x - 0.5) + 0.5 * Math.cos(0.4 * y + 0.3);
+  const temp = 22 + 8 * Math.cos(0.3 * x + 0.2) - 4 * Math.sin(0.22 * y);
+  const ec = 1.4 + 1.0 * Math.sin(0.4 * x + 0.9) * Math.sin(0.3 * y) + 0.4 * Math.cos(0.5 * x);
+  return {
+    humidity: Math.round(clamp(humidity, 20, 95) * 100) / 100,
+    ph: Math.round(clamp(ph, 4.6, 8.6) * 100) / 100,
+    temp: Math.round(clamp(temp, 8, 38) * 100) / 100,
+    ec: Math.round(clamp(ec, 0.1, 4.5) * 1000) / 1000,
+  };
+}
+
+// Applique un nouveau plan et reconstruit l'état dépendant (mesures, route,
+// crops par zone, sélection). Utilisé par l'éditeur de plan et la synchro backend.
+function applyPlanPoints(points){
+  APP_STATE.plan = points.map((p) => ({ label: String(p.label), x: Number(p.x), y: Number(p.y) }));
+  APP_STATE.missionRoute = planLabels();
+  APP_STATE.robot.totalPoints = APP_STATE.plan.length;
+  APP_STATE.robot.measuredPoints = 0;
+  APP_STATE.robot.progress = 0;
+  APP_STATE.fieldData = emptyField();
+  const zp = {};
+  planLabels().forEach((z) => {
+    zp[z] = APP_STATE.zoneCropPlan[z]
+      || (typeof DEFAULT_ZONE_CROPS !== 'undefined' && DEFAULT_ZONE_CROPS[z])
+      || APP_STATE.selectedCrop;
+  });
+  APP_STATE.zoneCropPlan = zp;
+  if (!planLabels().includes(APP_STATE.selectedZone)) APP_STATE.selectedZone = planLabels()[0];
+}
 
 const CULTURES_OPTIMALES = {
   // ec : [min ok, max toléré] en mS/cm — au-delà du max : alerte salinité
@@ -22,7 +82,7 @@ const CULTURES_OPTIMALES = {
 function cropNames(){ return Object.keys(CULTURES_OPTIMALES); }
 function getCrop(name){ return CULTURES_OPTIMALES[name] || CULTURES_OPTIMALES['Tomate']; }
 function fmtRange(range, unit=''){ return `${range[0]}–${range[1]}${unit}`; }
-function emptyField(){ const d = {}; ZONES.forEach(z => d[z] = null); return d; }
+function emptyField(){ const d = {}; planLabels().forEach(z => d[z] = null); return d; }
 function clamp(v, a, b){ return Math.max(a, Math.min(b, v)); }
 function randn(){ let u=0,v=0; while(u===0)u=Math.random(); while(v===0)v=Math.random(); return Math.sqrt(-2*Math.log(u))*Math.cos(2*Math.PI*v); }
 
@@ -73,7 +133,13 @@ const DEFAULT_ZONE_CROPS = {
 };
 
 function generateMeasurement(point){
-  const profile = SIMULATION_ZONE_PROFILES[point] || {humidity:58, ph:6.5, temp:22, ec:1.2};
+  // Profil curé connu (démo A1..C3) prioritaire ; sinon champ déterministe
+  // soilAt(x,y) à partir des coordonnées du point → marche pour tout point.
+  let profile = SIMULATION_ZONE_PROFILES[point];
+  if (!profile){
+    const pt = planPoint(point);
+    profile = pt ? soilAt(pt.x, pt.y) : {humidity:58, ph:6.5, temp:22, ec:1.2};
+  }
   return {
     point,
     measured: true,

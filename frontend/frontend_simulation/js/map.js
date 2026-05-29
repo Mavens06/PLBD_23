@@ -44,12 +44,17 @@ function drawMap() {
   ctx.fillStyle = 'rgba(255,255,255,.04)';
   ctx.fillRect(0, 0, W, H);
 
-  ZONES.forEach((zone) => {
-    const pos = ZONE_POS[zone];
+  const plan = currentPlan();
+  // Taille des blocs adaptée au nombre de points (plus de points → blocs plus petits).
+  const n = Math.max(1, plan.length);
+  const scale = Math.min(1, 3 / Math.sqrt(n));
+  plan.forEach((point) => {
+    const zone = point.label;
+    const pos = posForPoint(zone);
     const x = pos.x * W;
     const y = pos.y * H;
-    const bw = W * .25;
-    const bh = H * .20;
+    const bw = W * .25 * scale;
+    const bh = H * .20 * scale;
     const data = APP_STATE.fieldData[zone];
     const color = colorForVariable(data, currentMapVar);
     const label = valueLabel(data);
@@ -81,8 +86,8 @@ function drawMap() {
   });
 
   const rp = APP_STATE.robot.activePoint;
-  if (ZONE_POS[rp]) {
-    const p = ZONE_POS[rp];
+  if (planLabels().includes(rp)) {
+    const p = posForPoint(rp);
     ctx.font = '26px serif';
     ctx.textAlign = 'center';
     ctx.fillText('🤖', p.x*W, p.y*H-30);
@@ -102,8 +107,8 @@ function drawMap() {
     const rect = canvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
     const y = e.clientY - rect.top;
-    return ZONES
-      .map((z) => ({ z, d: Math.hypot(x - ZONE_POS[z].x*W, y - ZONE_POS[z].y*H) }))
+    return planLabels()
+      .map((z) => { const p = posForPoint(z); return { z, d: Math.hypot(x - p.x*W, y - p.y*H) }; })
       .sort((a, b) => a.d - b.d)[0].z;
   };
 

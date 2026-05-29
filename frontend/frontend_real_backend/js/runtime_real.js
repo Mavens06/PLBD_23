@@ -4,7 +4,12 @@ let realPollTimer=null;
 async function startRealMode(){
   APP_STATE.robot.status='Connexion backend...';
   renderAll();
-  try{ await postBackend('/mission/start',{route:APP_STATE.missionRoute}); }catch(_){}
+  try{
+    // 1) Envoyer le plan défini dans l'UI ; 2) commander le démarrage.
+    // Le robot (mode --watch) détecte la commande et exécute ce plan.
+    await postBackend('/mission/plan',{points:APP_STATE.plan.map(p=>({label:p.label,x:p.x,y:p.y}))});
+    await postBackend('/mission/start',{});
+  }catch(e){ showToast(t('backendUnavailable')); }
   await pollBackendState();
   if(realPollTimer) clearInterval(realPollTimer);
   realPollTimer=setInterval(pollBackendState,1500);

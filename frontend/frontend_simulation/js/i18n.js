@@ -51,7 +51,9 @@
       cropApplied:"{crop} appliquée à toutes les zones", simStarted:"Simulation démarrée", simFinished:"Mission simulée terminée",
       simReady:"Simulation prête", simRunning:"Simulation en cours", simDone:"Simulation terminée", measuringAt:"Mesure au point {point}",
       navFarmer:"Terrain", navMap:"Carte", navReco:"Conseils",
-      backendUnavailable:"Backend non joignable. Réponse locale utilisée."
+      backendUnavailable:"Backend non joignable. Réponse locale utilisée.",
+      missionPlanTitle:"Plan de mission", planPoints:"points", planCol:"Point", planAdd:"Ajouter un point", planApply:"Appliquer le plan", planRemove:"Supprimer",
+      planMin:"Au moins un point de mesure est requis.", planInvalid:"Labels vides ou en double — corrigez le plan.", planApplied:"Plan appliqué : {n} point(s)"
     },
     ar: {
       badge:"ع", dir:"rtl", langName:"العربية",
@@ -82,7 +84,9 @@
       cropApplied:"تم تطبيق {crop} على جميع المناطق", simStarted:"بدأت المحاكاة", simFinished:"انتهت المحاكاة",
       simReady:"المحاكاة جاهزة", simRunning:"المحاكاة جارية", simDone:"انتهت المحاكاة", measuringAt:"قياس في النقطة {point}",
       navFarmer:"الحقـل", navMap:"الخريطة", navReco:"النصائح",
-      backendUnavailable:"الخادم غير متاح. تم استخدام إجابة محلية."
+      backendUnavailable:"الخادم غير متاح. تم استخدام إجابة محلية.",
+      missionPlanTitle:"خطة المهمة", planPoints:"نقاط", planCol:"النقطة", planAdd:"إضافة نقطة", planApply:"تطبيق الخطة", planRemove:"حذف",
+      planMin:"مطلوب نقطة قياس واحدة على الأقل.", planInvalid:"أسماء فارغة أو مكررة — صحّح الخطة.", planApplied:"تم تطبيق الخطة: {n} نقطة"
     },
     da: {
       badge:"DA", dir:"rtl", langName:"الدارجة",
@@ -113,7 +117,9 @@
       cropApplied:"تطبقات {crop} على كل الزونات", simStarted:"بدات المحاكاة", simFinished:"سالات المحاكاة",
       simReady:"المحاكاة واجدة", simRunning:"المحاكاة خدامة", simDone:"المحاكاة سالات", measuringAt:"قياس فالنقطة {point}",
       navFarmer:"الحقل", navMap:"الخريطة", navReco:"النصائح",
-      backendUnavailable:"السيرفر ما خدامش. استعملت جواب محلي."
+      backendUnavailable:"السيرفر ما خدامش. استعملت جواب محلي.",
+      missionPlanTitle:"بلان المهمة", planPoints:"نقط", planCol:"النقطة", planAdd:"زيد نقطة", planApply:"طبق البلان", planRemove:"حيد",
+      planMin:"خاص على الأقل نقطة قياس وحدة.", planInvalid:"أسماء خاوية ولا مكررة — صحح البلان.", planApplied:"تطبق البلان: {n} نقطة"
     }
   };
 

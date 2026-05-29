@@ -5,6 +5,7 @@ function resetSimulation(){
   if(simTimer) clearInterval(simTimer);
   simTimer=null;
   simIndex=0;
+  APP_STATE.missionRoute=planLabels();   // suit le plan courant (N points)
   APP_STATE.fieldData=emptyField();
   APP_STATE.robot={status:'Simulation prête',activePoint:'HOME',progress:0,measuredPoints:0,totalPoints:APP_STATE.missionRoute.length};
   renderAll();
