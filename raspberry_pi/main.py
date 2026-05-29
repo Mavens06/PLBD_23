@@ -3,32 +3,40 @@ main.py — Orchestrateur de mission Raspberry Pi pour Agribotics.
 
 En mode `mock` (défaut sur PC de dev) :
   • Pas de GPIO, pas de moteurs : les déplacements sont seulement loggés.
-  • Le mock sensor produit des lectures cohérentes avec les profils de
-    zones du frontend.
+  • Le mock sensor produit des lectures cohérentes (profils curés A1..C3 ou
+    champ déterministe soil_at(x, y) pour des points arbitraires).
 
 En mode `hardware` (sur le robot réel) :
   • build_sensor() instancie le driver RS485 réel (minimalmodbus + pyserial).
   • Les broches GPIO et le PCA9685 seront pilotés par robot/motors.py
     (à implémenter pour la phase 2 — non requis pour la démo logicielle).
 
-Pour chaque point de la grille 3×3 (A1..C3) :
-  1) "déplacement" (logué)
-  2) acquisition_manager.collect() → MeasurementRecord
-  3) push HTTP vers le backend FastAPI (POST /api/measurements)
-  4) log local SQLite
+Le PLAN de mission (liste de points {label, x, y}) est DYNAMIQUE. Par priorité :
+  1) --plan plan.json   (fichier local, pratique pour tester hors interface)
+  2) le backend         (GET /api/mission/plan) — défini depuis l'interface
+  3) repli grille 3×3   (hors-ligne ultime)
 
-Lancement :
-  python3 -m raspberry_pi.main         # mission complète
-  python3 -m raspberry_pi.main --point B2   # un seul point
+Pour chaque point du plan :
+  1) "déplacement" vers (x, y) (logué en mock)
+  2) acquisition_manager.collect(label, x, y) → MeasurementRecord
+  3) push HTTP vers le backend FastAPI (POST /api/measurements)
+
+Lancements :
+  python3 -m raspberry_pi.main                 # mission complète (plan backend/défaut)
+  python3 -m raspberry_pi.main --point B2       # un seul point du plan
+  python3 -m raspberry_pi.main --plan plan.json # plan depuis un fichier
+  python3 -m raspberry_pi.main --watch          # daemon piloté par l'interface
 """
 
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 import time
-from typing import Iterable, List
+from dataclasses import dataclass
+from typing import List, Optional
 
 import requests
 
@@ -36,15 +44,63 @@ from .acquisition_manager import AcquisitionManager, MeasurementRecord
 from .sensors.rs485_4in1 import build_sensor
 
 
-GRID_3X3 = ["A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3"]
+# Plan 3×3 par défaut (repli hors-ligne ultime) — coordonnées en mètres.
+_DEFAULT_SPACING_M = 3.0
+GRID_3X3 = [
+    {"label": f"{r}{c}", "x": (int(c) - 1) * _DEFAULT_SPACING_M, "y": ri * _DEFAULT_SPACING_M}
+    for ri, r in enumerate("ABC")
+    for c in "123"
+]
+
+
+@dataclass
+class PlanPoint:
+    label: str
+    x: float
+    y: float
 
 
 def _backend_url() -> str:
     return os.getenv("AGRIBOTICS_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 
 
+def _as_points(raw: List[dict]) -> List[PlanPoint]:
+    return [
+        PlanPoint(label=str(p["label"]), x=float(p.get("x", 0.0)), y=float(p.get("y", 0.0)))
+        for p in raw
+    ]
+
+
+def _load_plan_from_file(path: str) -> List[PlanPoint]:
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    points = data["points"] if isinstance(data, dict) else data
+    return _as_points(points)
+
+
+def _load_plan_from_backend() -> Optional[List[PlanPoint]]:
+    try:
+        r = requests.get(f"{_backend_url()}/api/mission/plan", timeout=5)
+        if r.status_code < 300:
+            return _as_points(r.json().get("points", []))
+    except requests.RequestException:
+        return None
+    return None
+
+
+def resolve_plan(plan_file: Optional[str]) -> List[PlanPoint]:
+    """Résout le plan selon la priorité fichier → backend → grille par défaut."""
+    if plan_file:
+        return _load_plan_from_file(plan_file)
+    backend_plan = _load_plan_from_backend()
+    if backend_plan:
+        return backend_plan
+    print("[mission] plan backend indisponible — repli grille 3×3 par défaut", flush=True)
+    return _as_points(GRID_3X3)
+
+
 def _push_measurement(record: MeasurementRecord) -> bool:
-    """Envoie la mesure au backend. Renvoie True si OK, False sinon."""
+    """Envoie la mesure au backend. Logge l'échec (code + corps) le cas échéant."""
     url = f"{_backend_url()}/api/measurements"
     payload = {
         "point": record.point,
@@ -56,24 +112,34 @@ def _push_measurement(record: MeasurementRecord) -> bool:
     }
     try:
         r = requests.post(url, json=payload, timeout=5)
-        return r.status_code < 300
-    except requests.RequestException:
+        if r.status_code >= 300:
+            # Un point silencieusement perdu fait stagner la progression :
+            # on rend l'échec visible (cf. revue de code, finding #7).
+            print(
+                f"  [push] ⚠ échec HTTP {r.status_code} pour {record.point} : "
+                f"{r.text[:200]}",
+                flush=True,
+            )
+            return False
+        return True
+    except requests.RequestException as err:
+        print(f"  [push] ⚠ backend injoignable pour {record.point} : {err}", flush=True)
         return False
 
 
-def _move_to(point: str) -> None:
+def _move_to(p: PlanPoint) -> None:
     """
     Stub de déplacement. En hardware, ce sera l'API motors.MotorController.
-    En mock, on log et on simule un délai court.
+    En mock, on log la cible (label + coordonnées) et on simule un délai court.
     """
-    print(f"  [move] → point {point}", flush=True)
+    print(f"  [move] → {p.label} (x={p.x}, y={p.y})", flush=True)
     time.sleep(0.2)
 
 
-def run_mission(points: Iterable[str], reset: bool = True) -> List[MeasurementRecord]:
+def run_mission(points: List[PlanPoint], reset: bool = True) -> List[MeasurementRecord]:
     """Exécute la mission sur la liste de points et renvoie les records."""
     mode = os.getenv("APP_MODE", "mock").lower()
-    print(f"[mission] APP_MODE={mode} | API={_backend_url()}", flush=True)
+    print(f"[mission] APP_MODE={mode} | API={_backend_url()} | {len(points)} point(s)", flush=True)
 
     if reset:
         try:
@@ -88,9 +154,9 @@ def run_mission(points: Iterable[str], reset: bool = True) -> List[MeasurementRe
 
     try:
         for p in points:
-            print(f"[mission] point {p}", flush=True)
+            print(f"[mission] point {p.label}", flush=True)
             _move_to(p)
-            rec = manager.collect(p)
+            rec = manager.collect(p.label, x=p.x, y=p.y)
             records.append(rec)
             pushed = _push_measurement(rec)
             tag = "✓ pushed" if pushed else "⚠ local-only"
@@ -105,19 +171,55 @@ def run_mission(points: Iterable[str], reset: bool = True) -> List[MeasurementRe
     return records
 
 
+def watch_loop(poll_s: float = 1.5) -> int:
+    """
+    Mode daemon : sonde le backend et exécute le plan dès que l'interface
+    demande le démarrage (command == "requested"). C'est ce qui réalise
+    « l'interface commande le robot ».
+    """
+    print(f"[watch] en attente d'ordre de mission (poll {poll_s}s)…", flush=True)
+    while True:
+        try:
+            r = requests.get(f"{_backend_url()}/api/mission", timeout=5)
+            command = r.json().get("command") if r.status_code < 300 else None
+        except requests.RequestException:
+            command = None
+
+        if command == "requested":
+            print("[watch] ordre reçu — exécution de la mission", flush=True)
+            plan = resolve_plan(None)
+            # reset=False : /api/mission/start a déjà réinitialisé l'état.
+            run_mission(plan, reset=False)
+            print("[watch] mission terminée — retour en attente", flush=True)
+        time.sleep(poll_s)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Agribotics — mission Raspberry Pi")
-    parser.add_argument("--point", help="Mesurer uniquement ce point (ex. B2). Sinon, mission complète 3×3.")
-    parser.add_argument("--no-reset", action="store_true", help="Ne pas reset l'état mission backend avant de pousser.")
+    parser.add_argument("--point", help="Mesurer uniquement ce point (label du plan, ex. B2).")
+    parser.add_argument("--plan", help="Chemin d'un fichier JSON décrivant le plan (points x/y).")
+    parser.add_argument("--watch", action="store_true",
+                        help="Mode daemon : exécute le plan quand l'interface le demande.")
+    parser.add_argument("--no-reset", action="store_true",
+                        help="Ne pas reset l'état mission backend avant de pousser.")
     args = parser.parse_args()
 
-    points = [args.point] if args.point else GRID_3X3
-    invalid = [p for p in points if p not in GRID_3X3]
-    if invalid:
-        print(f"Points invalides : {invalid}. Attendus : {GRID_3X3}", file=sys.stderr)
-        return 2
+    if args.watch:
+        try:
+            return watch_loop()
+        except KeyboardInterrupt:
+            print("\n[watch] arrêt demandé.", flush=True)
+            return 0
 
-    records = run_mission(points, reset=not args.no_reset)
+    plan = resolve_plan(args.plan)
+
+    if args.point:
+        plan = [p for p in plan if p.label == args.point]
+        if not plan:
+            print(f"Point introuvable dans le plan : {args.point}", file=sys.stderr)
+            return 2
+
+    records = run_mission(plan, reset=not args.no_reset)
     print(f"[mission] terminée — {len(records)} mesures collectées.", flush=True)
     return 0
 

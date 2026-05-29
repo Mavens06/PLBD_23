@@ -114,16 +114,20 @@ class AcquisitionManager:
             return "fair"
         return "good"
 
-    def collect(self, point: str) -> MeasurementRecord:
+    def collect(self, point: str, x: float | None = None, y: float | None = None) -> MeasurementRecord:
         """
         Exécute le protocole complet sur un point donné.
 
-        Le paramètre `point` est passé au sensor mock pour qu'il prenne le
-        bon profil de zone (no-op en hardware).
+        `point` (label) et, si fournies, les coordonnées (x, y) sont passés au
+        sensor mock pour qu'il prenne le bon profil de zone / champ de sol
+        (no-op en hardware).
         """
-        # Stabilisation (mock = 0 s, hardware = 4 s)
-        if hasattr(self._sensor, "set_profile"):
+        # Positionnement du mock (label + coordonnées éventuelles ; no-op hardware)
+        if hasattr(self._sensor, "set_location"):
+            self._sensor.set_location(point, x, y)
+        elif hasattr(self._sensor, "set_profile"):
             self._sensor.set_profile(point)
+        # Stabilisation (mock = 0 s, hardware = 4 s)
         if self._stabilization_s > 0:
             time.sleep(self._stabilization_s)
 

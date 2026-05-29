@@ -23,11 +23,39 @@ Aucune mesure N/P/K : ce capteur ne les fournit pas.
 
 from __future__ import annotations
 
+import math
 import os
 import random
 import time
 from dataclasses import dataclass
-from typing import Protocol
+from typing import Optional, Protocol
+
+
+def soil_at(x: float, y: float) -> tuple[float, float, float, float]:
+    """
+    Champ de sol synthétique DÉTERMINISTE en fonction des coordonnées (mètres).
+
+    Renvoie (humidity %, ph, temperature °C, ec mS/cm), spatialement cohérent
+    (deux points proches → valeurs proches) et borné aux plages physiques.
+    Utilisé par le _MockSensor pour des points arbitraires hors des profils
+    curés A1..C3.
+
+    IMPORTANT : cette formule est dupliquée à l'identique côté frontend
+    (`soilAt` dans js/data_model.js). Toute modification doit être répercutée
+    des deux côtés pour que mock backend et simulation frontend restent cohérents.
+    """
+    humidity = 58.0 + 22.0 * math.sin(0.35 * x + 0.6) * math.cos(0.28 * y - 0.4) \
+        + 3.0 * math.sin(0.9 * y)
+    ph = 6.6 + 1.1 * math.sin(0.25 * x - 0.5) + 0.5 * math.cos(0.4 * y + 0.3)
+    temp = 22.0 + 8.0 * math.cos(0.3 * x + 0.2) - 4.0 * math.sin(0.22 * y)
+    ec = 1.4 + 1.0 * math.sin(0.4 * x + 0.9) * math.sin(0.3 * y) \
+        + 0.4 * math.cos(0.5 * x)
+    return (
+        round(min(95.0, max(20.0, humidity)), 2),
+        round(min(8.6, max(4.6, ph)), 2),
+        round(min(38.0, max(8.0, temp)), 2),
+        round(min(4.5, max(0.1, ec)), 3),
+    )
 
 
 @dataclass
@@ -123,15 +151,29 @@ class _MockSensor:
 
     def __init__(self, profile: str | None = None, seed: int | None = None) -> None:
         self._profile = profile
+        self._x: Optional[float] = None
+        self._y: Optional[float] = None
         self._rng = random.Random(seed)
         self._t_last = time.monotonic()
 
     def set_profile(self, profile: str | None) -> None:
-        self._profile = profile
+        """Compat ascendante : sélectionne un profil curé par label (sans coords)."""
+        self.set_location(profile, None, None)
+
+    def set_location(self, label: str | None, x: Optional[float], y: Optional[float]) -> None:
+        """
+        Positionne le capteur mock. Priorité au profil curé si le label est connu
+        (préserve la démo A1..C3) ; sinon utilise le champ déterministe soil_at(x,y).
+        """
+        self._profile = label
+        self._x = x
+        self._y = y
 
     def _base(self) -> tuple[float, float, float, float]:
         if self._profile and self._profile in self.PROFILES:
             return self.PROFILES[self._profile]
+        if self._x is not None and self._y is not None:
+            return soil_at(self._x, self._y)
         return (58.0, 6.5, 22.0, 1.0)
 
     def read(self) -> SensorReading:
