@@ -157,6 +157,7 @@ async def generate_expert_response(
     selected_crop: Optional[str] = None,
     robot_state: Optional[dict] = None,
     correction_context: Optional[str] = None,
+    history: Optional[list] = None,
 ) -> str:
     """
     Génère une réponse agricole courte et experte via le LLM Gemini (cloud).
@@ -206,12 +207,24 @@ async def generate_expert_response(
     )
 
     # Format de l'API Generative Language : le prompt système passe par
-    # `system_instruction`, le message utilisateur par `contents`.
+    # `system_instruction`, l'échange par `contents`. On reconstruit l'historique
+    # multi-tours pour une vraie conversation (l'agriculteur peut enchaîner les
+    # questions de suivi). Rôles Gemini : "user" et "model".
+    contents = []
+    for turn in (history or []):
+        if not isinstance(turn, dict):
+            continue
+        text = (turn.get("content") or turn.get("text") or "").strip()
+        if not text:
+            continue
+        role = turn.get("role", "user")
+        gem_role = "model" if role in ("bot", "model", "assistant") else "user"
+        contents.append({"role": gem_role, "parts": [{"text": text}]})
+    contents.append({"role": "user", "parts": [{"text": message}]})
+
     payload = {
         "system_instruction": {"parts": [{"text": system_prompt}]},
-        "contents": [
-            {"role": "user", "parts": [{"text": message}]},
-        ],
+        "contents": contents,
         "generationConfig": {
             "temperature": 0.4,
             "maxOutputTokens": 400,

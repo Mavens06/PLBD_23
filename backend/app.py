@@ -68,6 +68,7 @@ class ChatRequest(BaseModel):
     selected_crop: Optional[str] = None     # Culture cible (ex. "Tomate")
     zone_data: Optional[dict] = None        # Mesures de la zone sélectionnée
     robot_state: Optional[dict] = None      # État du robot/mission
+    history: Optional[list] = None          # Tours précédents [{role, content}] pour le suivi
 
 
 class MeasurementIn(BaseModel):
@@ -167,6 +168,7 @@ async def chat(request: ChatRequest):
             selected_crop=request.selected_crop,
             robot_state=request.robot_state,
             correction_context=correction_context,
+            history=request.history,
         )
     except RuntimeError as err:
         raise HTTPException(status_code=503, detail=str(err))
