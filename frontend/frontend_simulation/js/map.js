@@ -41,54 +41,99 @@ function _rng(seed) {
   };
 }
 
-// Fond « vue aérienne du sol » : dégradé terreux + taches organiques + sillons
-// de labour + vignette, le tout clippé dans un coin arrondi.
-function drawSoil(ctx, W, H, rad) {
+// --- Fond satellite : vraie photo si disponible, sinon mosaïque aérienne ---
+// Pose une photo (drone/satellite) à assets/parcelle.jpg et elle sera utilisée
+// automatiquement ; sinon repli sur une mosaïque agricole procédurale.
+const MAP_BG_URL = (typeof window !== 'undefined' && window.AGRIBOTICS_MAP_BG) || 'assets/parcelle.jpg';
+let _bgImg = null, _bgFailed = false;
+function _bgImage() {
+  if (_bgFailed || typeof Image === 'undefined') return null;
+  if (!_bgImg) {
+    _bgImg = new Image();
+    _bgImg.onload = () => drawMap();
+    _bgImg.onerror = () => { _bgFailed = true; };
+    _bgImg.src = MAP_BG_URL;
+  }
+  return (_bgImg.complete && _bgImg.naturalWidth) ? _bgImg : null;
+}
+
+// Mosaïque agricole vue du ciel (parcelles irrégulières, sillons, haies, piste).
+function drawAerial(ctx, W, H) {
+  const rnd = _rng(20240529);
+  ctx.fillStyle = '#5b6a36';
+  ctx.fillRect(0, 0, W, H);
+
+  const palette = ['#6f7d3e', '#86843f', '#9c7e3b', '#5d6e34', '#7c8c47', '#b2a65c', '#6b5836', '#90a14f', '#a98b46'];
+  const cols = 4, rows = 3, cw = W / cols, ch = H / rows;
+  const jx = cw * 0.22, jy = ch * 0.22;
+  const cnr = (c, r) => ({ x: c * cw + (rnd() - 0.5) * jx, y: r * ch + (rnd() - 0.5) * jy });
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const a = cnr(c, r), b = cnr(c + 1, r), d = cnr(c + 1, r + 1), e = cnr(c, r + 1);
+      const cx = (a.x + d.x) / 2, cy = (a.y + d.y) / 2;
+      const col = palette[(rnd() * palette.length) | 0];
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(d.x, d.y); ctx.lineTo(e.x, e.y); ctx.closePath();
+      ctx.fillStyle = col; ctx.fill();
+      // sillons orientés par parcelle
+      ctx.save(); ctx.clip();
+      ctx.translate(cx, cy); ctx.rotate(rnd() * Math.PI);
+      ctx.globalAlpha = 0.13; ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1;
+      const span = Math.max(cw, ch) * 1.5;
+      for (let yy = -span; yy <= span; yy += 5) {
+        ctx.beginPath(); ctx.moveTo(-span, yy); ctx.lineTo(span, yy); ctx.stroke();
+      }
+      ctx.restore();
+      // haie / bordure de parcelle
+      ctx.beginPath();
+      ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.lineTo(d.x, d.y); ctx.lineTo(e.x, e.y); ctx.closePath();
+      ctx.strokeStyle = 'rgba(38,52,28,0.55)'; ctx.lineWidth = 2.2; ctx.stroke();
+    }
+  }
+
+  // piste / chemin de terre sinueux
+  ctx.save();
+  ctx.strokeStyle = 'rgba(176,150,96,0.55)'; ctx.lineWidth = Math.max(6, W * 0.018);
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(-10, H * 0.7);
+  ctx.bezierCurveTo(W * 0.3, H * 0.55, W * 0.5, H * 0.85, W + 10, H * 0.45);
+  ctx.stroke();
+  ctx.restore();
+
+  // grain / speckle
+  for (let i = 0; i < 240; i++) {
+    const sx = rnd() * W, sy = rnd() * H;
+    ctx.fillStyle = rnd() > 0.5 ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.06)';
+    ctx.fillRect(sx, sy, 2, 2);
+  }
+}
+
+// Compose le fond de carte : photo satellite si présente, sinon mosaïque ;
+// clip arrondi + vignette + voile sombre pour le contraste des marqueurs.
+function drawBackground(ctx, W, H, rad) {
   ctx.save();
   roundRect(ctx, 0, 0, W, H, rad);
   ctx.clip();
 
-  const g = ctx.createLinearGradient(0, 0, W * 0.4, H);
-  g.addColorStop(0, '#867b3f');
-  g.addColorStop(0.45, '#6d5e34');
-  g.addColorStop(1, '#4d3b22');
-  ctx.fillStyle = g;
-  ctx.fillRect(0, 0, W, H);
-
-  // taches organiques (humus, parcelles de terre nue, zones cultivées)
-  const rnd = _rng(20240529);
-  const tones = ['58,44,24', '120,96,52', '110,118,60', '150,140,80'];
-  for (let i = 0; i < 20; i++) {
-    const px = rnd() * W, py = rnd() * H, pr = 26 + rnd() * 90;
-    const base = tones[(rnd() * tones.length) | 0];
-    const rg = ctx.createRadialGradient(px, py, 0, px, py, pr);
-    rg.addColorStop(0, `rgba(${base},${(0.18 + rnd() * 0.14).toFixed(3)})`);
-    rg.addColorStop(1, `rgba(${base},0)`);
-    ctx.fillStyle = rg;
-    ctx.beginPath(); ctx.arc(px, py, pr, 0, Math.PI * 2); ctx.fill();
+  const img = _bgImage();
+  if (img) {
+    const ar = img.naturalWidth / img.naturalHeight, car = W / H;
+    let dw, dh;
+    if (ar > car) { dh = H; dw = H * ar; } else { dw = W; dh = W / ar; }
+    ctx.drawImage(img, (W - dw) / 2, (H - dh) / 2, dw, dh);
+    ctx.fillStyle = 'rgba(18,28,16,0.20)'; ctx.fillRect(0, 0, W, H);   // voile contraste
+  } else {
+    drawAerial(ctx, W, H);
   }
 
-  // sillons de labour (lignes parallèles légèrement diagonales)
-  const step = Math.max(12, H / 20);
-  for (let y = -W; y < H + W; y += step) {
-    ctx.globalAlpha = 0.14;
-    ctx.strokeStyle = '#2a2414'; ctx.lineWidth = 1.6;
-    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y + W * 0.10); ctx.stroke();
-    ctx.globalAlpha = 0.07;
-    ctx.strokeStyle = 'rgba(220,210,170,1)'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, y + 2); ctx.lineTo(W, y + 2 + W * 0.10); ctx.stroke();
-  }
-  ctx.globalAlpha = 1;
-
-  // vignette douce
   const vg = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * 0.32, W / 2, H / 2, Math.max(W, H) * 0.72);
   vg.addColorStop(0, 'rgba(0,0,0,0)');
   vg.addColorStop(1, 'rgba(0,0,0,0.30)');
-  ctx.fillStyle = vg;
-  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, W, H);
   ctx.restore();
 
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
   ctx.lineWidth = 1;
   roundRect(ctx, 0.5, 0.5, W - 1, H - 1, rad);
   ctx.stroke();
@@ -118,8 +163,8 @@ function _layoutField(plan, W, H, pad) {
   return { placed, pxPerM: s, span: Math.max(spanX, spanY) };
 }
 
-// Rayon des marqueurs adapté au nombre de points.
-function _markerRadius(n) { return Math.max(7, Math.min(24, 42 / Math.sqrt(n))); }
+// Rayon des marqueurs adapté au nombre de points (légèrement agrandi).
+function _markerRadius(n) { return Math.max(9, Math.min(30, 52 / Math.sqrt(n))); }
 
 // Barre d'échelle réelle (mètres), coin bas-gauche.
 function _drawScaleBar(ctx, W, H, pxPerM, span) {
@@ -156,8 +201,8 @@ function drawMap() {
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
 
-  // 1) Fond : vue aérienne du sol
-  drawSoil(ctx, W, H, 18);
+  // 1) Fond : photo satellite si dispo, sinon mosaïque aérienne procédurale
+  drawBackground(ctx, W, H, 18);
 
   // 2) Disposition réelle (distances préservées) — calculée une seule fois
   const plan = currentPlan();
