@@ -322,8 +322,65 @@ function renderAll() {
   drawMap();
 }
 
+// ---------------------------------------------------------------------------
+// Lanceur de chatbot : remplace la grande barre de chat par une icône
+// flottante Agri-Botics (le panneau s'ouvre/se ferme). Injecté en JS pour
+// rester présent dans toutes les variantes HTML sans les modifier.
+// ---------------------------------------------------------------------------
+function _injectChatStyles() {
+  if (document.getElementById('chatLauncherStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'chatLauncherStyles';
+  s.textContent = `
+  .chat-fab{position:fixed;right:18px;bottom:84px;width:60px;height:60px;border-radius:50%;border:none;cursor:pointer;background:linear-gradient(135deg,#52a85d,#2f7a3a);color:#fff;font-size:27px;box-shadow:0 8px 22px rgba(20,60,25,.42);z-index:60;display:grid;place-items:center;transition:transform .15s}
+  .chat-fab:hover{transform:scale(1.06)} .chat-fab.active{transform:scale(.9)}
+  .chat-fab::after{content:'';position:absolute;top:7px;right:8px;width:11px;height:11px;border-radius:50%;background:#ffd23f;box-shadow:0 0 0 2px #fff;animation:fabPulse 2s infinite}
+  @keyframes fabPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.7}}
+  .chat-panel{position:fixed;right:18px;bottom:84px;width:min(380px,92vw);max-height:72vh;background:#fff;border-radius:18px;box-shadow:0 16px 44px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;z-index:61;transform:translateY(16px) scale(.96);opacity:0;pointer-events:none;transition:transform .2s,opacity .2s}
+  .chat-panel.open{transform:none;opacity:1;pointer-events:auto}
+  .chat-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#3b7a44,#2f6437);color:#fff;font-weight:800;font-size:14px}
+  .chat-close{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px}
+  .chat-close:hover{background:rgba(255,255,255,.34)}
+  .chat-panel .chatbot-card{box-shadow:none;border-radius:0;margin:0;flex:1;min-height:0;overflow:auto}`;
+  document.head.appendChild(s);
+}
+
+function setupChatLauncher() {
+  const card = document.querySelector('.chatbot-card');
+  if (!card || document.getElementById('chatFab')) return;
+  _injectChatStyles();
+
+  const panel = document.createElement('div');
+  panel.id = 'chatPanel';
+  panel.className = 'chat-panel';
+  card.parentNode.insertBefore(panel, card);
+
+  const head = document.createElement('div');
+  head.className = 'chat-panel-head';
+  head.innerHTML = `<span>🤖 Agri-Botics</span><button class="chat-close" onclick="toggleChatPanel()" aria-label="Fermer">✕</button>`;
+  panel.appendChild(head);
+  panel.appendChild(card);
+
+  const fab = document.createElement('button');
+  fab.id = 'chatFab';
+  fab.className = 'chat-fab';
+  fab.innerHTML = '🤖';
+  fab.title = t('chatTitle');
+  fab.onclick = toggleChatPanel;
+  document.body.appendChild(fab);
+}
+
+function toggleChatPanel() {
+  const p = document.getElementById('chatPanel');
+  const f = document.getElementById('chatFab');
+  if (!p) return;
+  const open = p.classList.toggle('open');
+  if (f) f.classList.toggle('active', open);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   populateCropSelects();
   renderAll();
+  setupChatLauncher();
 });
 window.addEventListener('resize', drawMap);
