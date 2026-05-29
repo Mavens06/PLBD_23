@@ -23,10 +23,12 @@ from pydantic import BaseModel
 try:
     from .chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
     from .state import APP_STATE, Measurement, MissionPoint
+    from .weather_service import get_forecast
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
     from chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
     from state import APP_STATE, Measurement, MissionPoint
+    from weather_service import get_forecast
 
 # Le moteur d'inférence ML (ou fallback rules) est dans ml_model/.
 # Comme backend/ et ml_model/ sont des packages frères à la racine du projet,
@@ -114,6 +116,16 @@ def read_root():
         "llm_model": GEMINI_MODEL,
         "llm_endpoint": GEMINI_BASE_URL,
     }
+
+
+@app.get("/api/weather")
+async def get_weather(lat: Optional[float] = None, lon: Optional[float] = None):
+    """
+    Bulletin météo 3 jours (Open-Meteo, sans clé) + consigne d'irrigation dérivée.
+    Sert à AFFINER les recommandations : pluie prévue → irrigation reportée/réduite.
+    Enrichissement optionnel : renvoie {"available": false} si réseau indisponible.
+    """
+    return await get_forecast(lat, lon)
 
 
 def _measurement_from_sensor_data(sensor_data: Optional[dict]) -> Optional[RuleMeasurement]:

@@ -175,6 +175,17 @@ function renderDiagnostic(diag, actions) {
   }
 
   if (practices) {
+    // Bandeau météo : explique pourquoi l'irrigation a été ajustée (pluie prévue).
+    let weatherBanner = '';
+    const w = (typeof weatherInfo === 'function') ? weatherInfo() : null;
+    if (w) {
+      const f = weatherIrrigationFactor();
+      const tone = f === 0 ? '#2c6e8f' : f < 1 ? '#7a6a1f' : '#3b7a44';
+      const bg = f === 0 ? '#e7f1f8' : f < 1 ? '#f7f1dd' : '#eaf4ea';
+      const tip = f === 0 ? t('irrigDeferred') : f < 1 ? t('irrigReduced') : t('weatherNoRain');
+      const tmax = (w.tmax != null) ? ` · ${Math.round(w.tmax)}°C` : '';
+      weatherBanner = `<div style="background:${bg};border:1px solid rgba(0,0,0,.06);border-radius:10px;padding:8px 11px;font-size:12px;margin-bottom:8px;color:${tone};font-weight:600">☁️ ${t('weatherTitle')} · ${t('weatherRain', { mm: w.rain3d })}${tmax} → ${tip}</div>`;
+    }
     const actionCards = (actions || []).map((a) => `
       <div class="practice-card ${a.type}">
         <div class="practice-title">${a.title}</div>
@@ -187,7 +198,7 @@ function renderDiagnostic(diag, actions) {
       ).join('');
       better = `<div class="better-suited"><div class="better-suited-title">🌱 ${t('betterSuited')}</div><div class="better-chips">${chips}</div></div>`;
     }
-    practices.innerHTML = actionCards + better;
+    practices.innerHTML = weatherBanner + actionCards + better;
   }
 }
 
@@ -382,5 +393,9 @@ document.addEventListener('DOMContentLoaded', () => {
   populateCropSelects();
   renderAll();
   setupChatLauncher();
+  // Météo (Open-Meteo) : enrichit l'irrigation ; re-rendu quand dispo.
+  if (typeof window.fetchWeather === 'function') {
+    window.fetchWeather().then(() => renderAll()).catch(() => {});
+  }
 });
 window.addEventListener('resize', drawMap);

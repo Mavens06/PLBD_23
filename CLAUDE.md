@@ -99,6 +99,9 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `SENSOR_MOCK_PROFILE` | `None` | En mock, force le profil d'une zone (`A1`..`C3`) |
 | `AGRIBOTICS_API_BASE` | `http://127.0.0.1:8000` | URL du backend pour `raspberry_pi/main.py` |
 | `CORS_ORIGINS` | `*` | Origines CORS autorisées par la FastAPI |
+| `WEATHER_LAT` | `33.9` | Latitude pour la météo Open-Meteo (défaut : plaine du Saïss, Maroc) |
+| `WEATHER_LON` | `-5.55` | Longitude pour la météo Open-Meteo |
+| `WEATHER_TIMEOUT` | `8` | Timeout HTTP de l'appel Open-Meteo (s) |
 
 ---
 
@@ -196,6 +199,7 @@ UI :
 | Méthode | Route | Rôle |
 |---|---|---|
 | GET | `/` | Healthcheck + config Gemini courante |
+| GET | `/api/weather` | Bulletin 3 j (Open-Meteo, sans clé) + consigne d'irrigation (pluie → reportée/réduite) |
 | POST | `/api/chat` | Question agriculteur → réponse LLM contextualisée |
 | GET | `/api/mission` | État robot + progression + `plan` + `command` |
 | GET | `/api/mission/plan` | Plan de mission courant (liste de points `{label, x, y}`) — lu par le robot |
@@ -312,7 +316,9 @@ Deux versions strictement parallèles :
 
 **Variables affichées dans la carte / les jauges** : les 4 du capteur — humidité, pH, température, EC. L'EC est traitée comme variable de première classe (jauge dédiée, couche carte, alerte salinité visuelle).
 
-**Chatbot** (`js/chatbot.js`) : envoie au backend `selected_zone`, `selected_crop`, `zone_data`, `robot_state`. Fonction `localAnswer()` de secours qui produit une réponse FR/AR/Darija déterministe sans LLM si le backend n'est pas joignable.
+**Chatbot** (`js/chatbot.js`) : envoie au backend `selected_zone`, `selected_crop`, `zone_data`, `robot_state`. Fonction `localAnswer()` de secours qui produit une réponse FR/AR/Darija déterministe sans LLM si le backend n'est pas joignable. **L'accès se fait via une icône flottante** (FAB bas-droite, `setupChatLauncher` dans `app.js`) qui ouvre/ferme un panneau — plus de barre de chat permanente.
+
+**Météo (Open-Meteo)** : `fetchWeather()` (dans `api.js`) remplit `APP_STATE.weather` ; `real_backend` passe par `/api/weather`, `simulation` appelle Open-Meteo en direct (API publique, CORS ok). `recommendActionsForZone` (`data_model.js`) **réduit ou reporte l'irrigation** quand de la pluie est prévue (mêmes seuils que `backend/weather_service.py`), et un bandeau météo l'explique dans le panneau de conseils.
 
 ### Raspberry Pi (`raspberry_pi/`)
 
@@ -343,7 +349,6 @@ Ces éléments mentionnés dans des versions antérieures de la doc ne sont **pa
 - `raspberry_pi/robot/navigation.py` — planification de trajectoire physique (ordre de visite optimal, évitement). Actuellement, le robot visite les points du plan dynamique dans l'ordre fourni, déplacement stub `_move_to()` qui log les coordonnées (x, y).
 - `raspberry_pi/robot/safety.py` — vérifications avant déplacement / mesure.
 - `raspberry_pi/storage/sqlite_db.py` — SQLite local résilient hors-ligne sur le robot.
-- `backend/services/weather_service.py` — appel Open-Meteo (sans clé) pour enrichir les recos avec la météo.
 - `frontend/.../live.js` — polling automatique toutes les 3 s du backend. Actuellement, rafraîchissement manuel.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui. Acceptable tant que la taille reste raisonnable.
 - Tests automatisés (pytest) — actuellement tests manuels via curl + `raspberry_pi/main.py`.

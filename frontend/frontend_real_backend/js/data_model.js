@@ -196,6 +196,22 @@ function colorForVariable(z, variable){
   return MAP_STATUS_COLORS[variableStatus(z, variable)];
 }
 
+// --- Météo (Open-Meteo) : affine l'irrigation selon la pluie prévue ---------
+// APP_STATE.weather = { available, rain3d, tmax } (rempli par api.js).
+function weatherInfo(){
+  return (typeof APP_STATE !== 'undefined' && APP_STATE.weather && APP_STATE.weather.available)
+    ? APP_STATE.weather : null;
+}
+// Facteur d'irrigation : 0 = reportée (pluie ≥ 10 mm/3j), 0.5 = réduite (4–10 mm), 1 = normale.
+// Mêmes seuils que backend/weather_service.py.
+function weatherIrrigationFactor(){
+  const w = weatherInfo();
+  if (!w) return 1;
+  if (w.rain3d >= 10) return 0;
+  if (w.rain3d >= 4) return 0.5;
+  return 1;
+}
+
 // Cultures naturellement les mieux adaptées au sol mesuré (hors culture courante).
 // Équivalent frontend du champ "better_suited" du backend (rules.correction).
 function betterSuitedCrops(z, currentCrop, k = 3){
@@ -254,8 +270,16 @@ function recommendActionsForZone(z, cropName){
   }
   const waterDeficit = Math.max(0, c.humidity[0] - z.humidity);
   if (waterDeficit > 1) {
-    const mm = Math.round(clamp(waterDeficit * 0.9, 3, 35));
-    actions.push({type:'water', title:t('waterTitle'), value:`${mm} mm`, detail:`≈ ${mm} L/m²`});
+    let mm = Math.round(clamp(waterDeficit * 0.9, 3, 35));
+    const wf = weatherIrrigationFactor();   // pluie prévue → on tempère l'arrosage
+    if (wf === 0) {
+      actions.push({type:'watch', title:t('waterTitle'), value:'0 mm', detail:t('irrigDeferred')});
+    } else if (wf < 1) {
+      mm = Math.max(1, Math.round(mm * wf));
+      actions.push({type:'water', title:t('waterTitle'), value:`${mm} mm`, detail:t('irrigReduced')});
+    } else {
+      actions.push({type:'water', title:t('waterTitle'), value:`${mm} mm`, detail:`≈ ${mm} L/m²`});
+    }
   } else if (z.humidity > c.humidity[1]) {
     actions.push({type:'watch', title:t('waterTitle'), value:'0 mm', detail:t('alreadyWet')});
   }

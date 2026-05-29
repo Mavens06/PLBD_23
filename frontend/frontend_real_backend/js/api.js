@@ -60,6 +60,18 @@ async function postBackend(path, payload = {}) {
   });
 }
 
+// Météo (Open-Meteo via le backend) — affine l'irrigation. Repli silencieux.
+window.fetchWeather = async function () {
+  try {
+    const w = await fetchJSON('/weather');
+    APP_STATE.weather = (w && w.available)
+      ? { available: true, rain3d: w.rain_3d_mm, tmax: w.tmax }
+      : { available: false };
+  } catch (_) {
+    APP_STATE.weather = { available: false };
+  }
+};
+
 // Diagnostic de correction faisant autorité, calculé par le backend
 // (rules.correction). Normalisé pour renderDiagnostic(). Repli silencieux
 // sur le rendu local si le backend est injoignable.
