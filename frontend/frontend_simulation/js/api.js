@@ -26,7 +26,7 @@ async function syncFromBackend() {
     const all = payload.history || (payload.latest ? [payload.latest] : []);
     all.forEach((m, idx) => {
       const point = m.point || m.zone || (APP_STATE.missionRoute[idx] || APP_STATE.robot.activePoint);
-      if (ZONES.includes(point)) {
+      if (planLabels().includes(point)) {
         APP_STATE.fieldData[point] = {
           point,
           measured: true,

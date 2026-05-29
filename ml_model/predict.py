@@ -36,11 +36,23 @@ def _ml_model_available() -> bool:
     return _MODEL_PATH.exists() and _SCALER_PATH.exists()
 
 
+_ML_CACHE = None   # (mtime_model, mtime_scaler, model, scaler) — évite de recharger le pickle à chaque appel
+
+
 def _load_ml():
-    """Charge le modèle et le scaler. Appelé uniquement si dispo."""
+    """
+    Charge (et met en cache) le modèle et le scaler. Le cache est invalidé si
+    un des fichiers .pkl change sur le disque (ré-entraînement à chaud).
+    Évite de désérialiser les pickles à chaque prédiction (cf. revue de code).
+    """
+    global _ML_CACHE
     import joblib   # import paresseux : pas requis si fallback rules
+    mtimes = (_MODEL_PATH.stat().st_mtime, _SCALER_PATH.stat().st_mtime)
+    if _ML_CACHE is not None and _ML_CACHE[:2] == mtimes:
+        return _ML_CACHE[2], _ML_CACHE[3]
     model = joblib.load(_MODEL_PATH)
     scaler = joblib.load(_SCALER_PATH)
+    _ML_CACHE = (mtimes[0], mtimes[1], model, scaler)
     return model, scaler
 
 

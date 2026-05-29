@@ -178,6 +178,11 @@ def watch_loop(poll_s: float = 1.5) -> int:
     « l'interface commande le robot ».
     """
     print(f"[watch] en attente d'ordre de mission (poll {poll_s}s)…", flush=True)
+    # `handled` empêche de relancer la mission tant qu'on n'a pas observé un
+    # nouvel ordre : si une mesure échoue, le backend reste à "requested"
+    # (jamais "done"), il ne faut PAS réexécuter en boucle. On ne réarme que
+    # lorsque la commande repasse à autre chose que "requested" (reset/idle/done).
+    handled = False
     while True:
         try:
             r = requests.get(f"{_backend_url()}/api/mission", timeout=5)
@@ -185,12 +190,15 @@ def watch_loop(poll_s: float = 1.5) -> int:
         except requests.RequestException:
             command = None
 
-        if command == "requested":
+        if command == "requested" and not handled:
+            handled = True
             print("[watch] ordre reçu — exécution de la mission", flush=True)
             plan = resolve_plan(None)
             # reset=False : /api/mission/start a déjà réinitialisé l'état.
             run_mission(plan, reset=False)
             print("[watch] mission terminée — retour en attente", flush=True)
+        elif command != "requested":
+            handled = False
         time.sleep(poll_s)
 
 
