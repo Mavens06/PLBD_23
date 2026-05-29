@@ -1,0 +1,41 @@
+APP_STATE.runtimeMode='simulation';
+let simTimer=null, simIndex=0;
+
+function resetSimulation(){
+  if(simTimer) clearInterval(simTimer);
+  simTimer=null;
+  simIndex=0;
+  APP_STATE.fieldData=emptyField();
+  APP_STATE.robot={status:'Simulation prête',activePoint:'HOME',progress:0,measuredPoints:0,totalPoints:APP_STATE.missionRoute.length};
+  renderAll();
+}
+
+function startSimulationMission(){
+  resetSimulation();
+  APP_STATE.robot.status='Simulation en cours';
+  showToast(t('simStarted'));
+  simTimer=setInterval(simulationStep,1800);
+  simulationStep();
+}
+
+function simulationStep(){
+  if(simIndex>=APP_STATE.missionRoute.length){
+    if(simTimer) clearInterval(simTimer);
+    simTimer=null;
+    APP_STATE.robot.activePoint='HOME';
+    APP_STATE.robot.status='Simulation terminée';
+    APP_STATE.robot.progress=100;
+    renderAll();
+    showToast(t('simFinished'));
+    return;
+  }
+  const point=APP_STATE.missionRoute[simIndex];
+  APP_STATE.robot.activePoint=point;
+  APP_STATE.robot.status='Mesure au point '+point;
+  APP_STATE.fieldData[point]=generateMeasurement(point);
+  APP_STATE.selectedZone=point;
+  simIndex++;
+  APP_STATE.robot.measuredPoints=simIndex;
+  APP_STATE.robot.progress=Math.round(simIndex/APP_STATE.robot.totalPoints*100);
+  renderAll();
+}
