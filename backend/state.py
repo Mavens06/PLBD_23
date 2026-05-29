@@ -2,8 +2,14 @@
 state.py — État applicatif minimal en mémoire pour le backend Agribotics.
 
 Sert à exposer aux frontends "real_backend" :
-  • L'état de la mission (point actif, progression).
-  • L'historique des mesures du capteur 4-en-1 RS485 par zone.
+  • Le plan de mission (liste de points de mesure définis par coordonnées x/y).
+  • L'état de la mission (point actif, progression, commande robot).
+  • L'historique des mesures du capteur 4-en-1 RS485 par point.
+
+Le plan de mission est DYNAMIQUE : l'interface peut le redéfinir (N points
+arbitraires), le robot le récupère et l'exécute. La grille 3×3 historique
+(A1..C3) n'est plus qu'un plan par défaut pour que l'app fonctionne dès
+l'ouverture et que la démo curée reste reproductible.
 
 Ce singleton est volontairement simple : pas de persistance côté API.
 La persistance réelle reste sur la Raspberry Pi (SQLite local), conformément
@@ -17,7 +23,38 @@ from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
 
+# ---------------------------------------------------------------------------
+# Plan de mission par défaut (grille 3×3, espacement 3 m)
+# ---------------------------------------------------------------------------
+# Labels historiques + coordonnées explicites. Conservés pour que la démo et
+# les profils curés du frontend (alerte salinité A1/C1…) restent identiques.
 ZONES = ("A1", "A2", "A3", "B1", "B2", "B3", "C1", "C2", "C3")
+
+_DEFAULT_SPACING_M = 3.0
+_DEFAULT_GRID = [  # (label, col, row) → (x, y) = (col*spacing, row*spacing)
+    ("A1", 0, 0), ("A2", 1, 0), ("A3", 2, 0),
+    ("B1", 0, 1), ("B2", 1, 1), ("B3", 2, 1),
+    ("C1", 0, 2), ("C2", 1, 2), ("C3", 2, 2),
+]
+
+
+@dataclass
+class MissionPoint:
+    """Un point de mesure du plan : un label et des coordonnées (mètres)."""
+    label: str
+    x: float
+    y: float
+
+    def as_dict(self) -> dict:
+        return {"label": self.label, "x": self.x, "y": self.y}
+
+
+def default_plan() -> List[MissionPoint]:
+    """Plan 3×3 par défaut (compatibilité ascendante + démo)."""
+    return [
+        MissionPoint(label=label, x=col * _DEFAULT_SPACING_M, y=row * _DEFAULT_SPACING_M)
+        for label, col, row in _DEFAULT_GRID
+    ]
 
 
 @dataclass
@@ -53,32 +90,69 @@ class Measurement:
 @dataclass
 class AppState:
     robot: RobotState = field(default_factory=RobotState)
+    plan: List[MissionPoint] = field(default_factory=default_plan)
+    command: str = "idle"              # idle | requested | running | done
     measurements_by_zone: Dict[str, Measurement] = field(default_factory=dict)
     history: List[Measurement] = field(default_factory=list)
 
+    # -- Plan ---------------------------------------------------------------
+    @property
+    def point_ids(self) -> List[str]:
+        return [p.label for p in self.plan]
+
+    def has_point(self, label: str) -> bool:
+        return label in self.point_ids
+
+    def point(self, label: str) -> Optional[MissionPoint]:
+        for p in self.plan:
+            if p.label == label:
+                return p
+        return None
+
+    def set_plan(self, points: List[MissionPoint]) -> None:
+        """Remplace le plan de mission et repart d'un état mission vierge."""
+        if not points:
+            raise ValueError("Le plan de mission doit contenir au moins un point.")
+        labels = [p.label for p in points]
+        if len(set(labels)) != len(labels):
+            raise ValueError("Les labels des points doivent être uniques.")
+        self.plan = list(points)
+        self.measurements_by_zone.clear()
+        self.history.clear()
+        self.robot = RobotState()
+        self.command = "idle"
+
+    # -- Progression --------------------------------------------------------
     @property
     def measured_points(self) -> int:
         return len(self.measurements_by_zone)
 
     @property
     def total_points(self) -> int:
-        return len(ZONES)
+        return len(self.plan)
 
     def record_measurement(self, m: Measurement) -> None:
-        if m.point not in ZONES:
-            raise ValueError(f"Point inconnu : {m.point}. Attendu : {ZONES}.")
+        if not self.has_point(m.point):
+            raise ValueError(
+                f"Point inconnu : {m.point}. Points du plan : {self.point_ids}."
+            )
         self.measurements_by_zone[m.point] = m
         self.history.append(m)
         self.robot.active_point = m.point
         self.robot.progress_pct = round(100 * self.measured_points / self.total_points, 1)
         if self.measured_points >= self.total_points:
             self.robot.status = "done"
+            self.command = "done"
+        else:
+            self.robot.status = "measuring"
 
     def latest(self) -> Optional[Measurement]:
         return self.history[-1] if self.history else None
 
     def reset(self) -> None:
+        """Vide les mesures et l'état robot/commande, mais CONSERVE le plan."""
         self.robot = RobotState()
+        self.command = "idle"
         self.measurements_by_zone.clear()
         self.history.clear()
 

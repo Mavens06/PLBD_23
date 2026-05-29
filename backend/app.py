@@ -22,11 +22,11 @@ from pydantic import BaseModel
 
 try:
     from .chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
-    from .state import APP_STATE, Measurement, ZONES
+    from .state import APP_STATE, Measurement, MissionPoint
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
     from chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
-    from state import APP_STATE, Measurement, ZONES
+    from state import APP_STATE, Measurement, MissionPoint
 
 # Le moteur d'inférence ML (ou fallback rules) est dans ml_model/.
 # Comme backend/ et ml_model/ sont des packages frères à la racine du projet,
@@ -73,12 +73,32 @@ class ChatRequest(BaseModel):
 
 class MeasurementIn(BaseModel):
     """Mesure transmise par la Raspberry Pi (capteur 4-en-1 RS485)."""
-    point: str                              # Zone : A1, A2, ..., C3
+    point: str                              # Label du point de mesure (ex. A1, P3…)
     humidity: float                         # Humidité (%)
     ph: float                               # pH
     temp: float                             # Température (°C)
     ec: float                               # Conductivité électrique / salinité (mS/cm)
     quality: str = "good"
+
+
+class MissionPointIn(BaseModel):
+    """Un point de mesure défini depuis l'interface."""
+    label: str                              # Identité du point (ex. "P1")
+    x: float                                # Coordonnée X (mètres)
+    y: float                                # Coordonnée Y (mètres)
+
+
+class MissionPlanIn(BaseModel):
+    """Plan de mission : liste ordonnée de points à mesurer."""
+    points: list[MissionPointIn]
+
+
+def _first_not_none(*values):
+    """Renvoie la première valeur non-None (sans piège du falsy-zero d'`or`)."""
+    for v in values:
+        if v is not None:
+            return v
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -143,10 +163,10 @@ async def chat(request: ChatRequest):
     if sensor_data is None and request.zone_data:
         zd = request.zone_data
         sensor_data = {
-            "pH": zd.get("ph"),
+            "pH": _first_not_none(zd.get("ph"), zd.get("pH")),
             "humidity": zd.get("humidity"),
-            "temperature": zd.get("temp") or zd.get("temperature"),
-            "salinity": zd.get("ec") or zd.get("salinity"),
+            "temperature": _first_not_none(zd.get("temp"), zd.get("temperature")),
+            "salinity": _first_not_none(zd.get("ec"), zd.get("salinity")),
         }
         sensor_data = {k: v for k, v in sensor_data.items() if v is not None}
 
@@ -182,7 +202,7 @@ async def chat(request: ChatRequest):
 
 @app.get("/api/mission")
 def get_mission():
-    """État courant de la mission : robot + progression."""
+    """État courant de la mission : robot + progression + plan + commande."""
     r = APP_STATE.robot
     return {
         "robot": {
@@ -190,15 +210,60 @@ def get_mission():
             "active_point": r.active_point,
             "progress_pct": r.progress_pct,
         },
+        "command": APP_STATE.command,
         "measured_points": APP_STATE.measured_points,
         "total_points": APP_STATE.total_points,
-        "zones": list(ZONES),
+        "zones": APP_STATE.point_ids,
+        "plan": [p.as_dict() for p in APP_STATE.plan],
     }
+
+
+@app.get("/api/mission/plan")
+def get_mission_plan():
+    """Plan de mission courant (récupéré par le robot pour exécution)."""
+    return {"points": [p.as_dict() for p in APP_STATE.plan]}
+
+
+@app.post("/api/mission/plan")
+def set_mission_plan(payload: MissionPlanIn):
+    """
+    Définit le plan de mission depuis l'interface : liste de points (label, x, y).
+    Réinitialise l'état mission. C'est ce plan que le robot va exécuter.
+    """
+    try:
+        APP_STATE.set_plan(
+            [MissionPoint(label=p.label, x=p.x, y=p.y) for p in payload.points]
+        )
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
+    return {"ok": True, "points": [p.as_dict() for p in APP_STATE.plan]}
+
+
+@app.post("/api/mission/start")
+def start_mission():
+    """
+    Commande le démarrage de la mission (déclenchée par l'interface).
+    Le robot, en mode --watch, détecte `command=="requested"` et exécute le plan.
+    """
+    APP_STATE.reset()
+    APP_STATE.command = "requested"
+    APP_STATE.robot.status = "requested"
+    return {"ok": True, "command": APP_STATE.command,
+            "total_points": APP_STATE.total_points}
+
+
+@app.post("/api/mission/end")
+def end_mission():
+    """Demande l'arrêt de la mission en cours (abort)."""
+    APP_STATE.command = "idle"
+    if APP_STATE.robot.status not in ("done",):
+        APP_STATE.robot.status = "idle"
+    return {"ok": True, "command": APP_STATE.command}
 
 
 @app.post("/api/mission/reset")
 def reset_mission():
-    """Réinitialise l'état mission/mesures en mémoire."""
+    """Réinitialise l'état mission/mesures en mémoire (conserve le plan)."""
     APP_STATE.reset()
     return {"ok": True}
 
@@ -220,10 +285,10 @@ def post_measurement(payload: MeasurementIn):
     Enregistre une mesure du capteur 4-en-1 RS485 et met à jour la mission.
     Cette route est appelée par la Raspberry Pi (ou par des outils de démo).
     """
-    if payload.point not in ZONES:
+    if not APP_STATE.has_point(payload.point):
         raise HTTPException(
             status_code=400,
-            detail=f"Point inconnu : {payload.point}. Attendu : {list(ZONES)}.",
+            detail=f"Point inconnu : {payload.point}. Plan : {APP_STATE.point_ids}.",
         )
     m = Measurement(
         point=payload.point,
@@ -248,7 +313,7 @@ def get_recommendation(point: str, k: int = 3):
     de la dernière mesure stockée. Si best_model.pkl est présent, c'est le
     modèle ML qui décide ; sinon, le moteur de règles déterministe.
     """
-    if point not in ZONES:
+    if not APP_STATE.has_point(point):
         raise HTTPException(status_code=400, detail=f"Point inconnu : {point}.")
     m = APP_STATE.measurements_by_zone.get(point)
     if m is None:
@@ -275,7 +340,7 @@ def get_recommendation_all(k: int = 3):
 @app.get("/api/recommendation/{point}/explain")
 def get_recommendation_explain(point: str):
     """Classement complet (10 cultures) + détail par variable pour debug/UI."""
-    if point not in ZONES:
+    if not APP_STATE.has_point(point):
         raise HTTPException(status_code=400, detail=f"Point inconnu : {point}.")
     m = APP_STATE.measurements_by_zone.get(point)
     if m is None:
@@ -295,7 +360,7 @@ def get_soil_correction(point: str, crop: str):
     naturellement les mieux adaptées au sol en l'état. Logique 100 % déterministe
     (rules.correction), exposable telle quelle ou reformulée par le chatbot.
     """
-    if point not in ZONES:
+    if not APP_STATE.has_point(point):
         raise HTTPException(status_code=400, detail=f"Point inconnu : {point}.")
     if crop not in CROP_CATALOG:
         raise HTTPException(

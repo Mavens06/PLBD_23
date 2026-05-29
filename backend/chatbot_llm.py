@@ -244,6 +244,15 @@ async def generate_expert_response(
                 json=payload,
             )
             response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            # Inclure le status + un extrait du corps : 429 (quota free-tier,
+            # fréquent sur les modèles 2.0) et 400 (modèle/clé invalides) doivent
+            # rester diagnosticables (cf. revue de code, finding #4).
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec de l'appel au LLM Gemini (HTTP {err.response.status_code}, "
+                f"modèle={GEMINI_MODEL}). Détail : {body}"
+            ) from err
         except httpx.HTTPError as err:
             raise RuntimeError(
                 f"Échec de l'appel au LLM Gemini ({url}, modèle={GEMINI_MODEL}). "
@@ -253,7 +262,19 @@ async def generate_expert_response(
     data = response.json()
     # Réponse Gemini : candidates[0].content.parts[*].text
     candidates = data.get("candidates") or []
-    if not candidates:
-        return ""
-    parts = (candidates[0].get("content") or {}).get("parts") or []
-    return "".join(p.get("text", "") for p in parts).strip()
+    parts = (candidates[0].get("content") or {}).get("parts") if candidates else []
+    text = "".join(p.get("text", "") for p in (parts or [])).strip()
+    if not text:
+        # Réponse 200 mais vide : blocage de sécurité, finishReason=MAX_TOKENS,
+        # promptFeedback bloqué… On lève une erreur explicite plutôt que de
+        # renvoyer "" silencieusement (cf. revue de code, finding #5). Le
+        # frontend bascule alors sur localAnswer().
+        reason = ""
+        if candidates:
+            reason = candidates[0].get("finishReason", "")
+        feedback = (data.get("promptFeedback") or {}).get("blockReason", "")
+        raise RuntimeError(
+            "Réponse Gemini vide "
+            f"(finishReason={reason or 'n/a'}, blockReason={feedback or 'n/a'})."
+        )
+    return text
