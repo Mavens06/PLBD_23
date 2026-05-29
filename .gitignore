@@ -61,3 +61,6 @@ build/
 
 # Logs
 *.log
+
+# Archive redondante (les fichiers frontend sont versionnés en clair)
+frontend.zip
