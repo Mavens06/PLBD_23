@@ -30,7 +30,7 @@ python3 -m venv .venv
 
 Aucun téléchargement de modèle ni RAM consommée localement (contrairement à
 l'ancien Ollama/Qwen). Le modèle est choisi via `.env` (`GEMINI_MODEL`, défaut
-`gemini-2.0-flash`) — **aucun changement de code requis** entre machines.
+`gemini-2.5-flash`) — **aucun changement de code requis** entre machines. NB : les modèles `2.0` peuvent avoir un free tier à 0 selon le compte/la région (HTTP 429) ; les `2.5` disposent du quota gratuit.
 
 ### Backend FastAPI
 ```bash
@@ -89,7 +89,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 |---|---|---|
 | `APP_MODE` | `mock` | `mock` = dev/démo sans matériel · `hardware` = robot réel |
 | `GEMINI_API_KEY` | _(vide)_ | Clé API Google AI Studio (obligatoire pour le chatbot) |
-| `GEMINI_MODEL` | `gemini-2.0-flash` | Modèle Gemini servi (flash / flash-lite / 1.5-flash) |
+| `GEMINI_MODEL` | `gemini-2.5-flash` | Modèle Gemini servi (2.5-flash / 2.5-flash-lite) |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Endpoint Generative Language API |
 | `GEMINI_TIMEOUT` | `60` | Timeout HTTP de l'appel Gemini (s) |
 | `RS485_PORT` | `/dev/ttyUSB0` | Port série du capteur (ou `/dev/ttyAMA0`) |

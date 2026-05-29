@@ -39,7 +39,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 # Configuration Gemini / Google AI Studio (surchargeable via .env).
 # Obtenir une clé gratuite : https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.0-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_BASE_URL = os.getenv(
     "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
@@ -214,7 +214,11 @@ async def generate_expert_response(
         ],
         "generationConfig": {
             "temperature": 0.4,
-            "maxOutputTokens": 220,
+            "maxOutputTokens": 400,
+            # Désactive le mode "thinking" des modèles Gemini 2.5 : pour une
+            # réponse courte, le raisonnement interne consommerait tout le
+            # budget de tokens (réponse tronquée / vide) et ajoute de la latence.
+            "thinkingConfig": {"thinkingBudget": 0},
         },
     }
 
