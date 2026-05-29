@@ -171,8 +171,8 @@ APP_MODE=hardware (robot) :
       → met à jour RobotState (progress_pct, status=done à 9/9)
 
 APP_MODE=mock (dev/démo) :
-  même flux, mais _MockSensor produit des lectures cohérentes avec les
-  profils de zone du frontend (humidité/pH/temp/EC par zone).
+  même flux, mais _MockSensor produit des lectures cohérentes : profils curés
+  A1..C3, ou champ déterministe soil_at(x,y) pour les points arbitraires du plan.
 
 UI :
   frontend_real_backend appelle GET /api/mission, /api/measurements,
@@ -182,7 +182,7 @@ UI :
 ### Backend (`backend/`)
 
 - **`app.py`** — Application FastAPI mono-fichier. Enregistre toutes les routes et le middleware CORS. Importe les helpers via `from .chatbot_llm`, `from .state` et `from ml_model.predict` (les packages `backend/` et `ml_model/` sont frères à la racine).
-- **`state.py`** — Singleton `APP_STATE` (dataclasses) : `RobotState` (status, active_point, progress_pct), dict `measurements_by_zone`, liste `history`. Pas de persistance API — l'état se reset au redémarrage du serveur.
+- **`state.py`** — Singleton `APP_STATE` (dataclasses) : `RobotState` (status, active_point, progress_pct), **`plan` (liste de `MissionPoint{label, x, y}`)**, `command` (`idle | requested | running | done`), dict `measurements_by_zone`, liste `history`. Le **plan de mission est dynamique** : l'interface le redéfinit (`POST /api/mission/plan`), `total_points` et la validation des mesures (`has_point`) en découlent. La grille 3×3 historique (A1..C3) n'est plus qu'un **plan par défaut** (amorçage + démo). Pas de persistance API — l'état se reset au redémarrage du serveur.
 - **`chatbot_llm.py`** — Client **Gemini** (Google AI Studio, cloud) async (httpx), endpoint `generateContent`. Le prompt système passe par `system_instruction`, la question par `contents`. Compose un prompt système strict :
   - mention explicite des 4 variables capteur (pH, humidité, température, EC)
   - **interdiction explicite N/P/K** dans le prompt
@@ -197,20 +197,24 @@ UI :
 |---|---|---|
 | GET | `/` | Healthcheck + config Gemini courante |
 | POST | `/api/chat` | Question agriculteur → réponse LLM contextualisée |
-| GET | `/api/mission` | État robot + progression |
-| POST | `/api/mission/reset` | Vide l'état mémoire |
+| GET | `/api/mission` | État robot + progression + `plan` + `command` |
+| GET | `/api/mission/plan` | Plan de mission courant (liste de points `{label, x, y}`) — lu par le robot |
+| POST | `/api/mission/plan` | Définit le plan de mission depuis l'interface (N points x/y) |
+| POST | `/api/mission/start` | Commande le démarrage (`command="requested"`) — le robot `--watch` exécute |
+| POST | `/api/mission/end` | Demande l'arrêt (abort) de la mission |
+| POST | `/api/mission/reset` | Vide l'état mémoire (conserve le plan) |
 | GET | `/api/measurements` | `latest` + `history` + `by_zone` |
 | POST | `/api/measurements` | Push d'une mesure (depuis robot ou démo) |
 | GET | `/api/recommendation` | Top-k cultures pour toutes zones mesurées |
 | GET | `/api/recommendation/{point}` | Top-k cultures pour une zone |
-| GET | `/api/recommendation/{point}/explain` | Classement complet 10 cultures + détail par variable |
+| GET | `/api/recommendation/{point}/explain` | Classement règles 10 cultures + détail par variable (+ `ml_top` si modèle dispo) |
 | GET | `/api/recommendation/{point}/correction?crop=X` | Diagnostic du sol pour une culture cible + corrections + cultures mieux adaptées |
 
 ### Capteur RS485 4-en-1 (`raspberry_pi/sensors/`)
 
 - **`rs485_4in1.py`** — `build_sensor()` retourne automatiquement :
   - `_HardwareSensor` (minimalmodbus) si `APP_MODE=hardware`
-  - `_MockSensor` sinon (profils de zone identiques au frontend)
+  - `_MockSensor` sinon. Priorité aux profils curés A1..C3 (démo) ; pour tout autre point, **`soil_at(x, y)`** — champ de sol synthétique déterministe et spatialement cohérent (miroir exact de `soilAt()` dans `js/data_model.js`). `set_location(label, x, y)` positionne le mock.
   
   Registres lus en un seul bloc Modbus (fonction 0x03) :
   ```
@@ -304,13 +308,15 @@ Deux versions strictement parallèles :
 - **`frontend_simulation/`** (port 5501) : démo autonome, données statiques dans `js/data_model.js`. Aucun backend requis. Profils par zone (A1 alerte salinité, C1 alerte forte, B2 cas typique...).
 - **`frontend_real_backend/`** (port 5500) : consomme l'API FastAPI. `js/api.js` fait des `GET /api/mission`, `GET /api/measurements`, et mappe `m.ec ?? m.salinity ?? m.conductivity` vers `data.ec`.
 
+**Carte dynamique & éditeur de plan** : la carte n'est plus une grille figée. Un **éditeur de plan** (injecté en JS au-dessus de la carte mission, dans les deux frontends) permet de définir N points de mesure par coordonnées `{label, x, y}` → **N points = N blocs**. `js/data_model.js` expose `currentPlan()`/`planLabels()`, `posForPoint()` (positionnement fit-to-bounds normalisé, remplace l'ancien `ZONE_POS`), `soilAt(x,y)` (miroir du `soil_at` Python) et `applyPlanPoints()`. En `real_backend`, l'UI envoie le plan (`POST /api/mission/plan`) puis commande le robot (`startRealMode` → `/start`) ; `syncFromBackend` adopte le plan renvoyé par `GET /api/mission`.
+
 **Variables affichées dans la carte / les jauges** : les 4 du capteur — humidité, pH, température, EC. L'EC est traitée comme variable de première classe (jauge dédiée, couche carte, alerte salinité visuelle).
 
 **Chatbot** (`js/chatbot.js`) : envoie au backend `selected_zone`, `selected_crop`, `zone_data`, `robot_state`. Fonction `localAnswer()` de secours qui produit une réponse FR/AR/Darija déterministe sans LLM si le backend n'est pas joignable.
 
 ### Raspberry Pi (`raspberry_pi/`)
 
-- **`main.py`** — Orchestrateur de mission. Argparse : `--point B2` (zone unique) ou pas d'argument (mission 3×3 complète). Reset du backend en début de mission, push HTTP par mesure, log console détaillé.
+- **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` (fichier) → `GET /api/mission/plan` (défini par l'interface) → repli grille 3×3. Argparse : `--point LABEL` (point unique du plan), `--plan` (fichier), `--watch` (**daemon** : exécute le plan dès que l'interface commande le démarrage via `command=="requested"`), `--no-reset`. Déplacement vers `(x, y)`, push HTTP par mesure (échecs loggés), log console détaillé.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
 - **`sensors.py`, `robot_car.py`, `camera.py`** — stubs commentaires historiques ; **non utilisés** par le pipeline actif.
 
@@ -334,7 +340,7 @@ Deux versions strictement parallèles :
 Ces éléments mentionnés dans des versions antérieures de la doc ne sont **pas** encore implémentés :
 
 - `raspberry_pi/robot/motors.py` — pilotage PCA9685 + TB6612FNG (driver moteurs Adeept Pi Car). Actuellement le déplacement est un stub `_move_to()` qui log.
-- `raspberry_pi/robot/navigation.py` — grille 4×6 (24 points, espacement 3 m). Actuellement, grille 3×3 (9 points) cohérente avec le frontend.
+- `raspberry_pi/robot/navigation.py` — planification de trajectoire physique (ordre de visite optimal, évitement). Actuellement, le robot visite les points du plan dynamique dans l'ordre fourni, déplacement stub `_move_to()` qui log les coordonnées (x, y).
 - `raspberry_pi/robot/safety.py` — vérifications avant déplacement / mesure.
 - `raspberry_pi/storage/sqlite_db.py` — SQLite local résilient hors-ligne sur le robot.
 - `backend/services/weather_service.py` — appel Open-Meteo (sans clé) pour enrichir les recos avec la météo.
