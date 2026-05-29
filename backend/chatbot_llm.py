@@ -89,6 +89,7 @@ def _build_system_prompt(
     selected_zone: Optional[str],
     selected_crop: Optional[str],
     robot_state: Optional[dict],
+    correction_context: Optional[str] = None,
 ) -> str:
     """Compose un prompt système robuste, ancré sur les données réelles."""
     lang_label = _LANG_LABELS.get(language, _LANG_LABELS["fr"])
@@ -102,6 +103,10 @@ def _build_system_prompt(
         )
     else:
         ml_context = ""
+
+    # Diagnostic de correction du sol déjà calculé (déterministe). Le LLM doit
+    # s'appuyer dessus sans inventer d'autre conseil agronomique.
+    correction_block = (correction_context + " ") if correction_context else ""
 
     zone_context = f"Zone analysée : {selected_zone}. " if selected_zone else ""
     crop_context = f"Culture cible choisie par l'agriculteur : {selected_crop}. " if selected_crop else ""
@@ -133,8 +138,11 @@ def _build_system_prompt(
         + zone_context
         + crop_context
         + robot_context
-        + "Réponds à la question de l'agriculteur de manière TRÈS courte (1 à 3 phrases), "
-        "concrète et actionnable, en t'appuyant exclusivement sur les données ci-dessus. "
+        + correction_block
+        + "Réponds à la question de l'agriculteur de manière courte (2 à 4 phrases), "
+        "concrète et actionnable, en t'appuyant EXCLUSIVEMENT sur les données et le "
+        "diagnostic ci-dessus. N'invente aucune correction ou conseil non listé. "
+        "Si une culture mieux adaptée au sol est indiquée, mentionne-la brièvement à la fin. "
         f"Réponds EXCLUSIVEMENT en {lang_label}. "
         "N'ajoute aucune explication sur ta nature, tes capacités ou ton fonctionnement interne."
     )
@@ -148,6 +156,7 @@ async def generate_expert_response(
     selected_zone: Optional[str] = None,
     selected_crop: Optional[str] = None,
     robot_state: Optional[dict] = None,
+    correction_context: Optional[str] = None,
 ) -> str:
     """
     Génère une réponse agricole courte et experte via le LLM Gemini (cloud).
@@ -193,6 +202,7 @@ async def generate_expert_response(
         selected_zone=selected_zone,
         selected_crop=selected_crop,
         robot_state=robot_state,
+        correction_context=correction_context,
     )
 
     # Format de l'API Generative Language : le prompt système passe par

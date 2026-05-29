@@ -117,7 +117,8 @@ PLBD/
 │   ├── predict.py                      # predict_top_crops() — ML si dispo, sinon rules
 │   ├── rules/
 │   │   ├── crop_catalog.py             # 10 cultures × 4 plages (pH, humidité, temp, EC)
-│   │   └── engine.py                   # Score pondéré + top_k + salinity_alert
+│   │   ├── engine.py                   # Score pondéré + top_k + salinity_alert
+│   │   └── correction.py               # Diagnostic sol → corrections pour une culture cible
 │   ├── inference/__init__.py           # Shim de compatibilité
 │   ├── data_loader.py                  # Générateur synthétique 10 000 lignes (cf. crop_catalog)
 │   ├── data_preparation.py             # (Re)génère final_dataset.csv ; vérifie périmètre 4 vars
@@ -187,6 +188,7 @@ UI :
   - **interdiction explicite N/P/K** dans le prompt
   - liste des 10 cultures cibles uniquement
   - langue forcée selon `language` (`fr` / `ar` / `da`)
+  - **diagnostic de correction injecté** (`correction_context`) quand une culture cible est choisie : `/api/chat` calcule `rules.correction.diagnose()` à partir des 4 variables et le passe au prompt ; le LLM reformule les corrections sans en inventer.
 - **`__init__.py`** — Marque `backend/` comme package Python.
 
 ### Routes API
@@ -202,6 +204,7 @@ UI :
 | GET | `/api/recommendation` | Top-k cultures pour toutes zones mesurées |
 | GET | `/api/recommendation/{point}` | Top-k cultures pour une zone |
 | GET | `/api/recommendation/{point}/explain` | Classement complet 10 cultures + détail par variable |
+| GET | `/api/recommendation/{point}/correction?crop=X` | Diagnostic du sol pour une culture cible + corrections + cultures mieux adaptées |
 
 ### Capteur RS485 4-en-1 (`raspberry_pi/sensors/`)
 
@@ -257,6 +260,7 @@ crop_catalog.py (vérité agronomique : 10 cultures × 4 plages)
 
 - **`rules/crop_catalog.py`** — `CropProfile` dataclass figée pour les 10 cultures V1 : Blé, Tomate, Oignon, Carotte, Pomme de terre, Orge, Betterave à sucre, Olivier, Vigne, Pastèque. Plages agronomiques en pH / humidité (%) / température (°C) / EC (mS/cm) + référence compost. **C'est la source de vérité partagée entre le moteur de règles et le générateur ML.**
 - **`rules/engine.py`** — Score pondéré [0–100] par variable, puis pondération globale : **pH × 0.30, humidité × 0.30, température × 0.20, EC × 0.20**. `top_k()` retourne les k meilleures cultures. `salinity_alert()` vrai si EC > 2.5 mS/cm.
+- **`rules/correction.py`** — Question **inverse** de l'`engine` : « j'ai choisi CETTE culture, comment corriger mon sol ? ». `diagnose(measurement, target_crop)` compare chaque variable à la plage cible (`ok`/`low`/`high`) et renvoie une action concrète déterministe (chaux/dolomie pour relever le pH, soufre pour l'abaisser, irrigation, drainage, lessivage…) + la compatibilité globale + les cultures naturellement mieux adaptées au sol en l'état (`better_suited`). `diagnosis_to_prompt()` sérialise le tout pour le prompt Gemini. **Aucun conseil n'est inventé par le LLM** : il reformule des faits calculés ici.
 - **`data_loader.py`** — `generate_dataset(samples_per_crop=1000)` produit un DataFrame de N×10 lignes avec colonnes `[ph, humidity, temperature, ec, label]`. Pour chaque culture : **85 %** au cœur de la plage (bruit σ = width × 0.05), **15 %** en bordure (σ = width × 0.10). Les tirages franchement hors-plage sont désactivés (`out_frac=0.0`) car ils constituaient du bruit d'étiquetage. Clamping physique automatique (pH ∈ [3, 10], EC ∈ [0, 12], …). `FEATURE_ORDER = ["ph", "humidity", "temperature", "ec"]` — **cet ordre est partagé avec preprocess.py et predict.py**.
 - **`data_preparation.py`** — Wrapper de `data_loader.generate_dataset()` qui sauvegarde `data/final_dataset.csv` et lève `RuntimeError` si une colonne hors périmètre (N/P/K/rainfall) apparaît. Exécution : `python ml_model/data_preparation.py`.
 - **`preprocess.py`** — Charge le CSV, vérifie qu'aucune colonne hors périmètre n'a fuité, split stratifié 80/20 (`random_state=42`), `StandardScaler` ajusté sur le train set seulement et sauvegardé.

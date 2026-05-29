@@ -32,6 +32,9 @@ except ImportError:
 # Comme backend/ et ml_model/ sont des packages frères à la racine du projet,
 # le fichier doit être lancé depuis la racine ; l'import absolu fonctionne.
 from ml_model.predict import predict_top_crops, explain as ml_explain
+from ml_model.rules.crop_catalog import CROP_CATALOG
+from ml_model.rules.engine import Measurement as RuleMeasurement
+from ml_model.rules.correction import diagnose, diagnosis_to_prompt
 
 # ---------------------------------------------------------------------------
 # Création de l'application FastAPI
@@ -92,6 +95,30 @@ def read_root():
     }
 
 
+def _measurement_from_sensor_data(sensor_data: Optional[dict]) -> Optional[RuleMeasurement]:
+    """Construit une mesure règles depuis le dict capteur (clés pH/humidity/
+    temperature/salinity). Retourne None si une des 4 variables manque."""
+    if not sensor_data:
+        return None
+    ph = sensor_data.get("pH")
+    hum = sensor_data.get("humidity")
+    temp = sensor_data.get("temperature")
+    ec = sensor_data.get("salinity")
+    if None in (ph, hum, temp, ec):
+        return None
+    return RuleMeasurement(ph=ph, humidity=hum, temperature=temp, ec=ec)
+
+
+def _build_correction_context(selected_crop: Optional[str], sensor_data: Optional[dict]):
+    """Diagnostic de correction sérialisé pour le prompt, ou None si non applicable."""
+    if not selected_crop or selected_crop not in CROP_CATALOG:
+        return None
+    m = _measurement_from_sensor_data(sensor_data)
+    if m is None:
+        return None
+    return diagnosis_to_prompt(diagnose(m, selected_crop))
+
+
 @app.post("/api/chat")
 async def chat(request: ChatRequest):
     """
@@ -122,6 +149,14 @@ async def chat(request: ChatRequest):
         }
         sensor_data = {k: v for k, v in sensor_data.items() if v is not None}
 
+    # Si l'agriculteur a choisi une culture cible ET qu'on dispose des 4
+    # variables du sol, on calcule un diagnostic de correction déterministe
+    # (rules.correction) et on l'injecte dans le prompt. Le LLM le reformule
+    # sans inventer de conseil.
+    correction_context = _build_correction_context(
+        request.selected_crop, sensor_data,
+    )
+
     try:
         answer = await generate_expert_response(
             message=request.message,
@@ -131,6 +166,7 @@ async def chat(request: ChatRequest):
             selected_zone=request.selected_zone,
             selected_crop=request.selected_crop,
             robot_state=request.robot_state,
+            correction_context=correction_context,
         )
     except RuntimeError as err:
         raise HTTPException(status_code=503, detail=str(err))
@@ -245,3 +281,28 @@ def get_recommendation_explain(point: str):
     return {"point": point, "measurement": m.as_dict(),
             **ml_explain(ph=m.ph, humidity=m.humidity,
                          temperature=m.temp, ec=m.ec)}
+
+
+@app.get("/api/recommendation/{point}/correction")
+def get_soil_correction(point: str, crop: str):
+    """
+    Diagnostic du sol d'une zone pour une culture CIBLE choisie par l'agriculteur.
+
+    Indique, variable par variable, si le sol convient et sinon la correction
+    concrète (chaux, soufre, irrigation, drainage…). Ajoute les cultures
+    naturellement les mieux adaptées au sol en l'état. Logique 100 % déterministe
+    (rules.correction), exposable telle quelle ou reformulée par le chatbot.
+    """
+    if point not in ZONES:
+        raise HTTPException(status_code=400, detail=f"Point inconnu : {point}.")
+    if crop not in CROP_CATALOG:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Culture inconnue : {crop}. Connues : {list(CROP_CATALOG)}.",
+        )
+    m = APP_STATE.measurements_by_zone.get(point)
+    if m is None:
+        raise HTTPException(status_code=404, detail=f"Aucune mesure pour {point}.")
+    rule_m = RuleMeasurement(ph=m.ph, humidity=m.humidity,
+                             temperature=m.temp, ec=m.ec)
+    return {"point": point, "measurement": m.as_dict(), **diagnose(rule_m, crop)}
