@@ -16,19 +16,8 @@ function currentPlan(){
 function planLabels(){ return currentPlan().map((p) => p.label); }
 function planPoint(label){ return currentPlan().find((p) => p.label === label) || null; }
 
-// Position NORMALISÉE [0..1] d'un point pour le dessin de la carte : fit-to-bounds
-// des coordonnées du plan, avec marge. Remplace l'ancien ZONE_POS figé.
-function posForPoint(label){
-  const plan = currentPlan();
-  const p = plan.find((q) => q.label === label);
-  if (!p) return { x:.5, y:.5 };
-  const xs = plan.map((q) => q.x), ys = plan.map((q) => q.y);
-  const minX = Math.min(...xs), maxX = Math.max(...xs);
-  const minY = Math.min(...ys), maxY = Math.max(...ys);
-  const pad = 0.14;
-  const norm = (v, mn, mx) => (mx - mn < 1e-9) ? .5 : pad + (1 - 2 * pad) * (v - mn) / (mx - mn);
-  return { x: norm(p.x, minX, maxX), y: norm(p.y, minY, maxY) };
-}
+// (Le positionnement carte est désormais géré par _layoutField() dans map.js,
+//  qui préserve les distances réelles avec une échelle uniforme x/y.)
 
 // Champ de sol synthétique DÉTERMINISTE en fonction de (x,y) en mètres.
 // MIROIR EXACT de soil_at() dans raspberry_pi/sensors/rs485_4in1.py — toute

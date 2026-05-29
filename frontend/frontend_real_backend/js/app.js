@@ -202,20 +202,39 @@ function renderAdvice() {
 // Injecté en JS au-dessus de la carte mission → présent dans toutes les
 // variantes HTML sans les modifier. N points définis → N blocs sur la carte.
 // ---------------------------------------------------------------------------
+// Espacement minimal entre deux points (prototype). On suppose le sol homogène
+// dans un petit rayon : inutile (et irréaliste) de mesurer trop rapproché.
+const MIN_SPACING_M = 0.5;
+
 function _injectPlanStyles() {
   if (document.getElementById('planEditorStyles')) return;
   const s = document.createElement('style');
   s.id = 'planEditorStyles';
   s.textContent = `
-  .plan-editor{background:#fff;border-radius:16px;padding:14px 16px;margin:0 0 14px;box-shadow:0 2px 10px rgba(0,0,0,.06)}
-  .plan-title{font-weight:800;display:flex;align-items:center;gap:8px;margin-bottom:10px}
-  .plan-head,.plan-row{display:grid;grid-template-columns:1fr 90px 90px 34px;gap:8px;align-items:center}
-  .plan-head{font-size:11px;opacity:.6;margin-bottom:4px;padding:0 2px}
-  .plan-row{margin-bottom:6px}
-  .plan-in{width:100%;padding:7px 8px;border:1px solid #dde5dd;border-radius:9px;font:inherit}
-  .plan-del{border:none;background:#f5e3e1;color:#c0392b;border-radius:9px;height:34px;cursor:pointer;font-weight:700}
-  .plan-actions{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}`;
+  .plan-editor{background:linear-gradient(180deg,#ffffff,#f6faf5);border:1px solid #e7efe7;border-radius:18px;padding:16px;margin:0 0 14px;box-shadow:0 6px 20px rgba(22,45,22,.07)}
+  .plan-hd{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .plan-hd-title{font-weight:800;display:flex;align-items:center;gap:8px;font-size:15px}
+  .plan-hd-badge{background:#e8f3e8;color:#2f7a3a;border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700;white-space:nowrap}
+  .plan-sub{font-size:11.5px;color:#7c887c;margin:5px 0 13px}
+  .plan-row{display:grid;grid-template-columns:30px 1fr 86px 86px 32px;gap:8px;align-items:center;margin-bottom:8px}
+  .plan-idx{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff;background:linear-gradient(135deg,#52a85d,#3b7a44);box-shadow:0 2px 5px rgba(59,122,68,.35)}
+  .plan-field{position:relative}
+  .plan-field .unit{position:absolute;right:9px;top:50%;transform:translateY(-50%);font-size:10px;color:#9aa79a;pointer-events:none}
+  .plan-in{width:100%;padding:8px 9px;border:1px solid #dde5dd;border-radius:10px;font:inherit;font-size:13px;background:#fff;transition:border-color .15s,box-shadow .15s}
+  .plan-field .plan-in{padding-right:22px}
+  .plan-in:focus{outline:none;border-color:#4a9c55;box-shadow:0 0 0 3px rgba(74,156,85,.16)}
+  .plan-del{border:none;background:#fbeceb;color:#c0392b;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:13px;transition:background .15s,transform .1s}
+  .plan-del:hover{background:#f3d4d2}.plan-del:active{transform:scale(.92)}
+  .plan-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+  .plan-actions>button{flex:1;min-width:140px}`;
   document.head.appendChild(s);
+}
+
+function _nextPlanLabel() {
+  const used = new Set(APP_STATE.plan.map((p) => p.label));
+  let i = 1;
+  while (used.has('P' + i)) i++;
+  return 'P' + i;
 }
 
 function renderPlanEditor() {
@@ -231,14 +250,18 @@ function renderPlanEditor() {
   }
   const rows = APP_STATE.plan.map((p, i) => `
     <div class="plan-row">
-      <input class="plan-in" value="${p.label}" data-i="${i}" data-k="label"/>
-      <input class="plan-in" type="number" step="0.1" value="${p.x}" data-i="${i}" data-k="x"/>
-      <input class="plan-in" type="number" step="0.1" value="${p.y}" data-i="${i}" data-k="y"/>
+      <span class="plan-idx">${i + 1}</span>
+      <input class="plan-in" value="${p.label}" data-i="${i}" data-k="label" aria-label="${t('planCol')}"/>
+      <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.x}" data-i="${i}" data-k="x"/><span class="unit">m</span></span>
+      <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.y}" data-i="${i}" data-k="y"/><span class="unit">m</span></span>
       <button class="plan-del" onclick="removePlanRow(${i})" title="${t('planRemove')}">✕</button>
     </div>`).join('');
   host.innerHTML = `
-    <div class="plan-title">🗺️ ${t('missionPlanTitle')} <span class="mini-badge">${APP_STATE.plan.length} ${t('planPoints')}</span></div>
-    <div class="plan-head"><span>${t('planCol')}</span><span>X (m)</span><span>Y (m)</span><span></span></div>
+    <div class="plan-hd">
+      <span class="plan-hd-title">🛰️ ${t('missionPlanTitle')}</span>
+      <span class="plan-hd-badge">${APP_STATE.plan.length} ${t('planPoints')}</span>
+    </div>
+    <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })}</div>
     <div class="plan-rows">${rows}</div>
     <div class="plan-actions">
       <button class="btn-soft" onclick="addPlanRow()">＋ ${t('planAdd')}</button>
@@ -253,7 +276,9 @@ function renderPlanEditor() {
 }
 
 function addPlanRow() {
-  APP_STATE.plan.push({ label: 'P' + (APP_STATE.plan.length + 1), x: 0, y: 0 });
+  // Décale le nouveau point de l'espacement min depuis le dernier (jamais superposé).
+  const last = APP_STATE.plan[APP_STATE.plan.length - 1] || { x: 0, y: 0 };
+  APP_STATE.plan.push({ label: _nextPlanLabel(), x: Math.round((last.x + 1) * 10) / 10, y: last.y });
   renderPlanEditor();
 }
 
@@ -264,13 +289,27 @@ function removePlanRow(i) {
 }
 
 function applyPlanFromEditor() {
-  const labels = APP_STATE.plan.map((p) => String(p.label).trim());
+  const pts = APP_STATE.plan;
+  const labels = pts.map((p) => String(p.label).trim());
   if (labels.some((l) => !l) || new Set(labels).size !== labels.length) {
     showToast(t('planInvalid'));
     return;
   }
-  applyPlanPoints(APP_STATE.plan);
-  showToast(t('planApplied', { n: APP_STATE.plan.length }));
+  if (pts.some((p) => !isFinite(p.x) || !isFinite(p.y))) {
+    showToast(t('planInvalid'));
+    return;
+  }
+  // Distance minimale entre points (sol homogène sur un petit rayon).
+  for (let i = 0; i < pts.length; i++) {
+    for (let j = i + 1; j < pts.length; j++) {
+      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < MIN_SPACING_M) {
+        showToast(t('planTooClose', { a: pts[i].label, b: pts[j].label, d: MIN_SPACING_M }));
+        return;
+      }
+    }
+  }
+  applyPlanPoints(pts);
+  showToast(t('planApplied', { n: pts.length }));
   renderAll();
 }
 

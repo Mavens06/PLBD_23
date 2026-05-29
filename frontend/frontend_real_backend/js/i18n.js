@@ -53,7 +53,8 @@
       navFarmer:"Terrain", navMap:"Carte", navReco:"Conseils",
       backendUnavailable:"Backend non joignable. Réponse locale utilisée.",
       missionPlanTitle:"Plan de mission", planPoints:"points", planCol:"Point", planAdd:"Ajouter un point", planApply:"Appliquer le plan", planRemove:"Supprimer",
-      planMin:"Au moins un point de mesure est requis.", planInvalid:"Labels vides ou en double — corrigez le plan.", planApplied:"Plan appliqué : {n} point(s)"
+      planMin:"Au moins un point de mesure est requis.", planInvalid:"Labels vides ou en double — corrigez le plan.", planApplied:"Plan appliqué : {n} point(s)",
+      planSpacingNote:"Définissez les points de mesure par coordonnées · espacement min. {d} m", planTooClose:"{a} et {b} trop proches (min. {d} m d'écart)"
     },
     ar: {
       badge:"ع", dir:"rtl", langName:"العربية",
@@ -86,7 +87,8 @@
       navFarmer:"الحقـل", navMap:"الخريطة", navReco:"النصائح",
       backendUnavailable:"الخادم غير متاح. تم استخدام إجابة محلية.",
       missionPlanTitle:"خطة المهمة", planPoints:"نقاط", planCol:"النقطة", planAdd:"إضافة نقطة", planApply:"تطبيق الخطة", planRemove:"حذف",
-      planMin:"مطلوب نقطة قياس واحدة على الأقل.", planInvalid:"أسماء فارغة أو مكررة — صحّح الخطة.", planApplied:"تم تطبيق الخطة: {n} نقطة"
+      planMin:"مطلوب نقطة قياس واحدة على الأقل.", planInvalid:"أسماء فارغة أو مكررة — صحّح الخطة.", planApplied:"تم تطبيق الخطة: {n} نقطة",
+      planSpacingNote:"حدّد نقاط القياس بالإحداثيات · المسافة الدنيا {d} م", planTooClose:"{a} و {b} متقاربتان جداً (الحد الأدنى {d} م)"
     },
     da: {
       badge:"DA", dir:"rtl", langName:"الدارجة",
@@ -119,7 +121,8 @@
       navFarmer:"الحقل", navMap:"الخريطة", navReco:"النصائح",
       backendUnavailable:"السيرفر ما خدامش. استعملت جواب محلي.",
       missionPlanTitle:"بلان المهمة", planPoints:"نقط", planCol:"النقطة", planAdd:"زيد نقطة", planApply:"طبق البلان", planRemove:"حيد",
-      planMin:"خاص على الأقل نقطة قياس وحدة.", planInvalid:"أسماء خاوية ولا مكررة — صحح البلان.", planApplied:"تطبق البلان: {n} نقطة"
+      planMin:"خاص على الأقل نقطة قياس وحدة.", planInvalid:"أسماء خاوية ولا مكررة — صحح البلان.", planApplied:"تطبق البلان: {n} نقطة",
+      planSpacingNote:"حدد نقط القياس بالكوردوني · المسافة الصغيرة {d} م", planTooClose:"{a} و {b} قراب بزاف (خاص {d} م على الأقل)"
     }
   };
 
