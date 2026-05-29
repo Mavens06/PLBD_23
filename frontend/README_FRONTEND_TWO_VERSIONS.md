@@ -24,7 +24,7 @@ cd frontend_simulation
 python3 -m http.server 5501
 ```
 
-Ouvrir : `http://localhost:5501/agribotics_v5.html`
+Ouvrir : `http://localhost:5501/` (un `index.html` redirige vers `agribotics_v5.html`).
 
 ## Lancement version réelle
 
@@ -33,5 +33,8 @@ cd frontend_real_backend
 python3 -m http.server 5500
 ```
 
-Ouvrir : `http://localhost:5500/agribotics_v5.html`
+Ouvrir : `http://localhost:5500/` (un `index.html` redirige vers `agribotics_v5.html`).
+
+> Cette version a besoin du backend FastAPI (port 8000) en marche, sinon elle
+> affiche « Backend indisponible » — c'est normal, elle ne simule aucune mesure.
 

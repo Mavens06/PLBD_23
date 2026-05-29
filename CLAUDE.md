@@ -47,6 +47,10 @@ cd frontend/frontend_simulation && python3 -m http.server 5501
 cd frontend/frontend_real_backend && python3 -m http.server 5500
 ```
 
+Chaque frontend contient un `index.html` qui redirige vers `agribotics_v5.html` :
+ouvrir directement `http://localhost:5500/` (ou `:5501/`) lance l'app, au lieu
+d'afficher le listing du dossier.
+
 ### Raspberry Pi / robot (mock sur PC ou hardware sur Pi)
 ```bash
 # Mission complète 3×3 (alimente le backend en 9 mesures)
@@ -144,10 +148,12 @@ PLBD/
 │
 ├── frontend/
 │   ├── frontend_simulation/            # Démo autonome — port 5501
+│   │   ├── index.html                  # Redirection → agribotics_v5.html
 │   │   ├── agribotics_v5.html
 │   │   ├── css/style.css
 │   │   └── js/ (data_model.js, map.js, app.js, chatbot.js, api.js, i18n.js, ...)
 │   └── frontend_real_backend/          # Consomme l'API FastAPI — port 5500
+│       ├── index.html                  # Redirection → agribotics_v5.html
 │       └── (mêmes fichiers que la version simulation, api.js connecté)
 │
 ├── .venv/                              # Environnement Python 3.12+
@@ -316,7 +322,9 @@ Deux versions strictement parallèles :
 
 **Variables affichées dans la carte / les jauges** : les 4 du capteur — humidité, pH, température, EC. L'EC est traitée comme variable de première classe (jauge dédiée, couche carte, alerte salinité visuelle).
 
-**Chatbot** (`js/chatbot.js`) : envoie au backend `selected_zone`, `selected_crop`, `zone_data`, `robot_state`. Fonction `localAnswer()` de secours qui produit une réponse FR/AR/Darija déterministe sans LLM si le backend n'est pas joignable. **L'accès se fait via une icône flottante** (FAB bas-droite, `setupChatLauncher` dans `app.js`) qui ouvre/ferme un panneau — plus de barre de chat permanente.
+**Chatbot** (`js/chatbot.js`) : envoie au backend `selected_zone`, `selected_crop`, `zone_data`, `robot_state`. Fonction `localAnswer()` de secours qui produit une réponse FR/AR/Darija déterministe sans LLM si le backend n'est pas joignable. **L'accès se fait via une icône flottante** (FAB bas-droite 🚜, `setupChatLauncher` dans `app.js`) qui ouvre/ferme un panneau — plus de barre de chat permanente. Le panneau (`#chatPanel`) et le FAB sont rattachés à `document.body` (et non à une page) : ils restent donc disponibles depuis **tous les onglets** (Terrain / Carte / Conseils), pas seulement Terrain.
+
+**Libellés boutons mission (real_backend)** : `applyLanguage()` (`js/i18n.js`) relabellise les 3 boutons `.mission-actions` avec les clés **mode réel** `startMission` / `syncBtn` / `stopBtn` (« ▶ Démarrer mission / ↻ Synchroniser / ■ Arrêter »), et non les clés simulation `startSimulation` / `nextStep` / `reset` (ces dernières restent utilisées côté `frontend_simulation`).
 
 **Météo (Open-Meteo)** : `fetchWeather()` (dans `api.js`) remplit `APP_STATE.weather` ; `real_backend` passe par `/api/weather`, `simulation` appelle Open-Meteo en direct (API publique, CORS ok). `recommendActionsForZone` (`data_model.js`) **réduit ou reporte l'irrigation** quand de la pluie est prévue (mêmes seuils que `backend/weather_service.py`), et un bandeau météo l'explique dans le panneau de conseils.
 

@@ -31,6 +31,7 @@
       missionTitle:"🤖 Mission terrain", missionReady:"En attente", missionReadyText:"Mission prête",
       activePoint:"Point actif", progress:"Progression", measurements:"Mesures", globalCrop:"Culture globale",
       demoLocal:"démo locale", startSimulation:"▶ Démarrer simulation", nextStep:"+ Étape suivante", reset:"↺ Réinitialiser",
+      startMission:"▶ Démarrer mission", syncBtn:"↻ Synchroniser", stopBtn:"■ Arrêter",
       runtimeNote:"Cette version fonctionne sans robot ni backend. Elle simule le déplacement du robot, les mesures et la coloration progressive des zones.",
       humidity:"Humidité", soilPh:"pH du sol", ph:"pH", temperature:"Température", waiting:"En attente", fieldAverage:"moyenne parcelle",
       quickMap:"🎯 Lecture rapide de la carte", capturedValues:"Valeurs captées", lowHumidity:"Humidité faible", outPh:"pH hors plage", limitValue:"Valeur limite", correctValue:"Valeur correcte",
@@ -66,6 +67,7 @@
       missionTitle:"🤖 مهمة ميدانية", missionReady:"في الانتظار", missionReadyText:"المهمة جاهزة",
       activePoint:"النقطة الحالية", progress:"التقدم", measurements:"القياسات", globalCrop:"المحصول العام",
       demoLocal:"محاكاة محلية", startSimulation:"▶ بدء المحاكاة", nextStep:"+ الخطوة التالية", reset:"↺ إعادة التهيئة",
+      startMission:"▶ بدء المهمة", syncBtn:"↻ مزامنة", stopBtn:"■ إيقاف",
       runtimeNote:"هذه النسخة تعمل بدون روبوت أو خادم. تحاكي حركة الروبوت والقياسات وتلوين المناطق تدريجياً.",
       humidity:"الرطوبة", soilPh:"pH التربة", ph:"pH", temperature:"درجة الحرارة", waiting:"في الانتظار", fieldAverage:"متوسط الحقل",
       quickMap:"🎯 قراءة سريعة للخريطة", capturedValues:"القيم المقاسة", lowHumidity:"رطوبة منخفضة", outPh:"pH خارج المجال", limitValue:"قيمة حدية", correctValue:"قيمة مناسبة",
@@ -101,6 +103,7 @@
       missionTitle:"🤖 مهمة فالحقل", missionReady:"كيتسنى", missionReadyText:"المهمة واجدة",
       activePoint:"النقطة الحالية", progress:"التقدم", measurements:"القياسات", globalCrop:"الزرعة العامة",
       demoLocal:"ديمو محلي", startSimulation:"▶ بدا المحاكاة", nextStep:"+ الخطوة الجاية", reset:"↺ عاود من اللول",
+      startMission:"▶ بدا المهمة", syncBtn:"↻ مزامنة", stopBtn:"■ وقّف",
       runtimeNote:"هاد النسخة كتخدم بلا روبو وبلا backend. كتحاكي الحركة والقياسات وتلوين الزونات.",
       humidity:"الرطوبة", soilPh:"pH ديال التراب", ph:"pH", temperature:"الحرارة", waiting:"كيتسنى", fieldAverage:"معدل الحقل",
       quickMap:"🎯 قراءة سريعة للخريطة", capturedValues:"القيم لي تقاسو", lowHumidity:"الرطوبة ناقصة", outPh:"pH خارج المجال", limitValue:"قيمة خاصها مراقبة", correctValue:"قيمة مزيانة",
@@ -207,7 +210,7 @@
     setText(".mission-title", t("missionTitle"));
     setAll(".mission-stat-label", [t("activePoint"), t("progress"), t("measurements"), t("globalCrop")]);
     setText(".runtime-note", t("runtimeNote"));
-    setAll(".mission-actions button", [t("startSimulation"), t("nextStep"), t("reset")]);
+    setAll(".mission-actions button", [t("startMission"), t("syncBtn"), t("stopBtn")]);
     setText(".quick-intent-head .section-title", t("quickMap"));
     setText(".quick-intent-head .mini-badge", t("capturedValues"));
     setAll(".quick-intent-item strong", [t("blue"), t("red"), t("yellow"), t("green")]);
