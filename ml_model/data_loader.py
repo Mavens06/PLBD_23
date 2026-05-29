@@ -87,15 +87,20 @@ def _sample_in_range(
     border_hi = rng.normal(hi, width * 0.10, n_border - half)
     border = np.concatenate([border_lo, border_hi])
 
-    # hors plage : éloignement modéré
-    side = rng.choice([-1.0, 1.0], n_out)
-    outside = np.where(
-        side < 0,
-        lo - rng.uniform(width * 0.05, width * 0.40, n_out),
-        hi + rng.uniform(width * 0.05, width * 0.40, n_out),
-    )
+    # hors plage : éloignement modéré (désactivé par défaut, out_frac=0.0).
+    # Gardé derrière `if n_out` pour ne pas consommer de tirages RNG inutiles
+    # et préserver la reproductibilité cœur/bordure (cf. revue de code, #10).
+    parts = [core, border]
+    if n_out:
+        side = rng.choice([-1.0, 1.0], n_out)
+        outside = np.where(
+            side < 0,
+            lo - rng.uniform(width * 0.05, width * 0.40, n_out),
+            hi + rng.uniform(width * 0.05, width * 0.40, n_out),
+        )
+        parts.append(outside)
 
-    samples = np.concatenate([core, border, outside])
+    samples = np.concatenate(parts)
     rng.shuffle(samples)
     return samples
 

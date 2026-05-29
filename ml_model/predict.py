@@ -18,12 +18,14 @@ Périmètre :
 
 from __future__ import annotations
 
-import os
+import logging
 from pathlib import Path
-from typing import List, Optional
+from typing import List
 
 from .rules.engine import Measurement, top_k as rules_top_k, salinity_alert, rank_crops
 
+
+_log = logging.getLogger(__name__)
 
 _HERE = Path(__file__).resolve().parent
 _MODEL_PATH = _HERE / "best_model.pkl"
@@ -89,20 +91,37 @@ def predict_top_crops(
                 pred = model.predict(X_scaled)[0]
                 top = [{"crop": str(pred), "score": 100.0, "details": {}}]
             return {"engine": "ml", "top": top, "alerts": alerts}
-        except Exception:
-            # En cas de modèle corrompu / version incompatible, on retombe
-            # silencieusement sur les règles. La démo ne casse jamais.
-            pass
+        except Exception as err:
+            # En cas de modèle corrompu / version incompatible, on retombe sur
+            # les règles (la démo ne casse jamais) MAIS on le signale : un modèle
+            # cassé ne doit pas passer inaperçu (cf. revue de code, finding #6).
+            _log.warning(
+                "Inférence ML indisponible (%s) — repli sur le moteur de règles.",
+                err,
+            )
 
     top = [s.as_dict() for s in rules_top_k(m, k=k)]
     return {"engine": "rules", "top": top, "alerts": alerts}
 
 
 def explain(ph: float, humidity: float, temperature: float, ec: float) -> dict:
-    """Renvoie le classement complet avec détail par variable (debug / UI)."""
+    """
+    Renvoie le classement complet avec détail PAR VARIABLE (debug / UI).
+
+    Le détail par variable est par nature une explication du moteur de RÈGLES
+    (le ML n'expose pas de score par variable) : `engine` reflète donc toujours
+    "rules" pour le champ `ranking`. Si un modèle ML est disponible, on ajoute
+    `ml_top` (cohérent avec /api/recommendation) pour comparaison — sans laisser
+    croire que le `ranking` détaillé vient du ML (cf. revue de code, finding #2).
+    """
     m = Measurement(ph=ph, humidity=humidity, temperature=temperature, ec=ec)
-    return {
-        "engine": "ml" if _ml_model_available() else "rules",
+    result = {
+        "engine": "rules",
         "ranking": [s.as_dict() for s in rank_crops(m)],
         "alerts": ["salinity_high"] if salinity_alert(m) else [],
     }
+    if _ml_model_available():
+        result["ml_top"] = predict_top_crops(
+            ph=ph, humidity=humidity, temperature=temperature, ec=ec,
+        ).get("top", [])
+    return result
