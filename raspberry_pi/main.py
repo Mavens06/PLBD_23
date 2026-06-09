@@ -41,6 +41,7 @@ from typing import List, Optional
 import requests
 
 from .acquisition_manager import AcquisitionManager, MeasurementRecord
+from .robot import build_probe, build_robot
 from .sensors.rs485_4in1 import build_sensor
 
 
@@ -127,17 +128,31 @@ def _push_measurement(record: MeasurementRecord) -> bool:
         return False
 
 
-def _move_to(p: PlanPoint) -> None:
-    """
-    Stub de déplacement. En hardware, ce sera l'API motors.MotorController.
-    En mock, on log la cible (label + coordonnées) et on simule un délai court.
-    """
-    print(f"  [move] → {p.label} (x={p.x}, y={p.y})", flush=True)
-    time.sleep(0.2)
+def _fetch_command() -> Optional[str]:
+    """Lit la commande mission courante du backend (None si injoignable)."""
+    try:
+        r = requests.get(f"{_backend_url()}/api/mission", timeout=3)
+        if r.status_code < 300:
+            return r.json().get("command")
+    except requests.RequestException:
+        return None
+    return None
 
 
-def run_mission(points: List[PlanPoint], reset: bool = True) -> List[MeasurementRecord]:
-    """Exécute la mission sur la liste de points et renvoie les records."""
+def run_mission(points: List[PlanPoint], reset: bool = True,
+                should_abort=None) -> List[MeasurementRecord]:
+    """
+    Exécute la mission sur la liste de points et renvoie les records.
+
+    Séquence par point : déplacement (robot réel ou mock) → descente sonde →
+    stabilisation → acquisition capteur → remontée sonde → push backend.
+    Le robot est TOUJOURS arrêté en fin de mission (finally), y compris sur
+    erreur — c'est la garantie d'arrêt minimale côté robot.
+
+    `should_abort` (optionnel) : callable renvoyant True si un arrêt d'urgence
+    a été demandé. Vérifié AVANT chaque point → le robot stoppe proprement et
+    n'entame pas le déplacement suivant.
+    """
     mode = os.getenv("APP_MODE", "mock").lower()
     print(f"[mission] APP_MODE={mode} | API={_backend_url()} | {len(points)} point(s)", flush=True)
 
@@ -148,15 +163,23 @@ def run_mission(points: List[PlanPoint], reset: bool = True) -> List[Measurement
         except requests.RequestException:
             print("[mission] backend non joignable — on continue en local", flush=True)
 
+    robot = build_robot()
+    probe = build_probe()
     sensor = build_sensor()
     manager = AcquisitionManager(sensor=sensor, interval_s=0.0 if mode == "mock" else 0.5)
     records: List[MeasurementRecord] = []
 
     try:
         for p in points:
+            if should_abort is not None and should_abort():
+                print("[mission] ⛔ arrêt d'urgence demandé — mission interrompue.", flush=True)
+                break
             print(f"[mission] point {p.label}", flush=True)
-            _move_to(p)
-            rec = manager.collect(p.label, x=p.x, y=p.y)
+            robot.move_to_point(p.x, p.y)        # déplacement réel/mock
+            probe.lower_probe()                  # descente de la sonde
+            probe.stabilize()                    # contact sol + stabilisation
+            rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur
+            probe.raise_probe()                  # remontée avant déplacement suivant
             records.append(rec)
             pushed = _push_measurement(rec)
             tag = "✓ pushed" if pushed else "⚠ local-only"
@@ -166,6 +189,9 @@ def run_mission(points: List[PlanPoint], reset: bool = True) -> List[Measurement
                 flush=True,
             )
     finally:
+        robot.stop()
+        robot.close()
+        probe.close()
         sensor.close()
 
     return records
@@ -195,7 +221,12 @@ def watch_loop(poll_s: float = 1.5) -> int:
             print("[watch] ordre reçu — exécution de la mission", flush=True)
             plan = resolve_plan(None)
             # reset=False : /api/mission/start a déjà réinitialisé l'état.
-            run_mission(plan, reset=False)
+            # should_abort : si la commande repasse à idle (bouton arrêt
+            # d'urgence /api/mission/stop ou /end), on stoppe entre deux points.
+            run_mission(
+                plan, reset=False,
+                should_abort=lambda: _fetch_command() in ("idle", "abort"),
+            )
             print("[watch] mission terminée — retour en attente", flush=True)
         elif command != "requested":
             handled = False

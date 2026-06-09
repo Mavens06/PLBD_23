@@ -1,0 +1,66 @@
+"""
+Couche robot/sonde d'Agribotics — factory selon APP_MODE.
+
+  build_robot()  → AdeeptRobotController (hardware) | MockRobotController (mock)
+  build_probe()  → AdeeptProbeController si un servo sonde est configuré,
+                   sinon SimulatedProbeController (descente simulée).
+
+Même logique que `sensors/rs485_4in1.build_sensor()` : le reste du code
+(orchestrateur de mission) ne dépend que des interfaces de `base.py`, jamais
+d'une implémentation concrète. Passer au matériel ne change que la factory.
+
+Sécurité dev : en mode hardware, si l'initialisation matérielle échoue (lib
+ou bus I2C absents), on bascule sur le mock avec un message clair plutôt que
+de planter l'orchestrateur.
+"""
+
+from __future__ import annotations
+
+import os
+
+from .base import ProbeController, RobotController
+from .mock_controller import MockRobotController, SimulatedProbeController
+
+
+def _is_hardware() -> bool:
+    return os.getenv("APP_MODE", "mock").strip().lower() == "hardware"
+
+
+def build_robot() -> RobotController:
+    if _is_hardware():
+        try:
+            from .adeept_controller import AdeeptRobotController
+            return AdeeptRobotController()
+        except Exception as err:  # pragma: no cover - dépend du matériel
+            print(f"[robot] ⚠ init matériel impossible ({err}) — repli mock.", flush=True)
+            return MockRobotController()
+    return MockRobotController()
+
+
+def build_probe(pca=None) -> ProbeController:
+    """
+    Renvoie la sonde. Si `PROBE_SERVO_CHANNEL` est défini ET qu'on est en
+    hardware, pilote un vrai servo ; sinon descente simulée (servo non monté).
+    `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot.
+    """
+    channel = os.getenv("PROBE_SERVO_CHANNEL")
+    if _is_hardware() and channel is not None and channel.strip() != "":
+        try:
+            from .adeept_controller import AdeeptProbeController, _envf, _envi
+            return AdeeptProbeController(
+                channel=_envi("PROBE_SERVO_CHANNEL", 1),
+                up_deg=_envf("PROBE_ANGLE_UP", 30),
+                down_deg=_envf("PROBE_ANGLE_DOWN", 120),
+                stabilize_s=_envf("PROBE_STABILIZE_S", 3.0),
+                pca=pca,
+            )
+        except Exception as err:  # pragma: no cover - dépend du matériel
+            print(f"[probe] ⚠ servo sonde indisponible ({err}) — descente simulée.", flush=True)
+    return SimulatedProbeController()
+
+
+__all__ = [
+    "RobotController", "ProbeController",
+    "MockRobotController", "SimulatedProbeController",
+    "build_robot", "build_probe",
+]
