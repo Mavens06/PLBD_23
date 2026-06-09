@@ -16,17 +16,17 @@ L'inférence ML/règles reste 100% locale. Seule la couche conversationnelle
 import os
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 try:
-    from .chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
+    from .chatbot_llm import generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_FALLBACK_MODEL
     from .state import APP_STATE, Measurement, MissionPoint
     from .weather_service import get_forecast
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
-    from chatbot_llm import generate_expert_response, GEMINI_MODEL, GEMINI_BASE_URL
+    from chatbot_llm import generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_FALLBACK_MODEL
     from state import APP_STATE, Measurement, MissionPoint
     from weather_service import get_forecast
 
@@ -114,7 +114,61 @@ def read_root():
         "message": "Agribotics backend is running",
         "llm_provider": "gemini (google ai studio)",
         "llm_model": GEMINI_MODEL,
+        "llm_fallback_model": GEMINI_FALLBACK_MODEL or None,
         "llm_endpoint": GEMINI_BASE_URL,
+    }
+
+
+@app.get("/health")
+def health():
+    """Healthcheck minimal et stable pour la supervision/démo (jamais d'effet de bord)."""
+    return {"status": "ok", "service": "agribotics-backend"}
+
+
+@app.get("/api/status")
+def api_status():
+    """
+    État consolidé du système pour la démo/supervision :
+    mission, mode applicatif, dernière mesure, dernière recommandation, LLM.
+    Ne lève jamais d'exception — sert aussi de plan B (`curl /api/status`).
+    """
+    r = APP_STATE.robot
+    latest = APP_STATE.latest()
+
+    last_recommendation = None
+    if latest is not None:
+        try:
+            reco = predict_top_crops(
+                ph=latest.ph, humidity=latest.humidity,
+                temperature=latest.temp, ec=latest.ec, k=3,
+            )
+            top = reco.get("top") or []
+            last_recommendation = {
+                "point": latest.point,
+                "engine": reco.get("engine"),
+                "model_type": reco.get("model_type"),
+                "top": [{"crop": t["crop"], "score": t["score"]} for t in top],
+                "alerts": reco.get("alerts", []),
+            }
+        except Exception:
+            last_recommendation = None
+
+    return {
+        "mission_status": r.status,
+        "active_point": r.active_point,
+        "progress_pct": r.progress_pct,
+        "command": APP_STATE.command,
+        "app_mode": os.getenv("APP_MODE", "mock"),
+        "measured_points": APP_STATE.measured_points,
+        "total_points": APP_STATE.total_points,
+        "last_measurement": latest.as_dict() if latest else None,
+        "last_recommendation": last_recommendation,
+        "llm": {
+            "provider": "gemini (google ai studio)",
+            "model": GEMINI_MODEL,
+            "fallback_model": GEMINI_FALLBACK_MODEL or None,
+            "configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+        },
     }
 
 
@@ -169,6 +223,9 @@ async def chat(request: ChatRequest):
             detail="Langue non supportée. Utilisez 'fr', 'ar', ou 'da'.",
         )
 
+    if not (request.message or "").strip():
+        raise HTTPException(status_code=400, detail="Message vide.")
+
     # Si le frontend a envoyé zone_data mais pas sensor_data, on dérive
     # sensor_data depuis zone_data (mapping ec → salinity, temp → temperature).
     sensor_data = request.sensor_data
@@ -206,6 +263,29 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail=str(err))
 
     return {"response": answer}
+
+
+class TTSRequest(BaseModel):
+    text: str                               # Texte à lire à voix haute
+    language: str = "ar"                    # Langue (informatif ; la voix suit le texte)
+
+
+@app.post("/api/tts")
+async def tts(request: TTSRequest):
+    """
+    Synthèse vocale via le modèle TTS de **Gemini** (cloud) : renvoie un WAV
+    24 kHz mono. Sert à offrir une vraie voix arabe naturelle, indépendante des
+    voix TTS locales du navigateur (souvent absentes pour l'arabe sous Chrome).
+    En cas d'échec (quota, réseau), renvoie 503 → le frontend retombe sur la
+    synthèse vocale locale.
+    """
+    if not (request.text or "").strip():
+        raise HTTPException(status_code=400, detail="Texte vide.")
+    try:
+        audio = await synthesize_speech(request.text, request.language)
+    except RuntimeError as err:
+        raise HTTPException(status_code=503, detail=str(err))
+    return Response(content=audio, media_type="audio/wav")
 
 
 # ---------------------------------------------------------------------------
@@ -271,6 +351,20 @@ def end_mission():
     if APP_STATE.robot.status not in ("done",):
         APP_STATE.robot.status = "idle"
     return {"ok": True, "command": APP_STATE.command}
+
+
+@app.post("/api/mission/stop")
+def stop_mission():
+    """
+    ARRÊT D'URGENCE. Passe la commande à `idle` : le robot (mode --watch) le
+    détecte entre deux points et stoppe immédiatement la mission en cours.
+    Marque l'état robot `emergency_stop` pour l'affichage. Doit rester fiable
+    et sans effet de bord destructeur (les mesures déjà prises sont conservées).
+    """
+    APP_STATE.command = "idle"
+    if APP_STATE.robot.status not in ("done",):
+        APP_STATE.robot.status = "emergency_stop"
+    return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
 
 
 @app.post("/api/mission/reset")

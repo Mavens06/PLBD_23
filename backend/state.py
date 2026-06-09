@@ -11,9 +11,9 @@ arbitraires), le robot le récupère et l'exécute. La grille 3×3 historique
 (A1..C3) n'est plus qu'un plan par défaut pour que l'app fonctionne dès
 l'ouverture et que la démo curée reste reproductible.
 
-Ce singleton est volontairement simple : pas de persistance côté API.
-La persistance réelle reste sur la Raspberry Pi (SQLite local), conformément
-à l'architecture du projet. Redémarrer le backend remet cet état à zéro.
+Ce singleton reste volontairement simple : l'etat courant vit en memoire, mais
+le plan de mission et les mesures sont persistes dans SQLite pour survivre a un
+redemarrage du backend. La commande robot reste volatile.
 """
 
 from __future__ import annotations
@@ -21,6 +21,19 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
+
+try:
+    from . import persistence
+except ImportError:
+    import persistence
+
+
+def _safe_persist(fn, *args) -> None:
+    """Ignore les erreurs SQLite pour garder le backend utilisable en memoire."""
+    try:
+        fn(*args)
+    except Exception:
+        pass
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +72,8 @@ def default_plan() -> List[MissionPoint]:
 
 @dataclass
 class RobotState:
-    status: str = "idle"               # idle | moving | measuring | done
+    # idle | requested | moving | measuring | done | emergency_stop
+    status: str = "idle"
     active_point: str = "HOME"
     progress_pct: float = 0.0
 
@@ -121,6 +135,7 @@ class AppState:
         self.history.clear()
         self.robot = RobotState()
         self.command = "idle"
+        _safe_persist(persistence.replace_plan, [p.as_dict() for p in self.plan])
 
     # -- Progression --------------------------------------------------------
     @property
@@ -145,6 +160,7 @@ class AppState:
             self.command = "done"
         else:
             self.robot.status = "measuring"
+        _safe_persist(persistence.save_measurement, m.as_dict())
 
     def latest(self) -> Optional[Measurement]:
         return self.history[-1] if self.history else None
@@ -155,7 +171,51 @@ class AppState:
         self.command = "idle"
         self.measurements_by_zone.clear()
         self.history.clear()
+        _safe_persist(persistence.clear_measurements)
 
 
 # Singleton partagé par toutes les routes.
 APP_STATE = AppState()
+
+
+def _hydrate_from_storage(state: AppState) -> None:
+    """Recharge plan et mesures persistés au démarrage du backend."""
+    try:
+        stored_plan = persistence.load_plan()
+        if stored_plan:
+            state.plan = [
+                MissionPoint(label=str(p["label"]), x=float(p["x"]), y=float(p["y"]))
+                for p in stored_plan
+            ]
+
+        for raw in persistence.load_measurements():
+            m = Measurement(
+                point=str(raw["point"]),
+                humidity=float(raw["humidity"]),
+                ph=float(raw["ph"]),
+                temp=float(raw["temp"]),
+                ec=float(raw["ec"]),
+                timestamp=str(raw["timestamp"]),
+                quality=str(raw.get("quality") or "good"),
+            )
+            if not state.has_point(m.point):
+                continue
+            state.measurements_by_zone[m.point] = m
+            state.history.append(m)
+
+        if state.history:
+            latest = state.history[-1]
+            state.robot.active_point = latest.point
+            state.robot.progress_pct = round(100 * state.measured_points / state.total_points, 1)
+            state.robot.status = "done" if state.measured_points >= state.total_points else "measuring"
+            state.command = "done" if state.robot.status == "done" else "idle"
+    except Exception:
+        # Le backend doit rester disponible meme si le fichier SQLite est
+        # absent, corrompu ou non accessible. Dans ce cas, on repart en memoire.
+        state.robot = RobotState()
+        state.command = "idle"
+        state.measurements_by_zone.clear()
+        state.history.clear()
+
+
+_hydrate_from_storage(APP_STATE)
