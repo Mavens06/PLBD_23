@@ -159,31 +159,74 @@
       return voices.find(v => v.lang?.toLowerCase().startsWith("fr")) || null;
     }
 
+    // Arabe / darija : on ne renvoie QU'une voix arabe. Surtout pas de repli sur
+    // une voix latine (fr/en) : un moteur latin ne sait pas prononcer les lettres
+    // arabes et ne lirait que les chiffres. Mieux vaut null → message explicite.
     return (
       voices.find(v => v.lang?.toLowerCase() === "ar-ma") ||
       voices.find(v => v.lang?.toLowerCase().startsWith("ar")) ||
-      voices.find(v => v.lang?.toLowerCase().startsWith("fr")) ||
       null
     );
   }
 
-  window.speakBotAnswer = function (text, onEnd) {
-    const done = typeof onEnd === "function" ? onEnd : function () {};
-    if (!window.CHATBOT_SPEAK) { done(); return; }
+  // Lecture via Gemini TTS (cloud) : vraie voix naturelle (arabe notamment),
+  // indépendante des voix locales du navigateur. Retourne une promesse rejetée
+  // si l'appel échoue → le caller bascule alors sur la voix locale.
+  function speakViaCloudTTS(text, done) {
+    const base = (window.AGRIBOTICS_API_BASE || "http://localhost:8000/api").replace(/\/$/, "");
+    setVoiceState("thinking");                 // feedback visuel pendant le chargement audio
+    return fetch(`${base}/tts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text, language: window.currentLang || "ar" }),
+    }).then((r) => {
+      if (!r.ok) throw new Error("tts http " + r.status);
+      return r.blob();
+    }).then((blob) => {
+      window.stopBotVoice();                  // coupe toute lecture en cours
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      window._ttsAudio = audio;
+      const cleanup = () => {
+        URL.revokeObjectURL(url);
+        if (window._ttsAudio === audio) window._ttsAudio = null;
+        setVoiceState("idle");
+        done();
+      };
+      audio.onended = cleanup;
+      audio.onerror = cleanup;
+      setVoiceState("speaking");
+      return audio.play();
+    });
+  }
+
+  // Lecture via la synthèse vocale locale du navigateur (gratuite, hors-ligne).
+  function speakLocal(text, done) {
     if (!("speechSynthesis" in window)) {
       showToast((window.currentLang || "fr") === "fr" ? "Synthèse vocale non supportée" : "الصوت غير مدعوم في هذا المتصفح");
       done();
       return;
     }
-
     try {
+      const lang = window.currentLang || "fr";
+      const needsArabic = lang === "ar" || lang === "da";
+      const voice = pickVoice();
+
+      // En arabe/darija sans voix arabe installée (typique de Chrome sous Linux),
+      // on NE lit PAS avec une voix latine : elle ne prononcerait que les chiffres.
+      if (needsArabic && !voice) {
+        showToast("صوت عربي غير متوفّر في هذا المتصفّح — جرّب Firefox");
+        setVoiceState("idle");
+        done();
+        return;
+      }
+
       speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = browserSpeechLang();
-      utter.rate = (window.currentLang || "fr") === "fr" ? 0.95 : 0.9;
+      utter.rate = lang === "fr" ? 0.95 : 0.9;
       utter.pitch = 1;
       utter.volume = 1;
-      const voice = pickVoice();
       if (voice) utter.voice = voice;
       utter.onend = () => done();
       utter.onerror = () => done();
@@ -193,10 +236,29 @@
       // Ne jamais bloquer l'interface si la voix échoue.
       done();
     }
+  }
+
+  window.speakBotAnswer = function (text, onEnd) {
+    const done = typeof onEnd === "function" ? onEnd : function () {};
+    if (!window.CHATBOT_SPEAK) { done(); return; }
+
+    const lang = window.currentLang || "fr";
+    const needsArabic = lang === "ar" || lang === "da";
+
+    // Arabe / darija : la synthèse vocale LOCALE du navigateur n'a souvent PAS de
+    // voix arabe (surtout Chrome). On privilégie donc TOUJOURS la vraie voix
+    // Gemini (cloud) dès qu'un backend est joignable, et on retombe proprement
+    // sur la voix locale si l'appel échoue (quota, réseau, backend absent).
+    if (needsArabic) {
+      speakViaCloudTTS(text, done).catch(() => speakLocal(text, done));
+      return;
+    }
+    speakLocal(text, done);
   };
 
   window.stopBotVoice = function () {
     if ("speechSynthesis" in window) speechSynthesis.cancel();
+    if (window._ttsAudio) { try { window._ttsAudio.pause(); } catch (_) {} window._ttsAudio = null; }
   };
 
   window.toggleVoiceReply = function () {

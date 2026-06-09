@@ -26,8 +26,12 @@ Note d'architecture :
   culture recommandée) sont transmis — jamais d'identifiant personnel.
 """
 
+import base64
+import io
 import json
 import os
+import re
+import wave
 from typing import Optional
 
 import httpx
@@ -44,6 +48,16 @@ GEMINI_BASE_URL = os.getenv(
     "GEMINI_BASE_URL", "https://generativelanguage.googleapis.com/v1beta"
 ).rstrip("/")
 GEMINI_TIMEOUT = float(os.getenv("GEMINI_TIMEOUT", "60"))
+# Modèle de repli si le modèle principal renvoie 429 (quota free-tier épuisé).
+# Par défaut gemini-2.5-flash-lite, qui dispose d'un quota gratuit plus large.
+# Mettre à vide pour désactiver le repli.
+GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lite").strip()
+
+# Synthèse vocale (TTS) Gemini : modèle audio dédié + voix prédéfinie. La voix
+# parle automatiquement la langue du texte fourni (arabe, français…). Liste des
+# voix : https://ai.google.dev/gemini-api/docs/speech-generation
+GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts").strip()
+GEMINI_TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore").strip()
 
 # Noms d'affichage des langues utilisés dans le prompt système pour indiquer
 # au LLM dans quelle langue répondre.
@@ -63,6 +77,13 @@ _TARGET_CROPS = (
 # Champs capteurs autorisés — strictement les 4 variables du capteur 4-en-1 RS485.
 # N/P/K sont volontairement exclus : le capteur ne les mesure pas.
 _ALLOWED_SENSOR_KEYS = {"pH", "humidity", "temperature", "salinity"}
+
+# Garde-fous d'entrée (défense en profondeur, indépendamment du frontend) :
+# borne la longueur du message et le nombre de tours d'historique transmis au
+# LLM pour maîtriser le coût/latence et éviter qu'une entrée anormale ne sature
+# le budget de tokens.
+_MAX_MESSAGE_CHARS = 2000
+_MAX_HISTORY_TURNS = 8
 
 
 def _build_sensor_context(sensor_data: Optional[dict]) -> str:
@@ -129,9 +150,11 @@ def _build_system_prompt(
         "4-en-1 RS485 (Modbus RTU) qui mesure UNIQUEMENT quatre variables du sol : "
         "pH, humidité, température, et conductivité électrique (EC, exprimée en mS/cm, "
         "indicateur de salinité). "
-        "IMPORTANT : tu ne disposes JAMAIS de mesures d'azote (N), de phosphore (P) "
-        "ou de potassium (K). Ne mentionne jamais N/P/K et ne propose pas d'engrais "
-        "basés sur ces éléments. "
+        "IMPORTANT : le capteur ne mesure PAS l'azote (N), le phosphore (P) ni le "
+        "potassium (K) — tu n'en connais donc AUCUNE valeur. N'affirme jamais en avoir "
+        "mesuré, et ne fonde aucune recommandation d'engrais ni aucun dosage sur N/P/K. "
+        "(Tu peux tout au plus évoquer brièvement le rôle d'un nutriment dans une "
+        "explication générale, sans prétendre l'avoir mesuré.) "
         f"Les seules cultures cibles à recommander sont : {_TARGET_CROPS}. "
         + sensor_context
         + ml_context
@@ -139,12 +162,28 @@ def _build_system_prompt(
         + crop_context
         + robot_context
         + correction_block
-        + "Réponds à la question de l'agriculteur de manière courte (2 à 4 phrases), "
-        "concrète et actionnable, en t'appuyant EXCLUSIVEMENT sur les données et le "
-        "diagnostic ci-dessus. N'invente aucune correction ou conseil non listé. "
-        "Si une culture mieux adaptée au sol est indiquée, mentionne-la brièvement à la fin. "
-        f"Réponds EXCLUSIVEMENT en {lang_label}. "
-        "N'ajoute aucune explication sur ta nature, tes capacités ou ton fonctionnement interne."
+        + "Tu es un assistant agricole CONVERSATIONNEL : tu comprends n'importe quel "
+        "message et tu peux répondre à toute question liée au champ, au sol, aux "
+        "cultures, à l'irrigation, aux amendements, aux pratiques agricoles et au robot, "
+        "y compris en expliquant en détail quand on te le demande. Règles : "
+        "(1) Pour tout ce qui concerne CE sol précis (son état, sa correction, la "
+        "culture adaptée), appuie-toi STRICTEMENT sur les mesures et le diagnostic "
+        "ci-dessus : n'invente jamais de chiffres ni de mesures, et ne mentionne jamais "
+        "N/P/K. "
+        "(2) Pour les questions agronomiques générales (bonnes pratiques, comment faire, "
+        "pourquoi, quand semer/irriguer/amender…), donne des explications claires et "
+        "pédagogiques fondées sur des connaissances agricoles établies. "
+        "(3) Adapte la longueur : par défaut 2 à 4 phrases concrètes ; mais si "
+        "l'agriculteur demande une explication, un « pourquoi », un « comment » ou plus "
+        "de détails, DÉVELOPPE en étapes pratiques simples à appliquer. Même en mode "
+        "détaillé, reste SYNTHÉTIQUE : environ 250 mots maximum, 6 points maximum, et "
+        "TERMINE toujours par une courte phrase de conclusion (ne laisse jamais une "
+        "réponse coupée en milieu de phrase). "
+        "(4) Si le message n'a aucun rapport avec l'agriculture ou le champ, réoriente "
+        "poliment l'agriculteur vers ton rôle en une phrase, sans le brusquer. "
+        "(5) Si une culture mieux adaptée au sol est indiquée, mentionne-la. "
+        f"Réponds EXCLUSIVEMENT en {lang_label}, de façon naturelle et respectueuse. "
+        "N'explique pas ta nature technique ni ton fonctionnement interne."
     )
 
 
@@ -196,6 +235,13 @@ async def generate_expert_response(
             "(clé gratuite : https://aistudio.google.com/apikey)."
         )
 
+    # Garde-fous d'entrée : on borne le message et on ne garde que les derniers
+    # tours d'historique (défense en profondeur côté serveur).
+    message = (message or "").strip()[:_MAX_MESSAGE_CHARS]
+    if not message:
+        raise RuntimeError("Message vide : rien à envoyer au LLM.")
+    history = (history or [])[-_MAX_HISTORY_TURNS:]
+
     system_prompt = _build_system_prompt(
         language=language,
         sensor_data=sensor_data,
@@ -227,7 +273,10 @@ async def generate_expert_response(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.4,
-            "maxOutputTokens": 400,
+            # Assez large pour des explications détaillées complètes (sans coupure
+            # en milieu de phrase) quand l'agriculteur en demande, sans être illimité
+            # (coût/latence). Réponses courtes par défaut.
+            "maxOutputTokens": 1100,
             # Désactive le mode "thinking" des modèles Gemini 2.5 : pour une
             # réponse courte, le raisonnement interne consommerait tout le
             # budget de tokens (réponse tronquée / vide) et ajoute de la latence.
@@ -235,29 +284,64 @@ async def generate_expert_response(
         },
     }
 
-    url = f"{GEMINI_BASE_URL}/models/{GEMINI_MODEL}:generateContent"
+    # Liste ordonnée des modèles à tenter : le modèle principal, puis le repli
+    # léger si le principal sature son quota (HTTP 429). On évite le doublon si
+    # le repli est vide ou identique au principal.
+    models_to_try = [GEMINI_MODEL]
+    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        models_to_try.append(GEMINI_FALLBACK_MODEL)
+
     async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
-        try:
-            response = await client.post(
-                url,
-                params={"key": GEMINI_API_KEY},
-                json=payload,
-            )
-            response.raise_for_status()
-        except httpx.HTTPStatusError as err:
-            # Inclure le status + un extrait du corps : 429 (quota free-tier,
-            # fréquent sur les modèles 2.0) et 400 (modèle/clé invalides) doivent
-            # rester diagnosticables (cf. revue de code, finding #4).
-            body = (err.response.text or "")[:300]
-            raise RuntimeError(
-                f"Échec de l'appel au LLM Gemini (HTTP {err.response.status_code}, "
-                f"modèle={GEMINI_MODEL}). Détail : {body}"
-            ) from err
-        except httpx.HTTPError as err:
-            raise RuntimeError(
-                f"Échec de l'appel au LLM Gemini ({url}, modèle={GEMINI_MODEL}). "
-                "Vérifiez votre connexion internet et la validité de GEMINI_API_KEY."
-            ) from err
+        last_error: Optional[RuntimeError] = None
+        for idx, model in enumerate(models_to_try):
+            is_last = idx == len(models_to_try) - 1
+            try:
+                return await _call_gemini(client, model, payload)
+            except _QuotaError as err:
+                # Quota épuisé : on passe au modèle de repli s'il en reste un.
+                last_error = RuntimeError(str(err))
+                if is_last:
+                    raise last_error from err
+                # sinon : on tente le modèle suivant (boucle)
+    # Inatteignable en pratique (la boucle retourne ou relève), garde-fou.
+    raise last_error or RuntimeError("Échec de l'appel au LLM Gemini.")
+
+
+class _QuotaError(RuntimeError):
+    """Erreur de quota Gemini (HTTP 429) — déclenche le repli vers le modèle léger."""
+
+
+async def _call_gemini(client: httpx.AsyncClient, model: str, payload: dict) -> str:
+    """Effectue un appel generateContent pour un modèle donné et renvoie le texte.
+
+    Lève `_QuotaError` sur HTTP 429 (pour permettre le repli) et `RuntimeError`
+    sur toute autre erreur HTTP, réseau, ou réponse vide.
+    """
+    url = f"{GEMINI_BASE_URL}/models/{model}:generateContent"
+    try:
+        response = await client.post(
+            url,
+            params={"key": GEMINI_API_KEY},
+            json=payload,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as err:
+        # Inclure le status + un extrait du corps : 429 (quota free-tier,
+        # fréquent sur les modèles 2.0) et 400 (modèle/clé invalides) doivent
+        # rester diagnosticables (cf. revue de code, finding #4).
+        body = (err.response.text or "")[:300]
+        detail = (
+            f"Échec de l'appel au LLM Gemini (HTTP {err.response.status_code}, "
+            f"modèle={model}). Détail : {body}"
+        )
+        if err.response.status_code == 429:
+            raise _QuotaError(detail) from err
+        raise RuntimeError(detail) from err
+    except httpx.HTTPError as err:
+        raise RuntimeError(
+            f"Échec de l'appel au LLM Gemini ({url}, modèle={model}). "
+            "Vérifiez votre connexion internet et la validité de GEMINI_API_KEY."
+        ) from err
 
     data = response.json()
     # Réponse Gemini : candidates[0].content.parts[*].text
@@ -278,3 +362,91 @@ async def generate_expert_response(
             f"(finishReason={reason or 'n/a'}, blockReason={feedback or 'n/a'})."
         )
     return text
+
+
+# ---------------------------------------------------------------------------
+# Synthèse vocale (TTS) Gemini
+# ---------------------------------------------------------------------------
+
+def _pcm_to_wav(pcm: bytes, sample_rate: int = 24000) -> bytes:
+    """Emballe du PCM brut 16 bits mono dans un conteneur WAV lisible par le
+    navigateur (l'API Gemini renvoie du L16/PCM sans en-tête)."""
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)          # 16 bits
+        wf.setframerate(sample_rate)
+        wf.writeframes(pcm)
+    return buf.getvalue()
+
+
+async def synthesize_speech(text: str, language: str = "ar") -> bytes:
+    """Génère l'audio (WAV 24 kHz mono) d'un texte via le modèle TTS de Gemini.
+
+    La voix prédéfinie (`GEMINI_TTS_VOICE`) parle automatiquement la langue du
+    texte — on obtient donc une vraie voix arabe naturelle, sans dépendre des
+    voix TTS locales du navigateur. Lève `RuntimeError` en cas d'échec (le
+    frontend bascule alors sur la voix locale ou affiche un message).
+    """
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "GEMINI_API_KEY manquante. Renseignez-la dans le fichier .env "
+            "(clé gratuite : https://aistudio.google.com/apikey)."
+        )
+
+    clean = (text or "").strip()
+    if not clean:
+        raise RuntimeError("Texte vide : rien à synthétiser.")
+
+    payload = {
+        "contents": [{"parts": [{"text": clean}]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {"voiceName": GEMINI_TTS_VOICE}
+                }
+            },
+        },
+    }
+
+    url = f"{GEMINI_BASE_URL}/models/{GEMINI_TTS_MODEL}:generateContent"
+    async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
+        try:
+            response = await client.post(
+                url, params={"key": GEMINI_API_KEY}, json=payload
+            )
+            response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec TTS Gemini (HTTP {err.response.status_code}, "
+                f"modèle={GEMINI_TTS_MODEL}). Détail : {body}"
+            ) from err
+        except httpx.HTTPError as err:
+            raise RuntimeError(
+                f"Échec TTS Gemini ({url}, modèle={GEMINI_TTS_MODEL}). "
+                "Vérifiez votre connexion internet et la validité de GEMINI_API_KEY."
+            ) from err
+
+    data = response.json()
+    candidates = data.get("candidates") or []
+    parts = (candidates[0].get("content") or {}).get("parts") if candidates else []
+    inline = None
+    mime = ""
+    for p in (parts or []):
+        # camelCase (inlineData) côté v1beta ; on tolère snake_case par prudence.
+        blob = p.get("inlineData") or p.get("inline_data")
+        if blob and blob.get("data"):
+            inline = blob["data"]
+            mime = blob.get("mimeType") or blob.get("mime_type") or ""
+            break
+    if not inline:
+        reason = candidates[0].get("finishReason", "") if candidates else ""
+        raise RuntimeError(f"Réponse TTS Gemini sans audio (finishReason={reason or 'n/a'}).")
+
+    pcm = base64.b64decode(inline)
+    # mimeType typique : "audio/L16;codec=pcm;rate=24000" → on en extrait le débit.
+    m = re.search(r"rate=(\d+)", mime)
+    sample_rate = int(m.group(1)) if m else 24000
+    return _pcm_to_wav(pcm, sample_rate)
