@@ -1,201 +1,169 @@
-"""
-train.py
---------
-Pipeline d'entraînement pour la recommandation de culture Agribotics.
+"""Train full experimental and embedded robot crop recommendation models.
 
-Modèles candidats :
-  1. Random Forest Classifier
-  2. Support Vector Classifier (RBF)
-  3. Gradient Boosting Classifier
-  4. Logistic Regression
-
-Évaluation :
-  • Validation croisée stratifiée (StratifiedKFold, k=5) sur le train set
-    avec F1-macro comme score primaire (équilibre entre classes).
-  • Évaluation finale sur le test set : Accuracy, Précision, Rappel,
-    F1-macro et F1-pondéré.
-
-Sélection : F1-macro le plus élevé sur le test set (en cas d'égalité,
-F1-pondéré puis accuracy).
-
-Artefacts :
-  ml_model/data/final_dataset.csv  — dataset synthétique
-  ml_model/scaler.pkl              — StandardScaler ajusté
-  ml_model/best_model.pkl          — meilleur modèle sérialisé (pickle)
-
-Utilisation :
-    python ml_model/train.py
+This script does not delete or overwrite the legacy `best_model.pkl` pipeline.
+New artifacts are written under `ml_model/models/`:
+- full_model.pkl is NOT trained by default because it depends on N/P/K/rainfall,
+  which the robot does not measure.
+- embedded_model.pkl is the production robot model. It uses the real CSV with
+  only measured/available ML columns: temperature, humidity, and pH. EC is
+  handled by rules at inference time.
 """
 
 from __future__ import annotations
 
-import os
+import json
 import pickle
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
-from sklearn.ensemble import GradientBoostingClassifier, RandomForestClassifier
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import (accuracy_score, classification_report, f1_score,
-                             precision_score, recall_score)
-from sklearn.model_selection import StratifiedKFold, cross_val_score
-from sklearn.svm import SVC
+from sklearn.ensemble import ExtraTreesClassifier, GradientBoostingClassifier, RandomForestClassifier
+from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
+from sklearn.model_selection import train_test_split
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
 
-
-SCRIPT_DIR = Path(__file__).resolve().parent
-sys.path.insert(0, str(SCRIPT_DIR))
-
-from preprocess import preprocess          # noqa: E402
-from data_preparation import create_final_dataset   # noqa: E402
-
-CSV_PATH = SCRIPT_DIR / "data" / "final_dataset.csv"
-SCALER_PATH = SCRIPT_DIR / "scaler.pkl"
-BEST_MODEL_PATH = SCRIPT_DIR / "best_model.pkl"
+try:
+    from .model_registry import (
+        EMBEDDED_FEATURES, EMBEDDED_METADATA_PATH, EMBEDDED_MODEL_PATH, FULL_FEATURES,
+        FULL_METADATA_PATH, FULL_MODEL_PATH, METRICS_PATH, MODEL_METADATA_PATH, PROCESSED_DIR,
+        ensure_dirs, now_iso, write_json,
+    )
+    from .prepare_dataset import prepare
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from model_registry import (
+        EMBEDDED_FEATURES, EMBEDDED_METADATA_PATH, EMBEDDED_MODEL_PATH, FULL_FEATURES,
+        FULL_METADATA_PATH, FULL_MODEL_PATH, METRICS_PATH, MODEL_METADATA_PATH, PROCESSED_DIR,
+        ensure_dirs, now_iso, write_json,
+    )
+    from prepare_dataset import prepare
 
 RANDOM_STATE = 42
-CV_FOLDS = 5
+FULL_CSV = PROCESSED_DIR / "processed_full_crop_model.csv"
+EMBEDDED_CSV = PROCESSED_DIR / "processed_embedded_robot_model.csv"
 
 
-def build_models() -> dict:
+def _models() -> dict[str, Any]:
     return {
-        "Random Forest": RandomForestClassifier(
-            n_estimators=300, max_depth=None, min_samples_split=2,
-            n_jobs=-1, random_state=RANDOM_STATE,
-        ),
-        "SVC (RBF)": SVC(
-            kernel="rbf", C=10, gamma="scale", probability=True,
-            random_state=RANDOM_STATE,
-        ),
-        "Gradient Boosting": GradientBoostingClassifier(
-            n_estimators=200, learning_rate=0.1, max_depth=4,
-            random_state=RANDOM_STATE,
-        ),
-        "Logistic Regression": LogisticRegression(
-            max_iter=2000, solver="lbfgs",
-            random_state=RANDOM_STATE,
-        ),
+        "RandomForest": RandomForestClassifier(n_estimators=250, random_state=RANDOM_STATE, n_jobs=-1, class_weight="balanced"),
+        "GradientBoosting": GradientBoostingClassifier(random_state=RANDOM_STATE),
+        "ExtraTrees": ExtraTreesClassifier(n_estimators=300, random_state=RANDOM_STATE, n_jobs=-1, class_weight="balanced"),
     }
 
 
-def top_k_accuracy(model, X_test, y_test, k: int = 3) -> float:
-    """Proportion des cas où la vraie culture est dans les k meilleures
-    probabilités. C'est la métrique alignée sur le produit : l'API expose
-    un top-3, pas une culture unique. Pertinente car les plages agronomiques
-    se chevauchent fortement (la prédiction d'une culture unique est mal posée).
-    """
-    if not hasattr(model, "predict_proba"):
-        return float("nan")
-    proba = model.predict_proba(X_test)
+def _top_k_accuracy(model: Pipeline, X_test: pd.DataFrame, y_test: pd.Series, k: int = 3) -> float | None:
+    clf = model.named_steps["model"]
+    if not hasattr(clf, "predict_proba"):
+        return None
+    probs = model.predict_proba(X_test)
     classes = np.asarray(model.classes_)
-    top_k = classes[np.argsort(-proba, axis=1)[:, :k]]
-    hits = [yt in row for yt, row in zip(np.asarray(y_test), top_k)]
-    return float(np.mean(hits))
+    top = classes[np.argsort(-probs, axis=1)[:, :k]]
+    return round(float(np.mean([yt in row for yt, row in zip(np.asarray(y_test), top)])), 4)
 
 
-def evaluate_test(model, X_test, y_test) -> dict:
-    y_pred = model.predict(X_test)
+def _train_one(name: str, csv_path: Path, features: list[str], model_path: Path, metadata_path: Path, min_rows: int = 30) -> dict:
+    if not csv_path.exists():
+        return {"trained": False, "reason": f"missing dataset: {csv_path}", "path": str(csv_path)}
+    df = pd.read_csv(csv_path)
+    missing = [c for c in features + ["label"] if c not in df.columns]
+    if missing:
+        return {"trained": False, "reason": f"missing columns: {missing}", "path": str(csv_path)}
+    df = df.dropna(subset=features + ["label"])
+    if len(df) < min_rows or df["label"].nunique() < 2:
+        return {"trained": False, "reason": "not enough rows/classes", "rows": int(len(df)), "classes": int(df['label'].nunique()) if len(df) else 0}
+
+    X = df[features].astype(float)
+    y = df["label"].astype(str)
+    stratify = y if y.value_counts().min() >= 2 else None
+    X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=RANDOM_STATE, stratify=stratify)
+
+    candidates = {}
+    trained = {}
+    for model_name, estimator in _models().items():
+        pipe = Pipeline([("scaler", StandardScaler()), ("model", estimator)])
+        t0 = time.time()
+        pipe.fit(X_train, y_train)
+        y_pred = pipe.predict(X_test)
+        metrics = {
+            "accuracy": round(float(accuracy_score(y_test, y_pred)), 4),
+            "f1_macro": round(float(f1_score(y_test, y_pred, average="macro", zero_division=0)), 4),
+            "top3_accuracy": _top_k_accuracy(pipe, X_test, y_test, 3),
+            "fit_time_s": round(time.time() - t0, 2),
+        }
+        candidates[model_name] = metrics
+        trained[model_name] = pipe
+
+    best_name = sorted(candidates, key=lambda n: (candidates[n]["f1_macro"], candidates[n]["accuracy"]), reverse=True)[0]
+    best_model = trained[best_name]
+    y_pred = best_model.predict(X_test)
+    model_path.parent.mkdir(parents=True, exist_ok=True)
+    with model_path.open("wb") as f:
+        pickle.dump(best_model, f)
+
+    metadata = {
+        "model_type": name,
+        "trained_at": now_iso(),
+        "artifact": str(model_path),
+        "dataset": str(csv_path),
+        "rows": int(len(df)),
+        "classes": sorted(y.unique().tolist()),
+        "features": features,
+        "best_model": best_name,
+        "candidate_metrics": candidates,
+        "classification_report": classification_report(y_test, y_pred, output_dict=True, zero_division=0),
+        "confusion_matrix": confusion_matrix(y_test, y_pred, labels=best_model.classes_).tolist(),
+        "confusion_matrix_labels": list(best_model.classes_),
+    }
+    write_json(metadata_path, metadata)
+    return {"trained": True, **metadata}
+
+
+def _disabled_full_model() -> dict:
+    rows = 0
+    if FULL_CSV.exists():
+        try:
+            rows = int(len(pd.read_csv(FULL_CSV)))
+        except Exception:
+            rows = 0
     return {
-        "accuracy":     round(accuracy_score(y_test, y_pred), 4),
-        "precision_w":  round(precision_score(y_test, y_pred, average="weighted", zero_division=0), 4),
-        "recall_w":     round(recall_score(y_test, y_pred,    average="weighted", zero_division=0), 4),
-        "f1_weighted":  round(f1_score(y_test, y_pred,        average="weighted", zero_division=0), 4),
-        "f1_macro":     round(f1_score(y_test, y_pred,        average="macro",    zero_division=0), 4),
-        "top3_acc":     round(top_k_accuracy(model, X_test, y_test, k=3), 4),
+        "trained": False,
+        "deployable": False,
+        "reason": "disabled: N/P/K/rainfall are not measured by the robot",
+        "dataset": str(FULL_CSV),
+        "rows": rows,
+        "features": FULL_FEATURES,
     }
 
 
-def cross_validate_f1_macro(model, X_train, y_train) -> tuple[float, float]:
-    skf = StratifiedKFold(n_splits=CV_FOLDS, shuffle=True, random_state=RANDOM_STATE)
-    scores = cross_val_score(model, X_train, y_train, cv=skf,
-                             scoring="f1_macro", n_jobs=-1)
-    return float(scores.mean()), float(scores.std())
-
-
-def train_and_select(regenerate: bool = True) -> tuple[str, object, pd.DataFrame]:
-    if regenerate:
-        print("=" * 70)
-        print("  ÉTAPE 0 : (Re)génération du dataset synthétique")
-        print("=" * 70)
-        _, report = create_final_dataset(output_path=CSV_PATH)
-        print(f"  {report['rows']} lignes · {report['classes']} classes · "
-              f"features {report['features']} → {report['output']}")
-
-    print("=" * 70)
-    print("  ÉTAPE 1 : Prétraitement (load + scale + split stratifié)")
-    print("=" * 70)
-    X_train, X_test, y_train, y_test, _ = preprocess()
-
-    print("\n" + "=" * 70)
-    print(f"  ÉTAPE 2 : Entraînement + CV {CV_FOLDS} folds + test final")
-    print("=" * 70)
-
-    results = {}
-    trained = {}
-
-    for name, model in build_models().items():
-        print(f"\n  → {name}")
-        t0 = time.time()
-        cv_mean, cv_std = cross_validate_f1_macro(model, X_train, y_train)
-        cv_time = time.time() - t0
-        print(f"     CV F1-macro : {cv_mean:.4f} ± {cv_std:.4f}  ({cv_time:.1f}s, {CV_FOLDS} folds)")
-
-        t1 = time.time()
-        model.fit(X_train, y_train)
-        fit_time = time.time() - t1
-        m = evaluate_test(model, X_test, y_test)
-        m["cv_f1_macro_mean"] = round(cv_mean, 4)
-        m["cv_f1_macro_std"] = round(cv_std, 4)
-        m["fit_time_s"] = round(fit_time, 2)
-        results[name] = m
-        trained[name] = model
-        print(f"     TEST  Acc={m['accuracy']:.4f}  F1-macro={m['f1_macro']:.4f}  "
-              f"F1-w={m['f1_weighted']:.4f}  Top-3={m['top3_acc']:.4f}")
-
-    print("\n" + "=" * 70)
-    print("  ÉTAPE 3 : Comparaison")
-    print("=" * 70)
-    cols = ["accuracy", "f1_macro", "f1_weighted", "top3_acc",
-            "cv_f1_macro_mean", "cv_f1_macro_std", "fit_time_s"]
-    results_df = pd.DataFrame(results).T[cols].sort_values(
-        ["f1_macro", "f1_weighted", "accuracy"], ascending=False,
-    )
-    results_df.index.name = "Modèle"
-    print(results_df.to_string())
-
-    best_name = results_df.index[0]
-    best_model = trained[best_name]
-    best = results[best_name]
-
-    print("\n" + "=" * 70)
-    print("  ÉTAPE 4 : Meilleur modèle")
-    print("=" * 70)
-    print(f"  ✅ {best_name}")
-    print(f"     Top-3 acc   : {best['top3_acc']:.4f}   ← métrique produit (API top-3)")
-    print(f"     F1-macro    : {best['f1_macro']:.4f}")
-    print(f"     F1-pondéré  : {best['f1_weighted']:.4f}")
-    print(f"     Accuracy    : {best['accuracy']:.4f}   (top-1, plafonnée par le chevauchement des plages)")
-    print(f"     CV F1-macro : {best['cv_f1_macro_mean']:.4f} ± {best['cv_f1_macro_std']:.4f}")
-
-    # Rapport détaillé par classe
-    y_pred = best_model.predict(X_test)
-    print("\n  Classification report (par culture) :")
-    print(classification_report(y_test, y_pred, zero_division=0))
-
-    with open(BEST_MODEL_PATH, "wb") as f:
-        pickle.dump(best_model, f)
-    print(f"  💾 Modèle sauvegardé → {BEST_MODEL_PATH}")
-    print(f"  💾 Scaler sauvegardé → {SCALER_PATH}")
-
-    return best_name, best_model, results_df
+def train_all(run_prepare: bool = True, train_full_experimental: bool = False) -> dict:
+    ensure_dirs()
+    if run_prepare:
+        prepare()
+    full = _train_one("full_experimental", FULL_CSV, FULL_FEATURES, FULL_MODEL_PATH, FULL_METADATA_PATH) if train_full_experimental else _disabled_full_model()
+    embedded = _train_one("embedded_robot", EMBEDDED_CSV, EMBEDDED_FEATURES, EMBEDDED_MODEL_PATH, EMBEDDED_METADATA_PATH)
+    metrics = {"generated_at": now_iso(), "full_model": full, "embedded_model": embedded}
+    write_json(METRICS_PATH, metrics)
+    write_json(MODEL_METADATA_PATH, {
+        "generated_at": now_iso(),
+        "models": {
+            "full_model": {"artifact": str(FULL_MODEL_PATH), "features": FULL_FEATURES, "trained": full.get("trained", False), "deployable": False, "reason": full.get("reason")},
+            "embedded_model": {"artifact": str(EMBEDDED_MODEL_PATH), "features": EMBEDDED_FEATURES, "trained": embedded.get("trained", False), "deployable": True},
+            "legacy_model": {"artifact": "ml_model/best_model.pkl", "preserved": True},
+        },
+        "safety": "Robot inference never requires N/P/K/rainfall. Rules remain the agronomic guardrail.",
+    })
+    print(json.dumps({"full_trained": full.get("trained"), "embedded_trained": embedded.get("trained")}, ensure_ascii=False, indent=2))
+    return metrics
 
 
 if __name__ == "__main__":
     import argparse
-    parser = argparse.ArgumentParser(description="Entraînement des modèles Agribotics")
-    parser.add_argument("--no-regenerate", action="store_true",
-                        help="Ne pas régénérer le dataset, réutiliser data/final_dataset.csv existant")
+    parser = argparse.ArgumentParser(description="Train Agri-Botics ML models")
+    parser.add_argument("--no-prepare", action="store_true", help="Use existing processed CSV files")
+    parser.add_argument("--train-full-experimental", action="store_true", help="Also train the non-deployable N/P/K/rainfall model for research only")
     args = parser.parse_args()
-    train_and_select(regenerate=not args.no_regenerate)
+    train_all(run_prepare=not args.no_prepare, train_full_experimental=args.train_full_experimental)

@@ -1,0 +1,56 @@
+[
+  {
+    "name": "Crop Recommendation Dataset",
+    "source": "kaggle:atharvaingle/crop-recommendation-dataset",
+    "downloaded_at": "2026-06-08T14:17:14.243327+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/real/crop_recommendation.csv",
+    "columns_detected": [],
+    "status": "manual_required",
+    "message": "Place kaggle.json dans ~/.kaggle/kaggle.json ou télécharge manuellement crop_recommendation.csv dans data/real/."
+  },
+  {
+    "name": "Crop Recommendation Dataset mirror",
+    "source": "https://raw.githubusercontent.com/atharvaingle/crop-recommendation-dataset/master/Crop_recommendation.csv",
+    "downloaded_at": "2026-06-08T14:17:14.683288+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/raw/crop_recommendation.csv",
+    "columns_detected": [],
+    "status": "failed",
+    "message": "HTTP Error 404: Not Found"
+  },
+  {
+    "name": "Crop Recommendation Dataset mirror",
+    "source": "https://raw.githubusercontent.com/siddharthss/crop-recommendation-dataset/master/Crop_recommendation.csv",
+    "downloaded_at": "2026-06-08T14:17:14.957367+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/raw/crop_recommendation.csv",
+    "columns_detected": [],
+    "status": "failed",
+    "message": "HTTP Error 404: Not Found"
+  },
+  {
+    "name": "FAO EcoCrop / equivalent agronomic ranges",
+    "source": "manual:place CSV in data/external/",
+    "downloaded_at": "2026-06-08T14:17:14.957688+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/external",
+    "columns_detected": [],
+    "status": "manual_required",
+    "message": "Use to validate or enrich crop_catalog.py; no automatic safe direct CSV URL configured."
+  },
+  {
+    "name": "WHIN/Purdue-style soil sensor dataset",
+    "source": "manual:place CSV in data/external/",
+    "downloaded_at": "2026-06-08T14:17:14.957780+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/external",
+    "columns_detected": [],
+    "status": "manual_required",
+    "message": "Use for sensor calibration only when crop label is absent."
+  },
+  {
+    "name": "Open Soil Data / OpenLandMap / WoSIS extracts",
+    "source": "manual:place CSV in data/external/",
+    "downloaded_at": "2026-06-08T14:17:14.957828+00:00",
+    "local_path": "/home/marius/Documents/Marius/PLBD/data/external",
+    "columns_detected": [],
+    "status": "manual_required",
+    "message": "Prepared as secondary sources; not forced into crop classification."
+  }
+]

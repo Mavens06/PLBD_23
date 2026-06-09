@@ -1,0 +1,38 @@
+{
+  "generated_at": "2026-06-08T16:18:32.290287+00:00",
+  "files_seen": [
+    "/home/marius/Documents/Marius/PLBD/data/real/Crop_recommendation.xls",
+    "/home/marius/Documents/Marius/PLBD/data/synthetic/embedded_catalog_synthetic.csv",
+    "/home/marius/Documents/Marius/PLBD/ml_model/data/final_dataset.csv"
+  ],
+  "full_model": {
+    "path": "/home/marius/Documents/Marius/PLBD/data/processed/processed_full_crop_model.csv",
+    "rows": 2200,
+    "features": [
+      "N",
+      "P",
+      "K",
+      "temperature",
+      "humidity",
+      "ph",
+      "rainfall"
+    ]
+  },
+  "embedded_model": {
+    "path": "/home/marius/Documents/Marius/PLBD/data/processed/processed_embedded_robot_model.csv",
+    "rows": 2200,
+    "features": [
+      "temperature",
+      "humidity",
+      "ph"
+    ],
+    "ec_source_counts": {
+      "not_used_by_ml_missing_in_real_csv": 2200
+    },
+    "note": "N/P/K/rainfall removed. EC is not estimated from the real CSV; EC is used by rules/alerts at inference time."
+  },
+  "sensor_calibration": {
+    "path": "/home/marius/Documents/Marius/PLBD/data/processed/processed_sensor_calibration.csv",
+    "rows": 15185
+  }
+}

@@ -1,0 +1,156 @@
+{
+  "generated_at": "2026-06-08T16:18:32.196289+00:00",
+  "datasets": [
+    {
+      "path": "/home/marius/Documents/Marius/PLBD/data/real/Crop_recommendation.xls",
+      "status": "audited",
+      "rows": 2200,
+      "columns": [
+        "N",
+        "P",
+        "K",
+        "temperature",
+        "humidity",
+        "ph",
+        "rainfall",
+        "label"
+      ],
+      "detected_variables": [
+        "K",
+        "N",
+        "P",
+        "humidity",
+        "label",
+        "ph",
+        "rainfall",
+        "temperature"
+      ],
+      "canonical_column_map": {
+        "ph": "ph",
+        "temperature": "temperature",
+        "humidity": "humidity",
+        "N": "N",
+        "P": "P",
+        "K": "K",
+        "rainfall": "rainfall",
+        "label": "label"
+      },
+      "missing_values": {
+        "N": 0,
+        "P": 0,
+        "K": 0,
+        "temperature": 0,
+        "humidity": 0,
+        "ph": 0,
+        "rainfall": 0,
+        "label": 0
+      },
+      "out_of_range_counts": {
+        "ph": 0,
+        "temperature": 0,
+        "humidity": 0,
+        "N": 0,
+        "P": 0,
+        "K": 0,
+        "rainfall": 0
+      },
+      "unit_notes": {
+        "temperature": "Assumed degrees Celsius.",
+        "humidity": "Assumed percent unless dataset documentation says otherwise.",
+        "rainfall": "Assumed mm."
+      }
+    },
+    {
+      "path": "/home/marius/Documents/Marius/PLBD/data/synthetic/embedded_catalog_synthetic.csv",
+      "status": "audited",
+      "rows": 3000,
+      "columns": [
+        "temperature",
+        "humidity",
+        "ph",
+        "ec",
+        "label",
+        "ec_source",
+        "source_dataset"
+      ],
+      "detected_variables": [
+        "ec",
+        "humidity",
+        "label",
+        "ph",
+        "temperature"
+      ],
+      "canonical_column_map": {
+        "ph": "ph",
+        "temperature": "temperature",
+        "humidity": "humidity",
+        "ec": "ec",
+        "label": "label"
+      },
+      "missing_values": {
+        "temperature": 0,
+        "humidity": 0,
+        "ph": 0,
+        "ec": 0,
+        "label": 0,
+        "ec_source": 0,
+        "source_dataset": 0
+      },
+      "out_of_range_counts": {
+        "ph": 0,
+        "temperature": 0,
+        "humidity": 0,
+        "ec": 0
+      },
+      "unit_notes": {
+        "temperature": "Assumed degrees Celsius.",
+        "humidity": "Assumed percent unless dataset documentation says otherwise.",
+        "ec": "Assumed mS/cm; verify source documentation."
+      }
+    },
+    {
+      "path": "/home/marius/Documents/Marius/PLBD/ml_model/data/final_dataset.csv",
+      "status": "audited",
+      "rows": 10000,
+      "columns": [
+        "ph",
+        "humidity",
+        "temperature",
+        "ec",
+        "label"
+      ],
+      "detected_variables": [
+        "ec",
+        "humidity",
+        "label",
+        "ph",
+        "temperature"
+      ],
+      "canonical_column_map": {
+        "ph": "ph",
+        "temperature": "temperature",
+        "humidity": "humidity",
+        "ec": "ec",
+        "label": "label"
+      },
+      "missing_values": {
+        "ph": 0,
+        "humidity": 0,
+        "temperature": 0,
+        "ec": 0,
+        "label": 0
+      },
+      "out_of_range_counts": {
+        "ph": 0,
+        "temperature": 0,
+        "humidity": 0,
+        "ec": 0
+      },
+      "unit_notes": {
+        "temperature": "Assumed degrees Celsius.",
+        "humidity": "Assumed percent unless dataset documentation says otherwise.",
+        "ec": "Assumed mS/cm; verify source documentation."
+      }
+    }
+  ]
+}
