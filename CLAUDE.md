@@ -61,6 +61,20 @@ APP_MODE=mock ./.venv/bin/python -m raspberry_pi.main --point B2
 
 # Sur le robot réel : APP_MODE=hardware
 APP_MODE=hardware python3 -m raspberry_pi.main
+
+# Test matériel sûr (moteurs / servo) — robot sur support, vitesse faible
+APP_MODE=hardware python3 -m raspberry_pi.hardware_test --test all
+```
+
+### Démarrer toute la chaîne en une commande
+```bash
+./start_demo.sh                     # PC, mode mock (backend + robot --watch + frontend :5500)
+APP_MODE=hardware ./start_demo.sh    # Raspberry Pi, robot réel
+```
+
+### Lancer les tests
+```bash
+./.venv/bin/python -m unittest discover -s tests -q
 ```
 
 ### Entraîner le modèle ML
@@ -94,6 +108,9 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `APP_MODE` | `mock` | `mock` = dev/démo sans matériel · `hardware` = robot réel |
 | `GEMINI_API_KEY` | _(vide)_ | Clé API Google AI Studio (obligatoire pour le chatbot) |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Modèle Gemini servi (2.5-flash / 2.5-flash-lite) |
+| `GEMINI_FALLBACK_MODEL` | `gemini-2.5-flash-lite` | Modèle de repli si le principal renvoie 429 (quota) ; vide = désactivé |
+| `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Modèle TTS Gemini pour la route `/api/tts` (vraie voix arabe) |
+| `GEMINI_TTS_VOICE` | `Kore` | Voix prédéfinie Gemini (parle la langue du texte) |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Endpoint Generative Language API |
 | `GEMINI_TIMEOUT` | `60` | Timeout HTTP de l'appel Gemini (s) |
 | `RS485_PORT` | `/dev/ttyUSB0` | Port série du capteur (ou `/dev/ttyAMA0`) |
@@ -102,10 +119,18 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `RS485_TIMEOUT_S` | `0.5` | Timeout de lecture série |
 | `SENSOR_MOCK_PROFILE` | `None` | En mock, force le profil d'une zone (`A1`..`C3`) |
 | `AGRIBOTICS_API_BASE` | `http://127.0.0.1:8000` | URL du backend pour `raspberry_pi/main.py` |
+| `AGRIBOTICS_DB_PATH` | `.agribotics/state.sqlite3` | SQLite backend : plan de mission + mesures persistées |
 | `CORS_ORIGINS` | `*` | Origines CORS autorisées par la FastAPI |
 | `WEATHER_LAT` | `33.9` | Latitude pour la météo Open-Meteo (défaut : plaine du Saïss, Maroc) |
 | `WEATHER_LON` | `-5.55` | Longitude pour la météo Open-Meteo |
 | `WEATHER_TIMEOUT` | `8` | Timeout HTTP de l'appel Open-Meteo (s) |
+| `USE_EMBEDDED_MODEL` | `0` | `1` = active le modèle ML embarqué expérimental (recherche ; sinon modèle de production) |
+| `PCA9685_ADDRESS` | `0x5f` | Adresse I2C du PCA9685 (robot réel) |
+| `MOTOR_LEFT_IN1/IN2`, `MOTOR_RIGHT_IN1/IN2` | `15/14`, `12/13` | Canaux PCA des 2 moteurs DC |
+| `STEER_SERVO_CHANNEL` / `STEER_*_DEG` | `0` / `70,35,125` | Servo de direction : canal + angles centre/gauche/droite |
+| `DRIVE_THROTTLE_SCALE` | `0.12` | Throttle [0..1] correspondant à `speed=100` |
+| `ROBOT_SPEED_MPS` | `0.30` | Vitesse du déplacement temporisé point-à-point (dead-reckoning) |
+| `PROBE_SERVO_CHANNEL` | _(vide)_ | Canal servo de la sonde ; vide = descente simulée |
 
 ---
 
@@ -114,9 +139,11 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 ```
 PLBD/
 ├── backend/                            # API FastAPI 100 % locale
-│   ├── app.py                          # 9 routes : /, chat, mission, measurements, recommendation
-│   ├── chatbot_llm.py                  # Client Gemini async (httpx), prompt anti-NPK
+│   ├── app.py                          # Routes : /health, /api/status, chat, tts, mission, measurements, recommendation
+│   ├── chatbot_llm.py                  # Client Gemini async (httpx) : chat conversationnel + TTS
 │   ├── state.py                        # APP_STATE singleton (RobotState + Measurement + history)
+│   ├── persistence.py                  # Persistance SQLite (plan de mission + mesures)
+│   ├── weather_service.py              # Bulletin Open-Meteo + consigne d'irrigation
 │   ├── .env.example
 │   └── __init__.py
 │
@@ -138,13 +165,17 @@ PLBD/
 │       └── final_dataset.csv           # 10 000 lignes synthétiques, 10 classes équilibrées
 │
 ├── raspberry_pi/                       # Robot + acquisition
-│   ├── main.py                         # Orchestrateur mission 3×3, push HTTP backend
+│   ├── main.py                         # Orchestrateur mission (déplacement+sonde+mesure+abort)
+│   ├── hardware_test.py                # Test matériel sûr (moteurs / servo)
 │   ├── acquisition_manager.py          # Stabilisation 4 s + 10 lectures + stats
+│   ├── robot/                          # Couche robot/sonde isolée
+│   │   ├── base.py                     # Interfaces RobotController / ProbeController
+│   │   ├── mock_controller.py          # Implémentations simulées (PC / repli)
+│   │   ├── adeept_controller.py        # Pilotage réel PiCar-Pro (PCA9685 : moteurs + servo)
+│   │   └── __init__.py                 # build_robot() / build_probe() selon APP_MODE
 │   ├── sensors/
 │   │   └── rs485_4in1.py               # Driver unifié RS485 (hardware ou mock auto)
-│   ├── sensors.py                      # Stub historique (commentaire)
-│   ├── robot_car.py                    # Stub historique (commentaire)
-│   └── camera.py                       # Stub historique (commentaire)
+│   └── sensors.py / robot_car.py / camera.py  # Stubs historiques (non utilisés)
 │
 ├── frontend/
 │   ├── frontend_simulation/            # Démo autonome — port 5501
@@ -156,9 +187,14 @@ PLBD/
 │       ├── index.html                  # Redirection → agribotics_v5.html
 │       └── (mêmes fichiers que la version simulation, api.js connecté)
 │
+├── tests/                              # Suite unittest (ML, backend, chatbot)
+├── data/                               # Datasets recherche (pipeline embarqué, hors prod)
+├── start_demo.sh                       # Lance backend + robot --watch + frontend
+├── MODEL_CARD.md                       # Carte des modèles ML
 ├── .venv/                              # Environnement Python 3.12+
 ├── .env                                # Variables d'environnement (à créer)
 ├── requirements.txt
+├── README.md                           # Guide de lancement / démo
 └── CLAUDE.md                           # Ce fichier
 ```
 
@@ -191,13 +227,16 @@ UI :
 ### Backend (`backend/`)
 
 - **`app.py`** — Application FastAPI mono-fichier. Enregistre toutes les routes et le middleware CORS. Importe les helpers via `from .chatbot_llm`, `from .state` et `from ml_model.predict` (les packages `backend/` et `ml_model/` sont frères à la racine).
-- **`state.py`** — Singleton `APP_STATE` (dataclasses) : `RobotState` (status, active_point, progress_pct), **`plan` (liste de `MissionPoint{label, x, y}`)**, `command` (`idle | requested | running | done`), dict `measurements_by_zone`, liste `history`. Le **plan de mission est dynamique** : l'interface le redéfinit (`POST /api/mission/plan`), `total_points` et la validation des mesures (`has_point`) en découlent. La grille 3×3 historique (A1..C3) n'est plus qu'un **plan par défaut** (amorçage + démo). Pas de persistance API — l'état se reset au redémarrage du serveur.
-- **`chatbot_llm.py`** — Client **Gemini** (Google AI Studio, cloud) async (httpx), endpoint `generateContent`. Le prompt système passe par `system_instruction`, la question par `contents`. Compose un prompt système strict :
-  - mention explicite des 4 variables capteur (pH, humidité, température, EC)
-  - **interdiction explicite N/P/K** dans le prompt
-  - liste des 10 cultures cibles uniquement
+- **`state.py`** — Singleton `APP_STATE` (dataclasses) : `RobotState` (status, active_point, progress_pct), **`plan` (liste de `MissionPoint{label, x, y}`)**, `command` (`idle | requested | running | done`), dict `measurements_by_zone`, liste `history`. Le **plan de mission est dynamique** : l'interface le redéfinit (`POST /api/mission/plan`), `total_points` et la validation des mesures (`has_point`) en découlent. La grille 3×3 historique (A1..C3) n'est plus qu'un **plan par défaut** (amorçage + démo). Le plan de mission et les mesures sont persistés dans SQLite (`AGRIBOTICS_DB_PATH`) et rechargés au redémarrage ; la commande robot reste volatile. `RobotState.status` peut valoir `idle | requested | moving | measuring | done | emergency_stop`.
+- **`persistence.py`** — Couche SQLite minimale (sqlite3 stdlib) : `replace_plan`, `save_measurement`, `clear_measurements`, `load_plan`, `load_measurements`. Les erreurs SQLite sont absorbées (`_safe_persist`) pour que le backend reste utilisable en mémoire.
+- **`weather_service.py`** — Bulletin Open-Meteo (sans clé) + consigne d'irrigation (route `/api/weather`).
+- **`chatbot_llm.py`** — Client **Gemini** (Google AI Studio, cloud) async (httpx), endpoints `generateContent` (chat) et TTS. Le prompt système passe par `system_instruction`, l'échange (historique multi-tours borné) par `contents`. Assistant **conversationnel** : il comprend tout message, explique en détail à la demande (« pourquoi / comment »), et réoriente poliment si hors-sujet. Garde-fous du prompt :
+  - 4 variables capteur uniquement (pH, humidité, température, EC)
+  - **N/P/K** : ne jamais prétendre les avoir mesurés ni recommander d'engrais NPK (une évocation pédagogique du rôle d'un nutriment reste tolérée)
+  - recommandations de culture limitées aux 10 cultures cibles
   - langue forcée selon `language` (`fr` / `ar` / `da`)
-  - **diagnostic de correction injecté** (`correction_context`) quand une culture cible est choisie : `/api/chat` calcule `rules.correction.diagnose()` à partir des 4 variables et le passe au prompt ; le LLM reformule les corrections sans en inventer.
+  - **diagnostic de correction injecté** (`correction_context`) : pour tout ce qui touche CE sol, le LLM s'appuie strictement sur `rules.correction.diagnose()` (4 variables) — il n'invente aucun chiffre
+  - garde-fous d'entrée : message borné (2000 car.), historique borné (8 tours), modèle de repli automatique sur quota 429.
 - **`__init__.py`** — Marque `backend/` comme package Python.
 
 ### Routes API
@@ -205,13 +244,17 @@ UI :
 | Méthode | Route | Rôle |
 |---|---|---|
 | GET | `/` | Healthcheck + config Gemini courante |
+| GET | `/health` | Healthcheck minimal `{status, service}` (supervision / démo) |
+| GET | `/api/status` | État consolidé : mission, mode, dernière mesure + recommandation, LLM |
 | GET | `/api/weather` | Bulletin 3 j (Open-Meteo, sans clé) + consigne d'irrigation (pluie → reportée/réduite) |
 | POST | `/api/chat` | Question agriculteur → réponse LLM contextualisée |
+| POST | `/api/tts` | Texte → audio WAV (TTS Gemini cloud) ; vraie voix arabe, repli voix locale si échec |
 | GET | `/api/mission` | État robot + progression + `plan` + `command` |
 | GET | `/api/mission/plan` | Plan de mission courant (liste de points `{label, x, y}`) — lu par le robot |
 | POST | `/api/mission/plan` | Définit le plan de mission depuis l'interface (N points x/y) |
 | POST | `/api/mission/start` | Commande le démarrage (`command="requested"`) — le robot `--watch` exécute |
 | POST | `/api/mission/end` | Demande l'arrêt (abort) de la mission |
+| POST | `/api/mission/stop` | **Arrêt d'urgence** : `command=idle` + `emergency_stop` ; le robot `--watch` stoppe entre 2 points |
 | POST | `/api/mission/reset` | Vide l'état mémoire (conserve le plan) |
 | GET | `/api/measurements` | `latest` + `history` + `by_zone` |
 | POST | `/api/measurements` | Push d'une mesure (depuis robot ou démo) |
@@ -279,11 +322,13 @@ crop_catalog.py (vérité agronomique : 10 cultures × 4 plages)
 - **`data_preparation.py`** — Wrapper de `data_loader.generate_dataset()` qui sauvegarde `data/final_dataset.csv` et lève `RuntimeError` si une colonne hors périmètre (N/P/K/rainfall) apparaît. Exécution : `python ml_model/data_preparation.py`.
 - **`preprocess.py`** — Charge le CSV, vérifie qu'aucune colonne hors périmètre n'a fuité, split stratifié 80/20 (`random_state=42`), `StandardScaler` ajusté sur le train set seulement et sauvegardé.
 - **`train.py`** — Entraîne 4 modèles candidats avec **StratifiedKFold k=5** et score CV `f1_macro`, puis évaluation finale sur le test set (Accuracy, Précision/Rappel pondérés, F1-macro, F1-pondéré). Sélection par F1-macro (tiebreak : F1-pondéré, puis accuracy). Sauvegarde `best_model.pkl` + `scaler.pkl`. Modèles : `RandomForestClassifier(n_estimators=300)`, `SVC(kernel="rbf", C=10, probability=True)`, `GradientBoostingClassifier(n_estimators=200)`, `LogisticRegression(max_iter=2000)`.
-- **`predict.py`** — `predict_top_crops(ph, humidity, temperature, ec, k=3)` :
-  - charge `best_model.pkl` + `scaler.pkl` si disponibles → `engine: "ml"` (ordre de features = `FEATURE_ORDER`)
-  - sinon ou en cas d'erreur de chargement/version → bascule silencieusement sur le moteur de règles → `engine: "rules"`
-  - retourne `{engine, top: [{crop, score, details}], alerts: [...]}`
-  - mapping sémantique : `humidity` (capteur) ↔ `humidity` (ML), `ec` (capteur) ↔ `salinity` (alerte) ↔ `ec` (feature ML)
+- **`predict.py`** — `predict_top_crops(ph, humidity, temperature, ec, k=3)`. Priorité :
+  1. **Modèle de production** `best_model.pkl` + `scaler.pkl` (4 features pH/humidité/température/**EC**, 10 cultures FR) → `engine: "ml"`, `model_type: "production"`.
+  2. **Modèle embarqué expérimental** `models/embedded_model.pkl` (3 features sans EC, cultures Kaggle tropicales **hors périmètre**) — **désactivé par défaut**, activable via `USE_EMBEDDED_MODEL=1` (recherche / audit uniquement).
+  3. Sinon ou erreur de chargement → moteur de règles → `engine: "rules"`.
+  - garde-fou agronomique : les propositions ML très incohérentes avec les règles sont pénalisées (score auditable), jamais supprimées silencieusement.
+  - retourne `{engine, model_type, top: [{crop, score, details}], alerts, recommendations, explanation}`.
+  - mapping sémantique : `ec` (capteur) ↔ `salinity` (alerte) ↔ `ec` (feature ML).
 - **`inference/__init__.py`** — Shim de compatibilité : `from ml_model.inference import predict_top_crops` équivaut à l'import direct.
 
 #### Performances actuelles (modèle livré)
@@ -330,18 +375,20 @@ Deux versions strictement parallèles :
 
 ### Raspberry Pi (`raspberry_pi/`)
 
-- **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` (fichier) → `GET /api/mission/plan` (défini par l'interface) → repli grille 3×3. Argparse : `--point LABEL` (point unique du plan), `--plan` (fichier), `--watch` (**daemon** : exécute le plan dès que l'interface commande le démarrage via `command=="requested"`), `--no-reset`. Déplacement vers `(x, y)`, push HTTP par mesure (échecs loggés), log console détaillé.
+- **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Arrêt d'urgence** : en `--watch`, `should_abort` détecte `command` repassé à `idle` (via `/api/mission/stop` ou `/end`) et stoppe entre deux points ; le robot est toujours arrêté en fin de mission (`finally`).
+- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro (PCA9685 `adafruit_motor` : 2 moteurs DC + 1 servo de direction ; mapping validé, configurable par `.env`, imports matériels paresseux). `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → déplacement point-à-point en **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
+- **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
-- **`sensors.py`, `robot_car.py`, `camera.py`** — stubs commentaires historiques ; **non utilisés** par le pipeline actif.
+- **`sensors.py`, `robot_car.py`, `camera.py`** — stubs historiques **non utilisés**.
 
 ---
 
 ## Décisions d'architecture importantes
 
-- **Pas de N/P/K, pas de rainfall** : le capteur 4-en-1 RS485 mesure uniquement pH, humidité, température et EC. Le générateur de dataset, `preprocess.py` et le prompt système Gemini vérifient et interdisent toute fuite de ces variables hors périmètre. Toute tentative déclenche une exception.
+- **Pas de N/P/K, pas de rainfall** : le capteur 4-en-1 RS485 mesure uniquement pH, humidité, température et EC. Le générateur de dataset et `preprocess.py` lèvent une exception si une de ces variables hors périmètre fuite. Côté chatbot, le LLM ne prétend jamais avoir mesuré N/P/K et ne recommande pas d'engrais NPK (une évocation pédagogique du rôle d'un nutriment reste tolérée). Le modèle de production n'utilise que les 4 variables capteur.
 - **Dataset synthétique calibré sur les règles** : le ML n'est pas entraîné sur des CSV externes mais sur un dataset généré à partir des plages exactes de `rules/crop_catalog.py`, avec 85 % au cœur / 15 % bordure. Conséquence : la frontière apprise par le ML reste cohérente avec la vérité agronomique, mais avec des décisions plus tranchées qu'une règle binaire dans les cas ambigus.
 - **Moteur de règles comme fallback automatique** : si `best_model.pkl` est absent, `ml_model/predict.py` bascule sur `rules/engine.py`. Aucune exception n'est levée — la démo ne casse jamais.
-- **État en mémoire** : `APP_STATE` est un singleton Python. Redémarrer le backend remet l'état à zéro. Pas de SQLite côté backend pour l'instant (à ajouter côté robot si persistance souhaitée).
+- **État runtime + persistance légère** : `APP_STATE` reste un singleton Python pour l'état courant. Le plan de mission et les mesures sont persistés dans SQLite (`.agribotics/state.sqlite3` par défaut) et restaurés au redémarrage du backend. La commande robot (`requested`/`running`/`done`) reste volontairement volatile.
 - **Chatbot = mise en forme linguistique uniquement** : toute l'inférence agronomique est déterministe (règles) ou ML (scikit). Le LLM Gemini reçoit les résultats déjà calculés et les reformule en FR/AR/Darija.
 - **LLM dans le cloud (Gemini), inférence locale** : choix assumé de déporter *uniquement* la couche conversationnelle vers Gemini (Google AI Studio) pour ne pas consommer la RAM locale (l'ancien Ollama/Qwen mobilisait ~2-5 Go). Le cœur métier (ML + règles) reste 100 % local et fonctionne hors-ligne ; seul `/api/chat` requiert internet + `GEMINI_API_KEY`. Aucune donnée personnelle transmise — uniquement le message et le contexte agronomique (4 variables + culture recommandée).
 - **Double frontend** : `frontend_simulation` fonctionne sans backend (démo, présentation) ; `frontend_real_backend` est lié au robot.
@@ -351,14 +398,15 @@ Deux versions strictement parallèles :
 
 ## Points connus à compléter
 
-Ces éléments mentionnés dans des versions antérieures de la doc ne sont **pas** encore implémentés :
+Reste à faire, surtout sur le robot réel (non testable sur PC) :
 
-- `raspberry_pi/robot/motors.py` — pilotage PCA9685 + TB6612FNG (driver moteurs Adeept Pi Car). Actuellement le déplacement est un stub `_move_to()` qui log.
-- `raspberry_pi/robot/navigation.py` — planification de trajectoire physique (ordre de visite optimal, évitement). Actuellement, le robot visite les points du plan dynamique dans l'ordre fourni, déplacement stub `_move_to()` qui log les coordonnées (x, y).
-- `raspberry_pi/robot/safety.py` — vérifications avant déplacement / mesure.
-- `raspberry_pi/storage/sqlite_db.py` — SQLite local résilient hors-ligne sur le robot.
-- `frontend/.../live.js` — polling automatique toutes les 3 s du backend. Actuellement, rafraîchissement manuel.
-- Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui. Acceptable tant que la taille reste raisonnable.
-- Tests automatisés (pytest) — actuellement tests manuels via curl + `raspberry_pi/main.py`.
+- **Calibration robot** : `adeept_controller.py` pilote réellement moteurs + servo, mais `DRIVE_THROTTLE_SCALE`, `ROBOT_SPEED_MPS` et les angles de braquage doivent être **calibrés sur le robot**, et le sens des moteurs vérifié (`hardware_test.py`).
+- **Navigation précise** : le robot visite les points dans l'ordre du plan, déplacement en **dead-reckoning temporisé** (pas d'encodeurs). Pour plus de précision : brancher le suiveur de ligne / des encodeurs sur `move_to_point` (interface inchangée).
+- **Sonde motorisée** : `AdeeptProbeController` (servo) est prêt, activé dès que `PROBE_SERVO_CHANNEL` est défini ; en attendant, descente simulée.
+- **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
+- `frontend/.../live.js` — polling automatique du backend ; aujourd'hui rafraîchissement manuel.
+- Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 
-Ces points ne bloquent pas la démo logicielle complète actuelle.
+Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, suite de tests `unittest` (`tests/`).
+
+Ces points ne bloquent pas la chaîne logicielle complète actuelle.

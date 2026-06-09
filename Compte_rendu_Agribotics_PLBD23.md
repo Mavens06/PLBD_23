@@ -32,8 +32,8 @@ Répond à la question inverse de la recommandation : « j'ai choisi CETTE cultu
 Le code actif est **à la racine** (`backend/`, `ml_model/`, `raspberry_pi/`, `frontend/`). Le backend est **mono-fichier `app.py`** (pas de `models/routes/services/` séparés — refactor non nécessaire à ce stade). Deux frontends parallèles : `frontend/frontend_simulation/` (autonome, port 5501) et `frontend/frontend_real_backend/` (consomme l'API, port 5500). La doc technique de référence à jour est **`CLAUDE.md`**.
 
 ### 0.5 Reste à faire (à jour)
-- Drivers matériels réels Raspberry Pi (`motors.py`, `navigation.py`, `safety.py`) — actuellement stubs.
-- Persistance SQLite côté robot, météo Open-Meteo, polling live frontend, tests pytest.
+- **Couche robot/sonde réelle implémentée** (`raspberry_pi/robot/` : `base.py`, `mock_controller.py`, `adeept_controller.py` pilotant le PiCar-Pro via PCA9685) + `hardware_test.py`. Reste à **calibrer sur le robot réel** (throttle, vitesse, angles, sens des moteurs) et à brancher le capteur RS485 dès sa réception.
+- Persistance SQLite (`backend/persistence.py`), météo Open-Meteo, `/health` + `/api/status`, arrêt d'urgence (`/api/mission/stop`) et suite de tests `unittest` (`tests/`) : **faits**. Reste : polling live frontend.
 - Régénérer les pickles ML sur chaque machine (`python ml_model/train.py`) — ils sont gitignorés.
 
 ## 1. Contexte général

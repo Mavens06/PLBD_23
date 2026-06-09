@@ -18,6 +18,7 @@ env/
 
 # Modèles et scalers générés (artefacts ML)
 ml_model/*.pkl
+ml_model/models/*.pkl
 ml_model/Crop_recommendation.csv
 
 # IDE
@@ -61,6 +62,11 @@ build/
 
 # Logs
 *.log
+
+# Etat local persiste par le backend
+.agribotics/
+*.sqlite3
+*.sqlite3-*
 
 # Archive redondante (les fichiers frontend sont versionnés en clair)
 frontend.zip
