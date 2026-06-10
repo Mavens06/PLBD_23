@@ -24,12 +24,19 @@ async function pollBackendState(){
     showToast(t('backendUnavailable'));
   }
   renderAll();
+  // Mission terminée (tous les points mesurés) : on stoppe le polling pour
+  // éviter des requêtes inutiles toutes les 1,5 s une fois la mission finie.
+  const done = APP_STATE.robot.totalPoints>0
+    && APP_STATE.robot.measuredPoints>=APP_STATE.robot.totalPoints;
+  if(done && realPollTimer){ clearInterval(realPollTimer); realPollTimer=null; }
 }
 
 async function stopRealMode(){
   if(realPollTimer) clearInterval(realPollTimer);
   realPollTimer=null;
-  try{ await postBackend('/mission/end',{}); }catch(_){}
-  APP_STATE.robot.status='Arrêt demandé';
+  // Bouton d'arrêt = ARRÊT D'URGENCE : le robot (mode --watch) stoppe entre deux
+  // points (cf. /api/mission/stop → command=idle, robot_status=emergency_stop).
+  try{ await postBackend('/mission/stop',{}); }catch(_){}
+  APP_STATE.robot.status="Arrêt d'urgence";
   renderAll();
 }
