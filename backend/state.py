@@ -18,6 +18,7 @@ redemarrage du backend. La commande robot reste volatile.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
@@ -108,6 +109,9 @@ class AppState:
     command: str = "idle"              # idle | requested | running | done
     measurements_by_zone: Dict[str, Measurement] = field(default_factory=dict)
     history: List[Measurement] = field(default_factory=list)
+    # Les routes sync de FastAPI s'exécutent dans un threadpool : les mutations
+    # d'état (mesures, plan) doivent être sérialisées pour éviter les courses.
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False, compare=False)
 
     # -- Plan ---------------------------------------------------------------
     @property
@@ -130,11 +134,12 @@ class AppState:
         labels = [p.label for p in points]
         if len(set(labels)) != len(labels):
             raise ValueError("Les labels des points doivent être uniques.")
-        self.plan = list(points)
-        self.measurements_by_zone.clear()
-        self.history.clear()
-        self.robot = RobotState()
-        self.command = "idle"
+        with self._lock:
+            self.plan = list(points)
+            self.measurements_by_zone.clear()
+            self.history.clear()
+            self.robot = RobotState()
+            self.command = "idle"
         _safe_persist(persistence.replace_plan, [p.as_dict() for p in self.plan])
 
     # -- Progression --------------------------------------------------------
@@ -151,15 +156,16 @@ class AppState:
             raise ValueError(
                 f"Point inconnu : {m.point}. Points du plan : {self.point_ids}."
             )
-        self.measurements_by_zone[m.point] = m
-        self.history.append(m)
-        self.robot.active_point = m.point
-        self.robot.progress_pct = round(100 * self.measured_points / self.total_points, 1)
-        if self.measured_points >= self.total_points:
-            self.robot.status = "done"
-            self.command = "done"
-        else:
-            self.robot.status = "measuring"
+        with self._lock:
+            self.measurements_by_zone[m.point] = m
+            self.history.append(m)
+            self.robot.active_point = m.point
+            self.robot.progress_pct = round(100 * self.measured_points / self.total_points, 1)
+            if self.measured_points >= self.total_points:
+                self.robot.status = "done"
+                self.command = "done"
+            else:
+                self.robot.status = "measuring"
         _safe_persist(persistence.save_measurement, m.as_dict())
 
     def latest(self) -> Optional[Measurement]:
@@ -167,10 +173,11 @@ class AppState:
 
     def reset(self) -> None:
         """Vide les mesures et l'état robot/commande, mais CONSERVE le plan."""
-        self.robot = RobotState()
-        self.command = "idle"
-        self.measurements_by_zone.clear()
-        self.history.clear()
+        with self._lock:
+            self.robot = RobotState()
+            self.command = "idle"
+            self.measurements_by_zone.clear()
+            self.history.clear()
         _safe_persist(persistence.clear_measurements)
 
 
