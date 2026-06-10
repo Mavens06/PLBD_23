@@ -28,5 +28,14 @@ httpx>=0.27.0
 pyserial>=3.5
 minimalmodbus>=2.1.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
 
+# --- Robot Adeept PiCar-Pro (Raspberry Pi uniquement) ---
+# Pilotage des 2 moteurs DC + servo de direction via PCA9685. Requis seulement
+# sur le robot réel (APP_MODE=hardware) ; sur PC de dev la couche robot bascule
+# automatiquement en mock, donc ces paquets ne sont pas installés (gardes ARM).
+Adafruit-Blinka>=8.0.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
+adafruit-circuitpython-pca9685>=3.4.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
+adafruit-circuitpython-motor>=3.4.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
+gpiozero>=2.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
+
 # --- Utilitaires ---
 python-dotenv>=1.0.0

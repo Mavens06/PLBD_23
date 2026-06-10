@@ -41,6 +41,7 @@ from typing import List, Optional
 import requests
 
 from .acquisition_manager import AcquisitionManager, MeasurementRecord
+from .offline_buffer import OfflineBuffer
 from .robot import build_probe, build_robot
 from .sensors.rs485_4in1 import build_sensor
 
@@ -100,10 +101,9 @@ def resolve_plan(plan_file: Optional[str]) -> List[PlanPoint]:
     return _as_points(GRID_3X3)
 
 
-def _push_measurement(record: MeasurementRecord) -> bool:
-    """Envoie la mesure au backend. Logge l'échec (code + corps) le cas échéant."""
-    url = f"{_backend_url()}/api/measurements"
-    payload = {
+def _record_to_payload(record: MeasurementRecord) -> dict:
+    """Construit le payload POST /api/measurements à partir d'un record."""
+    return {
         "point": record.point,
         "humidity": record.humidity,
         "ph": record.ph,
@@ -111,20 +111,24 @@ def _push_measurement(record: MeasurementRecord) -> bool:
         "ec": record.ec,
         "quality": record.quality,
     }
+
+
+def _post_payload(payload: dict) -> bool:
+    """Poste un payload de mesure au backend. Renvoie True si accepté."""
+    url = f"{_backend_url()}/api/measurements"
     try:
         r = requests.post(url, json=payload, timeout=5)
         if r.status_code >= 300:
-            # Un point silencieusement perdu fait stagner la progression :
-            # on rend l'échec visible (cf. revue de code, finding #7).
+            point = payload.get("point", "?")
             print(
-                f"  [push] ⚠ échec HTTP {r.status_code} pour {record.point} : "
-                f"{r.text[:200]}",
+                f"  [push] ⚠ échec HTTP {r.status_code} pour {point} : {r.text[:200]}",
                 flush=True,
             )
             return False
         return True
     except requests.RequestException as err:
-        print(f"  [push] ⚠ backend injoignable pour {record.point} : {err}", flush=True)
+        print(f"  [push] ⚠ backend injoignable pour {payload.get('point', '?')} : {err}",
+              flush=True)
         return False
 
 
@@ -167,7 +171,15 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
     probe = build_probe()
     sensor = build_sensor()
     manager = AcquisitionManager(sensor=sensor, interval_s=0.0 if mode == "mock" else 0.5)
+    outbox = OfflineBuffer()
     records: List[MeasurementRecord] = []
+
+    # Au démarrage : tenter de retransmettre les mesures laissées en file lors
+    # d'une précédente coupure réseau (aucune mesure n'est perdue au champ).
+    if outbox.pending():
+        flushed = outbox.flush(_post_payload)
+        print(f"[mission] outbox : {flushed} mesure(s) en attente retransmise(s), "
+              f"{outbox.pending()} restante(s).", flush=True)
 
     try:
         for p in points:
@@ -181,14 +193,23 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
             rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur
             probe.raise_probe()                  # remontée avant déplacement suivant
             records.append(rec)
-            pushed = _push_measurement(rec)
-            tag = "✓ pushed" if pushed else "⚠ local-only"
+            payload = _record_to_payload(rec)
+            if _post_payload(payload):
+                tag = "✓ pushed"
+            else:
+                # Push raté → on persiste la mesure sur le disque du robot pour
+                # la retransmettre plus tard. JAMAIS de perte de donnée.
+                outbox.enqueue(payload)
+                tag = "✎ bufferisé (outbox)"
             print(
                 f"  [meas] H={rec.humidity}%  pH={rec.ph}  T={rec.temp}°C  "
                 f"EC={rec.ec} mS/cm  quality={rec.quality}  {tag}",
                 flush=True,
             )
     finally:
+        # Dernière tentative de vidage de la file avant de rendre la main.
+        if outbox.pending():
+            outbox.flush(_post_payload)
         robot.stop()
         robot.close()
         probe.close()
