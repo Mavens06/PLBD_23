@@ -120,6 +120,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `SENSOR_MOCK_PROFILE` | `None` | En mock, force le profil d'une zone (`A1`..`C3`) |
 | `AGRIBOTICS_API_BASE` | `http://127.0.0.1:8000` | URL du backend pour `raspberry_pi/main.py` |
 | `AGRIBOTICS_DB_PATH` | `.agribotics/state.sqlite3` | SQLite backend : plan de mission + mesures persistées |
+| `AGRIBOTICS_ROBOT_OUTBOX` | `.agribotics/robot_outbox.jsonl` | File d'attente disque du robot : mesures non transmises (résilience réseau), retransmises auto |
 | `CORS_ORIGINS` | `*` | Origines CORS autorisées par la FastAPI |
 | `WEATHER_LAT` | `33.9` | Latitude pour la météo Open-Meteo (défaut : plaine du Saïss, Maroc) |
 | `WEATHER_LON` | `-5.55` | Longitude pour la météo Open-Meteo |
@@ -375,7 +376,8 @@ Deux versions strictement parallèles :
 
 ### Raspberry Pi (`raspberry_pi/`)
 
-- **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Arrêt d'urgence** : en `--watch`, `should_abort` détecte `command` repassé à `idle` (via `/api/mission/stop` ou `/end`) et stoppe entre deux points ; le robot est toujours arrêté en fin de mission (`finally`).
+- **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Résilience réseau** : un push raté n'est jamais perdu — la mesure est mise en file sur le disque (`offline_buffer.OfflineBuffer`) et retransmise au début de la mission suivante. **Arrêt d'urgence** : en `--watch`, `should_abort` détecte `command` repassé à `idle` (via `/api/mission/stop` ou `/end`) et stoppe entre deux points ; le robot est toujours arrêté en fin de mission (`finally`).
+- **`offline_buffer.py`** — File d'attente disque (JSON Lines) des mesures non transmises au backend. `enqueue()` persiste immédiatement, `flush(push_fn)` retransmet (s'arrête au premier échec pour ne pas marteler le réseau), tolère un fichier corrompu. Garantit **zéro perte de mesure** au champ.
 - **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro (PCA9685 `adafruit_motor` : 2 moteurs DC + 1 servo de direction ; mapping validé, configurable par `.env`, imports matériels paresseux). `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → déplacement point-à-point en **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
 - **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
@@ -406,6 +408,10 @@ Reste à faire, surtout sur le robot réel (non testable sur PC) :
 - **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 
-Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, rafraîchissement live du frontend pendant la mission (polling 1,5 s dans `runtime_real.js`, arrêt automatique en fin de mission), suite de tests `unittest` (`tests/`).
+Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, rafraîchissement live du frontend pendant la mission (polling 1,5 s dans `runtime_real.js`, arrêt automatique en fin de mission), **résilience réseau du robot** (file hors-ligne `offline_buffer.py`, zéro perte de mesure), **déploiement systemd** (`deploy/`, démarrage auto au boot), dépendances robot dans `requirements.txt`, suite de tests `unittest` (`tests/`).
+
+### Déploiement (`deploy/`)
+
+Pour un vrai prototype, `deploy/agribotics-backend.service` et `deploy/agribotics-robot.service` (systemd) démarrent le backend et le robot `--watch` automatiquement au boot et les relancent en cas de crash. Procédure d'installation (groupes I2C/série, activation I2C, test matériel) dans `deploy/README.md`. Pour le dev local, `start_demo.sh` reste le lanceur une-commande.
 
 Ces points ne bloquent pas la chaîne logicielle complète actuelle.

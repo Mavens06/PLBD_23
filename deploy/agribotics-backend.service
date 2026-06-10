@@ -1,0 +1,18 @@
+[Unit]
+Description=Agribotics backend (FastAPI)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Adapter User et les chemins à votre installation (cf. deploy/README.md).
+User=pi
+WorkingDirectory=/home/pi/PLBD
+# Force le mode robot réel ; le .env (GEMINI_API_KEY, etc.) est chargé par l'app.
+Environment=APP_MODE=hardware
+ExecStart=/home/pi/PLBD/.venv/bin/python -m uvicorn backend.app:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

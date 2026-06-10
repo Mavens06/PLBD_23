@@ -96,6 +96,16 @@ APP_MODE=hardware python3 -m raspberry_pi.hardware_test --test all
 
 ---
 
+## Déploiement (Raspberry Pi, démarrage automatique)
+
+Pour un vrai prototype, le backend et le robot démarrent au boot via systemd
+(`deploy/agribotics-backend.service`, `deploy/agribotics-robot.service`) et se
+relancent en cas de crash. Procédure complète : **`deploy/README.md`**.
+
+**Résilience réseau** : si le backend est injoignable pendant une mission, le
+robot ne perd aucune mesure — elles sont mises en file sur le disque
+(`AGRIBOTICS_ROBOT_OUTBOX`) et retransmises automatiquement à la mission suivante.
+
 ## Capteurs (à venir)
 
 La lecture du sol est isolée dans `raspberry_pi/sensors/` (`build_sensor()`).

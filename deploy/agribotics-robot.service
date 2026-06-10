@@ -1,0 +1,18 @@
+[Unit]
+Description=Agribotics robot mission daemon (--watch)
+After=agribotics-backend.service network-online.target
+Wants=agribotics-backend.service
+
+[Service]
+Type=simple
+# L'utilisateur doit appartenir aux groupes gpio, i2c et dialout pour accéder
+# au PCA9685 (I2C) et au capteur RS485 (port série). Cf. deploy/README.md.
+User=pi
+WorkingDirectory=/home/pi/PLBD
+Environment=APP_MODE=hardware
+ExecStart=/home/pi/PLBD/.venv/bin/python -m raspberry_pi.main --watch
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
