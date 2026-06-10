@@ -129,9 +129,11 @@
         history: (window.chatHistory || []).slice(-6),
       };
       const base = (window.AGRIBOTICS_API_BASE || "http://localhost:8000/api").replace(/\/$/, "");
+      const chatHeaders = { "Content-Type": "application/json" };
+      if (window.AGRIBOTICS_API_KEY) chatHeaders["X-API-Key"] = window.AGRIBOTICS_API_KEY;
       const r = await fetch(`${base}/chat`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: chatHeaders,
         body: JSON.stringify(payload)
       });
       if (!r.ok) throw new Error("chat api failed");
@@ -175,9 +177,11 @@
   function speakViaCloudTTS(text, done) {
     const base = (window.AGRIBOTICS_API_BASE || "http://localhost:8000/api").replace(/\/$/, "");
     setVoiceState("thinking");                 // feedback visuel pendant le chargement audio
+    const ttsHeaders = { "Content-Type": "application/json" };
+    if (window.AGRIBOTICS_API_KEY) ttsHeaders["X-API-Key"] = window.AGRIBOTICS_API_KEY;
     return fetch(`${base}/tts`, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: ttsHeaders,
       body: JSON.stringify({ text, language: window.currentLang || "ar" }),
     }).then((r) => {
       if (!r.ok) throw new Error("tts http " + r.status);

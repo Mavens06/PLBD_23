@@ -53,9 +53,12 @@ async function syncFromBackend() {
 }
 
 async function postBackend(path, payload = {}) {
+  const headers = { 'Content-Type': 'application/json' };
+  // Clé API optionnelle : envoyée seulement si le backend l'exige (window.AGRIBOTICS_API_KEY).
+  if (window.AGRIBOTICS_API_KEY) headers['X-API-Key'] = window.AGRIBOTICS_API_KEY;
   return fetchJSON(path, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(payload),
   });
 }

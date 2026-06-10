@@ -66,6 +66,12 @@ def _backend_url() -> str:
     return os.getenv("AGRIBOTICS_API_BASE", "http://127.0.0.1:8000").rstrip("/")
 
 
+def _auth_headers() -> dict:
+    """En-tête X-API-Key si AGRIBOTICS_API_KEY est configuré (sinon vide)."""
+    key = os.getenv("AGRIBOTICS_API_KEY", "").strip()
+    return {"X-API-Key": key} if key else {}
+
+
 def _as_points(raw: List[dict]) -> List[PlanPoint]:
     return [
         PlanPoint(label=str(p["label"]), x=float(p.get("x", 0.0)), y=float(p.get("y", 0.0)))
@@ -117,7 +123,7 @@ def _post_payload(payload: dict) -> bool:
     """Poste un payload de mesure au backend. Renvoie True si accepté."""
     url = f"{_backend_url()}/api/measurements"
     try:
-        r = requests.post(url, json=payload, timeout=5)
+        r = requests.post(url, json=payload, timeout=5, headers=_auth_headers())
         if r.status_code >= 300:
             point = payload.get("point", "?")
             print(
@@ -162,7 +168,7 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
 
     if reset:
         try:
-            requests.post(f"{_backend_url()}/api/mission/reset", timeout=3)
+            requests.post(f"{_backend_url()}/api/mission/reset", timeout=3, headers=_auth_headers())
             print("[mission] backend reset OK", flush=True)
         except requests.RequestException:
             print("[mission] backend non joignable — on continue en local", flush=True)

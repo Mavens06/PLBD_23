@@ -16,9 +16,10 @@ L'inférence ML/règles reste 100% locale. Seule la couche conversationnelle
 import os
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response, Security
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
+from fastapi.security import APIKeyHeader
+from pydantic import BaseModel, Field
 
 try:
     from .chatbot_llm import generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_FALLBACK_MODEL
@@ -47,14 +48,37 @@ app = FastAPI(title="Agribotics API")
 # d'environnement CORS_ORIGINS (liste séparée par des virgules).
 _cors_origins_env = os.getenv("CORS_ORIGINS", "*")
 _cors_origins = [o.strip() for o in _cors_origins_env.split(",") if o.strip()]
+# Starlette neutralise SILENCIEUSEMENT la combinaison invalide
+# allow_origins=["*"] + allow_credentials=True. En mode wildcard on désactive
+# donc explicitement les credentials ; sinon (origines listées) on les autorise.
+_allow_credentials = "*" not in _cors_origins
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
-    allow_credentials=True,
+    allow_credentials=_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ---------------------------------------------------------------------------
+# Authentification simple par clé API (opt-in)
+# ---------------------------------------------------------------------------
+# Pour un robot physique sur un réseau, les routes qui MODIFIENT l'état (POST :
+# pilotage mission, push de mesures, chat, tts) ne doivent pas être ouvertes à
+# tous. Si AGRIBOTICS_API_KEY est défini dans .env, ces routes exigent l'en-tête
+# `X-API-Key`. Si la variable est vide (défaut), l'authentification est
+# DÉSACTIVÉE — la démo/dev fonctionne sans clé, comportement inchangé.
+_API_KEY = os.getenv("AGRIBOTICS_API_KEY", "").strip()
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+def require_api_key(provided: Optional[str] = Security(_api_key_header)) -> None:
+    """Dépendance FastAPI : exige X-API-Key sur les routes POST si une clé est configurée."""
+    if not _API_KEY:
+        return  # auth désactivée (aucune clé configurée) → routes ouvertes
+    if provided != _API_KEY:
+        raise HTTPException(status_code=401, detail="Clé API invalide ou manquante (en-tête X-API-Key).")
 
 
 # ---------------------------------------------------------------------------
@@ -74,12 +98,16 @@ class ChatRequest(BaseModel):
 
 
 class MeasurementIn(BaseModel):
-    """Mesure transmise par la Raspberry Pi (capteur 4-en-1 RS485)."""
-    point: str                              # Label du point de mesure (ex. A1, P3…)
-    humidity: float                         # Humidité (%)
-    ph: float                               # pH
-    temp: float                             # Température (°C)
-    ec: float                               # Conductivité électrique / salinité (mS/cm)
+    """Mesure transmise par la Raspberry Pi (capteur 4-en-1 RS485).
+
+    Les bornes physiques rejettent (422) les lectures aberrantes d'un capteur
+    défaillant, qui pollueraient sinon recommandations et chatbot.
+    """
+    point: str                                       # Label du point (ex. A1, P3…)
+    humidity: float = Field(ge=0, le=100)            # Humidité (%)
+    ph: float = Field(ge=0, le=14)                   # pH
+    temp: float = Field(ge=-20, le=60)               # Température (°C)
+    ec: float = Field(ge=0, le=20)                   # EC / salinité (mS/cm)
     quality: str = "good"
 
 
@@ -206,7 +234,7 @@ def _build_correction_context(selected_crop: Optional[str], sensor_data: Optiona
     return diagnosis_to_prompt(diagnose(m, selected_crop))
 
 
-@app.post("/api/chat")
+@app.post("/api/chat", dependencies=[Depends(require_api_key)])
 async def chat(request: ChatRequest):
     """
     Reçoit la question de l'agriculteur ainsi que les données capteurs de la
@@ -270,7 +298,7 @@ class TTSRequest(BaseModel):
     language: str = "ar"                    # Langue (informatif ; la voix suit le texte)
 
 
-@app.post("/api/tts")
+@app.post("/api/tts", dependencies=[Depends(require_api_key)])
 async def tts(request: TTSRequest):
     """
     Synthèse vocale via le modèle TTS de **Gemini** (cloud) : renvoie un WAV
@@ -316,7 +344,7 @@ def get_mission_plan():
     return {"points": [p.as_dict() for p in APP_STATE.plan]}
 
 
-@app.post("/api/mission/plan")
+@app.post("/api/mission/plan", dependencies=[Depends(require_api_key)])
 def set_mission_plan(payload: MissionPlanIn):
     """
     Définit le plan de mission depuis l'interface : liste de points (label, x, y).
@@ -331,7 +359,7 @@ def set_mission_plan(payload: MissionPlanIn):
     return {"ok": True, "points": [p.as_dict() for p in APP_STATE.plan]}
 
 
-@app.post("/api/mission/start")
+@app.post("/api/mission/start", dependencies=[Depends(require_api_key)])
 def start_mission():
     """
     Commande le démarrage de la mission (déclenchée par l'interface).
@@ -344,7 +372,7 @@ def start_mission():
             "total_points": APP_STATE.total_points}
 
 
-@app.post("/api/mission/end")
+@app.post("/api/mission/end", dependencies=[Depends(require_api_key)])
 def end_mission():
     """Demande l'arrêt de la mission en cours (abort)."""
     APP_STATE.command = "idle"
@@ -353,7 +381,7 @@ def end_mission():
     return {"ok": True, "command": APP_STATE.command}
 
 
-@app.post("/api/mission/stop")
+@app.post("/api/mission/stop", dependencies=[Depends(require_api_key)])
 def stop_mission():
     """
     ARRÊT D'URGENCE. Passe la commande à `idle` : le robot (mode --watch) le
@@ -367,7 +395,7 @@ def stop_mission():
     return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
 
 
-@app.post("/api/mission/reset")
+@app.post("/api/mission/reset", dependencies=[Depends(require_api_key)])
 def reset_mission():
     """Réinitialise l'état mission/mesures en mémoire (conserve le plan)."""
     APP_STATE.reset()
@@ -385,7 +413,7 @@ def get_measurements():
     }
 
 
-@app.post("/api/measurements")
+@app.post("/api/measurements", dependencies=[Depends(require_api_key)])
 def post_measurement(payload: MeasurementIn):
     """
     Enregistre une mesure du capteur 4-en-1 RS485 et met à jour la mission.

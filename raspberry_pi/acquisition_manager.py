@@ -114,6 +114,21 @@ class AcquisitionManager:
             return "fair"
         return "good"
 
+    @staticmethod
+    def _is_suspect(ph: float, humidity: float, temp: float, ec: float) -> bool:
+        """Vrai si une valeur est en BORDURE de plage physique (capteur douteux/défaillant).
+
+        Bornes (mêmes plages que la validation backend MeasurementIn) : pH [0,14],
+        humidité [0,100] %, température [-20,60] °C, EC [0,20] mS/cm. Une lecture
+        qui frôle ces extrêmes signale un capteur à vérifier plutôt qu'un sol réel.
+        """
+        return (
+            not (0.5 <= ph <= 13.5)
+            or not (1.0 <= humidity <= 99.0)
+            or not (-15.0 <= temp <= 55.0)
+            or not (0.0 <= ec <= 19.0)
+        )
+
     def collect(self, point: str, x: float | None = None, y: float | None = None) -> MeasurementRecord:
         """
         Exécute le protocole complet sur un point donné.
@@ -147,18 +162,27 @@ class AcquisitionManager:
         s_t = self._stats(temps)
         s_e = self._stats(ecs)
 
+        med_h, med_p = round(s_h.median, 2), round(s_p.median, 2)
+        med_t, med_e = round(s_t.median, 2), round(s_e.median, 3)
+        # Une lecture en bordure de plage physique prime sur la qualité « bruit » :
+        # elle signale un capteur potentiellement défaillant (cf. validation backend).
+        if self._is_suspect(med_p, med_h, med_t, med_e):
+            quality = "suspect"
+        else:
+            quality = self._quality(s_p.pstdev, s_e.pstdev)
+
         return MeasurementRecord(
             point=point,
-            humidity=round(s_h.median, 2),
-            ph=round(s_p.median, 2),
-            temp=round(s_t.median, 2),
-            ec=round(s_e.median, 3),
+            humidity=med_h,
+            ph=med_p,
+            temp=med_t,
+            ec=med_e,
             stats={
                 "humidity": s_h.as_dict(),
                 "ph": s_p.as_dict(),
                 "temperature": s_t.as_dict(),
                 "ec": s_e.as_dict(),
             },
-            quality=self._quality(s_p.pstdev, s_e.pstdev),
+            quality=quality,
             samples=self._samples,
         )
