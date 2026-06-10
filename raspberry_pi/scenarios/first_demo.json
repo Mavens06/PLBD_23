@@ -1,0 +1,9 @@
+{
+  "mission_name": "Premiere simulation terrain",
+  "points": [
+    {"label": "A1", "x": 0, "y": 0},
+    {"label": "A2", "x": 3, "y": 0},
+    {"label": "B2", "x": 3, "y": 3},
+    {"label": "C3", "x": 6, "y": 6}
+  ]
+}
