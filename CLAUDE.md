@@ -404,9 +404,8 @@ Reste à faire, surtout sur le robot réel (non testable sur PC) :
 - **Navigation précise** : le robot visite les points dans l'ordre du plan, déplacement en **dead-reckoning temporisé** (pas d'encodeurs). Pour plus de précision : brancher le suiveur de ligne / des encodeurs sur `move_to_point` (interface inchangée).
 - **Sonde motorisée** : `AdeeptProbeController` (servo) est prêt, activé dès que `PROBE_SERVO_CHANNEL` est défini ; en attendant, descente simulée.
 - **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
-- `frontend/.../live.js` — polling automatique du backend ; aujourd'hui rafraîchissement manuel.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 
-Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, suite de tests `unittest` (`tests/`).
+Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, rafraîchissement live du frontend pendant la mission (polling 1,5 s dans `runtime_real.js`, arrêt automatique en fin de mission), suite de tests `unittest` (`tests/`).
 
 Ces points ne bloquent pas la chaîne logicielle complète actuelle.
