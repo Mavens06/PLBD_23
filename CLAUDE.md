@@ -174,9 +174,9 @@ PLBD/
 │   │   ├── mock_controller.py          # Implémentations simulées (PC / repli)
 │   │   ├── adeept_controller.py        # Pilotage réel PiCar-Pro (PCA9685 : moteurs + servo)
 │   │   └── __init__.py                 # build_robot() / build_probe() selon APP_MODE
-│   ├── sensors/
-│   │   └── rs485_4in1.py               # Driver unifié RS485 (hardware ou mock auto)
-│   └── sensors.py / robot_car.py / camera.py  # Stubs historiques (non utilisés)
+│   ├── offline_buffer.py               # File hors-ligne des mesures (résilience réseau)
+│   └── sensors/
+│       └── rs485_4in1.py               # Driver unifié RS485 (hardware ou mock auto)
 │
 ├── frontend/
 │   ├── frontend_simulation/            # Démo autonome — port 5501
@@ -381,7 +381,6 @@ Deux versions strictement parallèles :
 - **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro (PCA9685 `adafruit_motor` : 2 moteurs DC + 1 servo de direction ; mapping validé, configurable par `.env`, imports matériels paresseux). `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → déplacement point-à-point en **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
 - **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
-- **`sensors.py`, `robot_car.py`, `camera.py`** — stubs historiques **non utilisés**.
 
 ---
 
