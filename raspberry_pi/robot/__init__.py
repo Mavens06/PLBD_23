@@ -37,22 +37,39 @@ def build_robot() -> RobotController:
     return MockRobotController()
 
 
+def _parse_arm_home(raw: str) -> list[tuple[int, float]]:
+    """Parse PROBE_ARM_HOME ("1:90,3:140,4:80") → [(canal, angle), …]."""
+    pose: list[tuple[int, float]] = []
+    for part in raw.split(","):
+        if ":" not in part:
+            continue
+        ch, deg = part.split(":", 1)
+        try:
+            pose.append((int(ch.strip()), float(deg.strip())))
+        except ValueError:
+            continue
+    return pose
+
+
 def build_probe(pca=None) -> ProbeController:
     """
     Renvoie la sonde. Si `PROBE_SERVO_CHANNEL` est défini ET qu'on est en
-    hardware, pilote un vrai servo ; sinon descente simulée (servo non monté).
-    `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot.
+    hardware, pilote le BRAS du PiCar-Pro (séquence validée : épaule canal 2,
+    haut 90° / bas 150°, autres servos en posture home) ; sinon descente
+    simulée. `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot.
     """
     channel = os.getenv("PROBE_SERVO_CHANNEL")
     if _is_hardware() and channel is not None and channel.strip() != "":
         try:
             from .adeept_controller import AdeeptProbeController, _envf, _envi
             return AdeeptProbeController(
-                channel=_envi("PROBE_SERVO_CHANNEL", 1),
-                up_deg=_envf("PROBE_ANGLE_UP", 30),
-                down_deg=_envf("PROBE_ANGLE_DOWN", 120),
+                channel=_envi("PROBE_SERVO_CHANNEL", 2),
+                up_deg=_envf("PROBE_ANGLE_UP", 90),
+                down_deg=_envf("PROBE_ANGLE_DOWN", 150),
                 stabilize_s=_envf("PROBE_STABILIZE_S", 3.0),
                 pca=pca,
+                home_pose=_parse_arm_home(
+                    os.getenv("PROBE_ARM_HOME", "1:90,3:140,4:80")),
             )
         except Exception as err:  # pragma: no cover - dépend du matériel
             print(f"[probe] ⚠ servo sonde indisponible ({err}) — descente simulée.", flush=True)

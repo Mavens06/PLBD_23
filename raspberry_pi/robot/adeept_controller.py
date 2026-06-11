@@ -1,36 +1,49 @@
 """
 adeept_controller.py — Pilotage RÉEL du robot Adeept PiCar-Pro.
 
-Calqué sur le code validé sur le robot de l'équipe :
+Calqué sur le code VALIDÉ sur le robot de l'équipe (Code_PLBD_23_mission.py) :
   • PCA9685 (adafruit_pca9685) à l'adresse 0x5f, 50 Hz.
   • 2 moteurs DC (adafruit_motor.motor.DCMotor) :
         moteur G = canaux PCA (15, 14)
         moteur D = canaux PCA (12, 13)
-  • 1 servo de DIRECTION (adafruit_motor.servo.Servo) sur le canal 0 :
-        centre = 70°, gauche = 35°, droite = 125°.
+  • 1 servo de DIRECTION sur le canal 0 :
+        centre = 85°, gauche = 0° (à fond), droite = 180° (à fond).
+  • Sens des moteurs validé : la marche AVANT correspond à un throttle
+    NÉGATIF (DRIVE_THROTTLE = -0.15) ; les virages utilisent un throttle
+    POSITIF (TURN_THROTTLE = 0.18). Ces signes sont ceux du code testé —
+    ne pas les « corriger » sans réessayer sur le robot.
 
-Architecture « voiture » (2 moteurs de propulsion + 1 servo de braquage),
-PAS du différentiel : on tourne en braquant le servo de direction puis en
-avançant brièvement.
+Architecture « voiture » (2 moteurs de propulsion + 1 servo de braquage) :
+les virages se font en ARC DE CERCLE — braquage à fond + avance pendant
+TURN_90_S (≈1.2 s pour 90°, 2× pour un demi-tour), comme validé.
 
-Limite assumée (pas d'odométrie/encodeurs sur ce robot) : `move_to_point`
-fait du *dead-reckoning temporisé* — il avance une durée proportionnelle à la
-distance entre points (vitesse calibrée par `ROBOT_SPEED_MPS`). C'est l'approche
-des trajectoires temporisées déjà utilisée sur le robot. Pour une précision
-supérieure plus tard : suiveur de ligne ou encodeurs, sans changer cette interface.
+Navigation : MANHATTAN par cap (N/E/S/W) — pour rejoindre (x, y), le robot
+s'oriente puis parcourt |dx| puis |dy| en lignes droites temporisées
+(dead-reckoning, pas d'encodeurs). `manhattan_legs()` est la partie pure
+(testable sans matériel).
 
-Toutes les valeurs sont surchargeables par variables d'environnement (cf. .env.example).
-Les imports matériels (busio, adafruit_*) sont PARESSEUX (dans __init__) pour que
-ce module reste importable sur un PC de dev sans GPIO.
+ÉCHELLE MONDE (`ROBOT_WORLD_SCALE`) : le plan de mission de l'interface est en
+mètres « terrain » ; le robot multiplie chaque distance par ce facteur pour
+rejouer la mission sur une surface réduite (démo 1 m × 1 m : la grille 3×3 par
+défaut s'étend sur 6 m → scale 0.15 ≈ 90 cm). L'interface, le backend et les
+mesures ne voient JAMAIS cette échelle — uniquement le déplacement physique.
+
+Toutes les valeurs sont surchargeables par variables d'environnement (cf.
+.env.example). Les imports matériels (busio, adafruit_*) sont PARESSEUX pour
+que ce module reste importable sur un PC de dev sans GPIO.
 """
 
 from __future__ import annotations
 
-import math
 import os
 import time
+from typing import List, Tuple
 
 from .base import ProbeController, RobotController
+from .signals import MissionSignals
+
+
+HEADINGS = ["N", "E", "S", "W"]
 
 
 def _log(msg: str) -> None:
@@ -51,6 +64,30 @@ def _envi(name: str, default: int) -> int:
         return int(default)
 
 
+def manhattan_legs(
+    x0: float, y0: float, x1: float, y1: float, heading: str,
+) -> Tuple[List[Tuple[str, object]], str]:
+    """
+    Décompose le trajet (x0,y0)→(x1,y1) en segments Manhattan.
+
+    Renvoie ([("turn", cap), ("drive", distance_m), …], cap_final).
+    Axe X = Est/Ouest, axe Y = Nord/Sud (dy > 0 → "N", comme le code validé).
+    Fonction PURE : aucune dépendance matérielle, testée dans tests/.
+    """
+    legs: List[Tuple[str, object]] = []
+    h = heading if heading in HEADINGS else "N"
+    dx, dy = x1 - x0, y1 - y0
+    for delta, pos_cap, neg_cap in ((dx, "E", "W"), (dy, "N", "S")):
+        if abs(delta) < 1e-6:
+            continue
+        cap = pos_cap if delta > 0 else neg_cap
+        if cap != h:
+            legs.append(("turn", cap))
+            h = cap
+        legs.append(("drive", abs(delta)))
+    return legs, h
+
+
 class AdeeptRobotController(RobotController):
     """Pilote réel des moteurs + servo de direction du PiCar-Pro."""
 
@@ -63,19 +100,23 @@ class AdeeptRobotController(RobotController):
 
         self._motor_lib = _motor
 
-        # --- Configuration (défauts = valeurs validées sur le robot) --------
+        # --- Configuration (défauts = valeurs VALIDÉES sur le robot) --------
         self._addr = int(os.getenv("PCA9685_ADDRESS", "0x5f"), 0)
         self._freq = _envi("PCA9685_FREQUENCY", 50)
         m1a, m1b = _envi("MOTOR_LEFT_IN1", 15), _envi("MOTOR_LEFT_IN2", 14)
         m2a, m2b = _envi("MOTOR_RIGHT_IN1", 12), _envi("MOTOR_RIGHT_IN2", 13)
         self._steer_ch = _envi("STEER_SERVO_CHANNEL", 0)
-        self._steer_center = _envf("STEER_CENTER_DEG", 70)
-        self._steer_left = _envf("STEER_LEFT_DEG", 35)
-        self._steer_right = _envf("STEER_RIGHT_DEG", 125)
-        # Throttle [0..1] correspondant à speed=100. Les essais robot tournent
-        # autour de 0.07–0.09, on plafonne donc volontairement bas.
-        self._throttle_scale = _envf("DRIVE_THROTTLE_SCALE", 0.12)
-        self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.30)
+        self._steer_center = _envf("STEER_CENTER_DEG", 85)
+        self._steer_left = _envf("STEER_LEFT_DEG", 0)
+        self._steer_right = _envf("STEER_RIGHT_DEG", 180)
+        # Throttles SIGNÉS issus du code validé : avant = -0.15, virage = +0.18.
+        self._drive_throttle = _envf("DRIVE_THROTTLE", -0.15)
+        self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
+        self._turn_90_s = _envf("TURN_90_S", 1.2)
+        # ~35-40 cm en 2.0 s à 0.15 de throttle → ≈ 0.19 m/s.
+        self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.19)
+        # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
+        self._world_scale = max(0.01, _envf("ROBOT_WORLD_SCALE", 1.0))
 
         # --- Initialisation matérielle --------------------------------------
         i2c = busio.I2C(board.SCL, board.SDA)
@@ -86,12 +127,37 @@ class AdeeptRobotController(RobotController):
 
         self._x = 0.0
         self._y = 0.0
+        self._heading = "N"
         self._set_angle(self._steer_ch, self._steer_center)
-        _log(f"prêt (PCA 0x{self._addr:02x} @ {self._freq}Hz, scale={self._throttle_scale})")
+
+        # --- LEDs / buzzer (no-op si indisponibles) --------------------------
+        self._signals = MissionSignals()
+
+        # --- Ultrason anti-obstacle (broches validées : trigger 23, écho 24) -
+        self._obstacle_cm = _envf("OBSTACLE_MIN_DISTANCE_CM", 12.0)
+        self._obstacle_timeout_s = _envf("OBSTACLE_TIMEOUT_S", 20.0)
+        self._distance_sensor = None
+        if os.getenv("OBSTACLE_AVOIDANCE", "1").strip().lower() in ("1", "true", "yes"):
+            try:
+                from gpiozero import DistanceSensor
+                self._distance_sensor = DistanceSensor(
+                    echo=_envi("ULTRASONIC_ECHO_PIN", 24),
+                    trigger=_envi("ULTRASONIC_TRIGGER_PIN", 23),
+                    max_distance=2,
+                )
+            except Exception as err:
+                _log(f"⚠ ultrason indisponible ({err}) — anti-obstacle désactivé.")
+
+        _log(f"prêt (PCA 0x{self._addr:02x} @ {self._freq}Hz, "
+             f"drive={self._drive_throttle}, turn={self._turn_throttle}, "
+             f"scale={self._world_scale}, "
+             f"ultrason={'on' if self._distance_sensor else 'off'})")
+        self._signals.beep("C4", 0.15)
+        self._signals.blink(0.3)
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
-        """Positionne un servo (mirroir exact du set_angle validé)."""
+        """Positionne un servo (miroir exact du set_angle validé)."""
         from adafruit_motor import servo
         s = servo.Servo(self._pca.channels[channel], min_pulse=500, max_pulse=2400,
                         actuation_range=180)
@@ -102,37 +168,105 @@ class AdeeptRobotController(RobotController):
         self._left.throttle = value
         self._right.throttle = value
 
-    def _speed_to_throttle(self, speed: int) -> float:
-        return (max(0, min(100, speed)) / 100.0) * self._throttle_scale
+    def _read_distance_cm(self) -> float | None:
+        if self._distance_sensor is None:
+            return None
+        try:
+            return float(self._distance_sensor.distance * 100.0)
+        except Exception:
+            return None
+
+    def _ensure_path_clear(self) -> None:
+        """
+        Vérifie l'ultrason. Si un obstacle est plus près que le seuil :
+        arrêt immédiat + LED + bip, puis ATTENTE que la voie se libère
+        (démo : une main retirée → la mission reprend toute seule).
+        Au-delà de OBSTACLE_TIMEOUT_S, RuntimeError → la mission s'interrompt
+        proprement (le finally de run_mission stoppe le robot).
+        """
+        d = self._read_distance_cm()
+        if d is None or d >= self._obstacle_cm:
+            return
+        self._throttle(0.0)
+        self._signals.alert_on()
+        self._signals.beep("C4", 0.2)
+        _log(f"⛔ obstacle à {d:.1f} cm — arrêt, attente de dégagement "
+             f"(max {self._obstacle_timeout_s:.0f}s)")
+        deadline = time.monotonic() + self._obstacle_timeout_s
+        while True:
+            time.sleep(0.3)
+            d = self._read_distance_cm()
+            if d is None or d >= self._obstacle_cm:
+                break
+            if time.monotonic() > deadline:
+                self._signals.alert_off()
+                raise RuntimeError(f"obstacle persistant à {d:.1f} cm")
+        self._signals.alert_off()
+        _log("voie dégagée — reprise du déplacement")
+
+    def _drive_straight(self, throttle: float, duration: float,
+                        check_obstacles: bool = True) -> None:
+        """
+        Ligne droite temporisée, roues centrées, arrêt en fin de segment.
+        L'ultrason est vérifié toutes les ~0.4 s pendant le déplacement
+        (l'obstacle peut surgir en cours de segment, pas seulement avant).
+        """
+        self._set_angle(self._steer_ch, self._steer_center)
+        remaining = max(0.0, duration)
+        chunk = 0.4
+        while remaining > 0:
+            if check_obstacles:
+                self._ensure_path_clear()
+            self._throttle(throttle)
+            dt = min(chunk, remaining)
+            time.sleep(dt)
+            remaining -= dt
+        self._throttle(0.0)
+
+    def _turn_arc(self, steer_deg: float, duration: float) -> None:
+        """Virage en arc validé : braquage à fond + avance, puis recentrage."""
+        self._set_angle(self._steer_ch, steer_deg)
+        time.sleep(0.1)
+        self._throttle(self._turn_throttle)
+        time.sleep(max(0.0, duration))
+        self._throttle(0.0)
+        self._set_angle(self._steer_ch, self._steer_center)
+
+    def _turn_to(self, target: str) -> None:
+        """Oriente le robot vers le cap cible (quarts de tour en arc)."""
+        delta = (HEADINGS.index(target) - HEADINGS.index(self._heading)) % 4
+        if delta == 0:
+            return
+        if delta == 1:
+            _log(f"rotation droite → {target}")
+            self._turn_arc(self._steer_right, self._turn_90_s)
+        elif delta == 2:
+            _log(f"demi-tour → {target}")
+            self._turn_arc(self._steer_right, self._turn_90_s * 2)
+        else:
+            _log(f"rotation gauche → {target}")
+            self._turn_arc(self._steer_left, self._turn_90_s)
+        self._heading = target
 
     # -- Interface RobotController ------------------------------------------
     def forward(self, speed: int = 50, duration: float = 1.0) -> None:
         _log(f"avance (speed={speed}, {duration:.1f}s)")
-        self._throttle(self._speed_to_throttle(speed))
-        time.sleep(max(0.0, duration))
-        self._throttle(0.0)
+        self._drive_straight(self._drive_throttle * max(0, min(100, speed)) / 100.0,
+                             duration)
 
     def backward(self, speed: int = 50, duration: float = 1.0) -> None:
         _log(f"recule (speed={speed}, {duration:.1f}s)")
-        self._throttle(-self._speed_to_throttle(speed))
-        time.sleep(max(0.0, duration))
-        self._throttle(0.0)
+        # Pas de vérification d'obstacle : l'ultrason regarde vers l'avant.
+        self._drive_straight(-self._drive_throttle * max(0, min(100, speed)) / 100.0,
+                             duration, check_obstacles=False)
 
     def turn_left(self, speed: int = 40, duration: float = 1.0) -> None:
-        _log(f"tourne à gauche (speed={speed}, {duration:.1f}s)")
-        self._set_angle(self._steer_ch, self._steer_left)
-        self._throttle(self._speed_to_throttle(speed))
-        time.sleep(max(0.0, duration))
-        self._throttle(0.0)
-        self._set_angle(self._steer_ch, self._steer_center)
+        _log(f"tourne à gauche ({duration:.1f}s)")
+        self._turn_arc(self._steer_left, duration)
 
     def turn_right(self, speed: int = 40, duration: float = 1.0) -> None:
-        _log(f"tourne à droite (speed={speed}, {duration:.1f}s)")
-        self._set_angle(self._steer_ch, self._steer_right)
-        self._throttle(self._speed_to_throttle(speed))
-        time.sleep(max(0.0, duration))
-        self._throttle(0.0)
-        self._set_angle(self._steer_ch, self._steer_center)
+        _log(f"tourne à droite ({duration:.1f}s)")
+        self._turn_arc(self._steer_right, duration)
 
     def stop(self) -> None:
         # Arrêt d'urgence : doit rester fiable même si un servo échoue.
@@ -146,19 +280,43 @@ class AdeeptRobotController(RobotController):
         _log("STOP")
 
     def move_to_point(self, x: float, y: float) -> None:
-        dist = math.hypot(x - self._x, y - self._y)
-        duration = dist / self._speed_mps if self._speed_mps > 0 else 0.0
-        _log(f"va au point (x={x}, y={y}) — {dist:.2f} m ≈ {duration:.1f}s "
-             f"(dead-reckoning, {self._speed_mps} m/s)")
-        if duration > 0:
-            self.forward(speed=70, duration=duration)
+        legs, final_heading = manhattan_legs(self._x, self._y, x, y, self._heading)
+        if not legs:
+            _log(f"déjà au point (x={x}, y={y})")
+            return
+        _log(f"va au point (x={x}, y={y}) depuis ({self._x}, {self._y}) "
+             f"cap {self._heading} — échelle {self._world_scale}")
+        for kind, value in legs:
+            if kind == "turn":
+                self._turn_to(str(value))
+            else:
+                dist_plan = float(value)
+                dist_phys = dist_plan * self._world_scale
+                duration = dist_phys / self._speed_mps if self._speed_mps > 0 else 0.0
+                _log(f"ligne droite {dist_plan:.2f} m plan → {dist_phys:.2f} m réel "
+                     f"≈ {duration:.1f}s")
+                self._drive_straight(self._drive_throttle, duration)
+                time.sleep(0.2)
         self._x, self._y = x, y
+        self._heading = final_heading
         self.stop()
+        self._signals.blink(0.2)   # point atteint (validé : blink à l'arrivée)
+
+    def mission_complete(self) -> None:
+        """Signal de fin de mission (bip aigu + clignotement long, validé)."""
+        self._signals.beep("C5", 0.3)
+        self._signals.blink(0.8)
 
     def close(self) -> None:
         try:
             self.stop()
         finally:
+            try:
+                if self._distance_sensor is not None:
+                    self._distance_sensor.close()
+            except Exception:
+                pass
+            self._signals.close()
             try:
                 self._pca.deinit()
             except Exception:
@@ -167,19 +325,25 @@ class AdeeptRobotController(RobotController):
 
 class AdeeptProbeController(ProbeController):
     """
-    Sonde sur servo (optionnelle — non montée pour l'instant).
+    Bras du PiCar-Pro utilisé comme SONDE (séquence validée sur le robot).
 
-    Activée seulement si `PROBE_SERVO_CHANNEL` est défini. Tant que le servo
-    n'est pas monté, on utilise `SimulatedProbeController` (cf. __init__.py).
+    4 servos : épaule = PROBE_SERVO_CHANNEL (défaut 2, c'est lui qui descend),
+    les autres tenus en posture « home » (PROBE_ARM_HOME, défaut 1:90,3:140,4:80).
+      • position haute  : épaule à PROBE_ANGLE_UP (90°)
+      • descente sonde  : épaule à PROBE_ANGLE_DOWN (150°)
+    Activée seulement si `PROBE_SERVO_CHANNEL` est défini (cf. __init__.py).
     Réutilise le même PCA9685 que le robot si fourni, sinon en ouvre un.
     """
 
     def __init__(self, channel: int, up_deg: float, down_deg: float,
-                 stabilize_s: float, pca=None) -> None:
+                 stabilize_s: float, pca=None,
+                 home_pose: List[Tuple[int, float]] | None = None) -> None:
         self._channel = channel
         self._up = up_deg
         self._down = down_deg
         self._stab = stabilize_s
+        self._home_pose = home_pose if home_pose is not None else \
+            [(1, 90.0), (3, 140.0), (4, 80.0)]
         if pca is None:
             import board
             import busio
@@ -188,18 +352,29 @@ class AdeeptProbeController(ProbeController):
             pca = PCA9685(i2c, address=int(os.getenv("PCA9685_ADDRESS", "0x5f"), 0))
             pca.frequency = _envi("PCA9685_FREQUENCY", 50)
         self._pca = pca
-        self._set_angle(self._up)
+        self.arm_home()
 
-    def _set_angle(self, angle: float) -> None:
+    def _set_angle(self, channel: int, angle: float) -> None:
         from adafruit_motor import servo
-        s = servo.Servo(self._pca.channels[self._channel], min_pulse=500,
+        s = servo.Servo(self._pca.channels[channel], min_pulse=500,
                         max_pulse=2400, actuation_range=180)
         s.angle = max(0.0, min(180.0, float(angle)))
 
+    def _pose(self, shoulder_deg: float, shoulder_sleep: float) -> None:
+        """Applique la posture complète, servos dans l'ordre des canaux."""
+        full = sorted(self._home_pose + [(self._channel, shoulder_deg)])
+        for ch, deg in full:
+            self._set_angle(ch, deg)
+            time.sleep(shoulder_sleep if ch == self._channel else 0.4)
+
+    def arm_home(self) -> None:
+        _log("bras : posture home")
+        self._pose(self._up, 0.5)
+
     def lower_probe(self) -> None:
-        _log(f"sonde : descente (servo {self._channel} → {self._down}°)")
-        self._set_angle(self._down)
-        time.sleep(0.5)
+        _log(f"sonde : descente (épaule servo {self._channel} → {self._down}°)")
+        self._pose(self._down, 0.8)
+        _log("sonde : en position de mesure")
 
     def stabilize(self, seconds: float = None) -> None:  # type: ignore[assignment]
         s = self._stab if seconds is None else seconds
@@ -207,6 +382,13 @@ class AdeeptProbeController(ProbeController):
         time.sleep(max(0.0, s))
 
     def raise_probe(self) -> None:
-        _log(f"sonde : remontée (servo {self._channel} → {self._up}°)")
-        self._set_angle(self._up)
-        time.sleep(0.5)
+        _log(f"sonde : remontée (épaule servo {self._channel} → {self._up}°)")
+        self._set_angle(self._channel, self._up)
+        time.sleep(0.8)
+        self.arm_home()
+
+    def close(self) -> None:
+        try:
+            self.arm_home()
+        except Exception:
+            pass

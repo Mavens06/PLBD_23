@@ -62,6 +62,12 @@ APP_MODE=mock ./.venv/bin/python -m raspberry_pi.main --point B2
 # Sur le robot réel : APP_MODE=hardware
 APP_MODE=hardware python3 -m raspberry_pi.main
 
+# Essai complet SANS capteur RS485 : robot + bras réels, mesures simulées
+# (stabilisation + collecte en temps réel ; valeurs aberrantes injectées sur
+# ~25 % des points pour tester alertes salinité / qualité "suspect")
+APP_MODE=hardware SENSOR_MODE=mock SENSOR_MOCK_OUTLIER_RATE=0.25 \
+  python3 -m raspberry_pi.main --watch
+
 # Test matériel sûr (moteurs / servo) — robot sur support, vitesse faible
 APP_MODE=hardware python3 -m raspberry_pi.hardware_test --test all
 ```
@@ -106,6 +112,9 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `APP_MODE` | `mock` | `mock` = dev/démo sans matériel · `hardware` = robot réel |
+| `SENSOR_MODE` | `auto` | `auto` = suit `APP_MODE` · `mock` = mesures simulées même en hardware (essai complet sans capteur RS485) · `hardware` = force le RS485 (repli mock si init KO) |
+| `SENSOR_MOCK_OUTLIER_RATE` | `0` | Probabilité [0..1] qu'un point mock produise des valeurs aberrantes (salinité, pH acide, sol sec, temp « suspect ») |
+| `SENSOR_MOCK_OUTLIER_POINTS` | _(vide)_ | Labels forcés en aberrant, ex. `B2,C1` |
 | `GEMINI_API_KEY` | _(vide)_ | Clé API Google AI Studio (obligatoire pour le chatbot) |
 | `GEMINI_MODEL` | `gemini-2.5-flash` | Modèle Gemini servi (2.5-flash / 2.5-flash-lite) |
 | `GEMINI_FALLBACK_MODEL` | `gemini-2.5-flash-lite` | Modèle de repli si le principal renvoie 429 (quota) ; vide = désactivé |
@@ -128,10 +137,17 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `USE_EMBEDDED_MODEL` | `0` | `1` = active le modèle ML embarqué expérimental (recherche ; sinon modèle de production) |
 | `PCA9685_ADDRESS` | `0x5f` | Adresse I2C du PCA9685 (robot réel) |
 | `MOTOR_LEFT_IN1/IN2`, `MOTOR_RIGHT_IN1/IN2` | `15/14`, `12/13` | Canaux PCA des 2 moteurs DC |
-| `STEER_SERVO_CHANNEL` / `STEER_*_DEG` | `0` / `70,35,125` | Servo de direction : canal + angles centre/gauche/droite |
-| `DRIVE_THROTTLE_SCALE` | `0.12` | Throttle [0..1] correspondant à `speed=100` |
-| `ROBOT_SPEED_MPS` | `0.30` | Vitesse du déplacement temporisé point-à-point (dead-reckoning) |
-| `PROBE_SERVO_CHANNEL` | _(vide)_ | Canal servo de la sonde ; vide = descente simulée |
+| `STEER_SERVO_CHANNEL` / `STEER_*_DEG` | `0` / `85,0,180` | Servo de direction : canal + angles centre/gauche/droite (validés robot) |
+| `DRIVE_THROTTLE` | `-0.15` | Throttle SIGNÉ ligne droite (avant = négatif sur ce câblage, validé) |
+| `TURN_THROTTLE` | `0.18` | Throttle pendant les virages en arc |
+| `TURN_90_S` | `1.2` | Durée d'un quart de tour en arc (~90°) |
+| `ROBOT_SPEED_MPS` | `0.19` | Vitesse ligne droite (≈35-40 cm en 2 s, validé) |
+| `ROBOT_WORLD_SCALE` | `1.0` | Échelle plan→physique : démo 1 m × 1 m avec grille 6 m → `0.15`. N'affecte ni l'UI ni les mesures |
+| `ROBOT_RETURN_HOME` | `0` | `1` = retour à (0,0) en fin de mission (jamais après arrêt d'urgence) |
+| `OBSTACLE_AVOIDANCE` / `OBSTACLE_MIN_DISTANCE_CM` / `OBSTACLE_TIMEOUT_S` | `1` / `12` / `20` | Ultrason anti-obstacle (trigger 23 / écho 24) : pause + reprise auto, abandon propre au timeout |
+| `SIGNALS_ENABLED` / `LED_PINS` / `BUZZER_PIN` | `1` / `25,11` / `18` | LEDs + buzzer (bips mission, clignotement par point, alerte obstacle) — no-op si absents |
+| `PROBE_SERVO_CHANNEL` | _(vide)_ | Canal de l'ÉPAULE du bras-sonde (validé : `2`) ; vide = descente simulée |
+| `PROBE_ANGLE_UP/DOWN` / `PROBE_ARM_HOME` | `90/150` / `1:90,3:140,4:80` | Angles épaule haut/bas + posture home des autres servos du bras |
 
 ---
 
@@ -267,8 +283,10 @@ UI :
 ### Capteur RS485 4-en-1 (`raspberry_pi/sensors/`)
 
 - **`rs485_4in1.py`** — `build_sensor()` retourne automatiquement :
-  - `_HardwareSensor` (minimalmodbus) si `APP_MODE=hardware`
+  - `_HardwareSensor` (minimalmodbus) si le mode capteur résolu est `hardware` (avec **repli mock** si l'init échoue : port absent, lib manquante)
   - `_MockSensor` sinon. Priorité aux profils curés A1..C3 (démo) ; pour tout autre point, **`soil_at(x, y)`** — champ de sol synthétique déterministe et spatialement cohérent (miroir exact de `soilAt()` dans `js/data_model.js`). `set_location(label, x, y)` positionne le mock.
+
+  Le mode capteur est **découplé du mode robot** : `SENSOR_MODE` (`auto`/`mock`/`hardware`, défaut `auto` = suit `APP_MODE`). `APP_MODE=hardware SENSOR_MODE=mock` = mode « essai complet sans capteur RS485 » (robot et bras réels, mesures simulées en temps réel). Le mock peut **injecter des profils aberrants** (`SENSOR_MOCK_OUTLIER_RATE` probabiliste et/ou `SENSOR_MOCK_OUTLIER_POINTS` forcés) : `saline` (EC 7.2 → alerte salinité), `acide` (pH 3.5), `sec` (humidité 4 %), `canicule` (57 °C → qualité `suspect`). Les profils restent dans les bornes acceptées par le backend (pas de 422) pour exercer les garde-fous **en aval**.
   
   Registres lus en un seul bloc Modbus (fonction 0x03) :
   ```
@@ -378,7 +396,7 @@ Deux versions strictement parallèles :
 
 - **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Résilience réseau** : un push raté n'est jamais perdu — la mesure est mise en file sur le disque (`offline_buffer.OfflineBuffer`) et retransmise au début de la mission suivante. **Arrêt d'urgence** : en `--watch`, `should_abort` détecte `command` repassé à `idle` (via `/api/mission/stop` ou `/end`) et stoppe entre deux points ; le robot est toujours arrêté en fin de mission (`finally`).
 - **`offline_buffer.py`** — File d'attente disque (JSON Lines) des mesures non transmises au backend. `enqueue()` persiste immédiatement, `flush(push_fn)` retransmet (s'arrête au premier échec pour ne pas marteler le réseau), tolère un fichier corrompu. Garantit **zéro perte de mesure** au champ.
-- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro (PCA9685 `adafruit_motor` : 2 moteurs DC + 1 servo de direction ; mapping validé, configurable par `.env`, imports matériels paresseux). `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → déplacement point-à-point en **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
+- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro, calqué sur le code mission **validé sur le robot** (`Code_PLBD_23_mission.py`) : PCA9685 `adafruit_motor`, 2 moteurs DC + servo de direction (centre 85°, braquages à fond 0°/180°), **throttles signés** (avant = `-0.15`, virages = `+0.18` — ne pas « corriger » sans réessai), **virages en arc** (braquage à fond + avance `TURN_90_S`), navigation **Manhattan par cap N/E/S/W** (`manhattan_legs()`, fonction pure testée). **`ROBOT_WORLD_SCALE`** rejoue le plan (mètres UI) sur une surface réduite (démo 1 m²) sans toucher UI/backend/mesures. Bras-sonde 4 servos (épaule canal 2 descend, posture home `1:90,3:140,4:80`). **Ultrason anti-obstacle** (trigger 23 / écho 24, seuil 12 cm) vérifié toutes les ~0.4 s pendant les lignes droites : pause + LED + bip puis reprise auto quand la voie se dégage, `RuntimeError` propre au timeout (le daemon `--watch` survit). **LEDs/buzzer** (`signals.py`, GPIO 25/11 + 18) : bips mission, clignotement par point — no-op silencieux si gpiozero/broches absents. `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
 - **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
 

@@ -8,15 +8,24 @@ Le capteur lit en un seul bloc Modbus (fonction 0x03) :
   Reg 0x0003 → ph           × 0.1
 
 build_sensor() retourne automatiquement :
-  • _HardwareSensor (via minimalmodbus) si APP_MODE=hardware
-  • _MockSensor sinon (développement, démo, CI)
+  • _HardwareSensor (via minimalmodbus) si le mode capteur résolu est "hardware"
+  • _MockSensor sinon (développement, démo, CI), ou en REPLI si l'init RS485
+    échoue (port absent, lib manquante) — la mission ne plante jamais.
+
+Le mode capteur est découplé du mode robot : SENSOR_MODE=mock avec
+APP_MODE=hardware donne un robot et un bras RÉELS avec des mesures simulées —
+c'est le mode « essai complet sans capteur RS485 monté ».
 
 Variables d'environnement honorées :
   APP_MODE          : "mock" (défaut) | "hardware"
+  SENSOR_MODE       : "auto" (défaut, suit APP_MODE) | "mock" | "hardware"
   RS485_PORT        : /dev/ttyUSB0 (défaut) ou /dev/ttyAMA0
   RS485_ADDRESS     : 1 (défaut)
   RS485_BAUDRATE    : 9600 (défaut)
   RS485_TIMEOUT_S   : 0.5 (défaut)
+  SENSOR_MOCK_OUTLIER_RATE   : probabilité [0..1] qu'un point produise des
+                               valeurs aberrantes (défaut 0 — désactivé)
+  SENSOR_MOCK_OUTLIER_POINTS : labels forcés en aberrant, ex. "B2,C1"
 
 Aucune mesure N/P/K : ce capteur ne les fournit pas.
 """
@@ -135,7 +144,22 @@ class _MockSensor:
     Si SENSOR_MOCK_PROFILE est fourni (ex. "B2"), retourne un signal centré
     sur le profil correspondant à la zone (mêmes valeurs que le frontend
     simulation). Sinon, oscille autour de valeurs raisonnables.
+
+    Injection de valeurs ABERRANTES (test bout-en-bout des garde-fous) :
+    `outlier_rate` (probabilité par point) et/ou `outlier_points` (labels
+    forcés). Les profils aberrants restent DANS les bornes physiques acceptées
+    par le backend (la mesure n'est pas rejetée en 422) mais déclenchent les
+    alertes en aval : salinité (EC > 2.5), sol invivable pour les 10 cultures,
+    ou qualité « suspect » (valeur en bordure de plage physique).
     """
+
+    # (humidity %, ph, temperature °C, ec mS/cm)
+    OUTLIER_PROFILES = {
+        "saline":   (48.0, 6.40, 24.0, 7.2),   # EC énorme → alerte salinité
+        "acide":    (55.0, 3.50, 22.0, 1.2),   # pH très acide → aucune culture ok
+        "sec":      (4.0,  6.80, 33.0, 1.0),   # sol quasi sec → irrigation urgente
+        "canicule": (40.0, 6.60, 57.0, 1.4),   # temp en bordure → quality "suspect"
+    }
 
     PROFILES = {
         "A1": (32.0, 5.40, 34.0, 2.8),
@@ -149,12 +173,17 @@ class _MockSensor:
         "C3": (56.0, 7.18, 26.0, 0.7),
     }
 
-    def __init__(self, profile: str | None = None, seed: int | None = None) -> None:
+    def __init__(self, profile: str | None = None, seed: int | None = None,
+                 outlier_rate: float = 0.0,
+                 outlier_points: Optional[list[str]] = None) -> None:
         self._profile = profile
         self._x: Optional[float] = None
         self._y: Optional[float] = None
         self._rng = random.Random(seed)
         self._t_last = time.monotonic()
+        self._outlier_rate = max(0.0, min(1.0, outlier_rate))
+        self._outlier_points = {p.strip() for p in (outlier_points or []) if p.strip()}
+        self._outlier_kind: Optional[str] = None
 
     def set_profile(self, profile: str | None) -> None:
         """Compat ascendante : sélectionne un profil curé par label (sans coords)."""
@@ -168,8 +197,17 @@ class _MockSensor:
         self._profile = label
         self._x = x
         self._y = y
+        self._outlier_kind = None
+        forced = label is not None and label in self._outlier_points
+        drawn = self._outlier_rate > 0 and self._rng.random() < self._outlier_rate
+        if forced or drawn:
+            self._outlier_kind = self._rng.choice(sorted(self.OUTLIER_PROFILES))
+            print(f"  [sensor:mock] ⚠ point {label} : profil aberrant injecté "
+                  f"({self._outlier_kind})", flush=True)
 
     def _base(self) -> tuple[float, float, float, float]:
+        if self._outlier_kind is not None:
+            return self.OUTLIER_PROFILES[self._outlier_kind]
         if self._profile and self._profile in self.PROFILES:
             return self.PROFILES[self._profile]
         if self._x is not None and self._y is not None:
@@ -190,15 +228,44 @@ class _MockSensor:
         return None
 
 
+def resolve_sensor_mode() -> str:
+    """
+    Mode capteur effectif. SENSOR_MODE prime ("mock"/"hardware") ; "auto"
+    (défaut) suit APP_MODE. Permet le mode hybride robot réel + capteur mock.
+    """
+    sensor_mode = os.getenv("SENSOR_MODE", "auto").strip().lower()
+    if sensor_mode in ("mock", "hardware"):
+        return sensor_mode
+    return os.getenv("APP_MODE", "mock").strip().lower()
+
+
+def _build_mock() -> _MockSensor:
+    try:
+        rate = float(os.getenv("SENSOR_MOCK_OUTLIER_RATE", "0") or 0)
+    except ValueError:
+        rate = 0.0
+    points = [p for p in os.getenv("SENSOR_MOCK_OUTLIER_POINTS", "").split(",") if p.strip()]
+    return _MockSensor(
+        profile=os.getenv("SENSOR_MOCK_PROFILE"),
+        outlier_rate=rate,
+        outlier_points=points,
+    )
+
+
 def build_sensor() -> Sensor:
-    """Choisit l'implémentation selon APP_MODE."""
-    mode = os.getenv("APP_MODE", "mock").strip().lower()
+    """Choisit l'implémentation selon SENSOR_MODE (sinon APP_MODE)."""
+    mode = resolve_sensor_mode()
     if mode == "hardware":
-        port = os.getenv("RS485_PORT", "/dev/ttyUSB0")
-        address = int(os.getenv("RS485_ADDRESS", "1"))
-        baudrate = int(os.getenv("RS485_BAUDRATE", "9600"))
-        timeout_s = float(os.getenv("RS485_TIMEOUT_S", "0.5"))
-        return _HardwareSensor(port=port, address=address,
-                               baudrate=baudrate, timeout_s=timeout_s)
-    # mock par défaut
-    return _MockSensor(profile=os.getenv("SENSOR_MOCK_PROFILE"))
+        try:
+            port = os.getenv("RS485_PORT", "/dev/ttyUSB0")
+            address = int(os.getenv("RS485_ADDRESS", "1"))
+            baudrate = int(os.getenv("RS485_BAUDRATE", "9600"))
+            timeout_s = float(os.getenv("RS485_TIMEOUT_S", "0.5"))
+            return _HardwareSensor(port=port, address=address,
+                                   baudrate=baudrate, timeout_s=timeout_s)
+        except Exception as err:
+            print(f"[sensor] ⚠ capteur RS485 indisponible ({err}) — repli mock.",
+                  flush=True)
+    elif os.getenv("APP_MODE", "mock").strip().lower() == "hardware":
+        print("[sensor] SENSOR_MODE=mock — mesures simulées (robot réel).", flush=True)
+    return _build_mock()

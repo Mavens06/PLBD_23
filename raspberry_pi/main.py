@@ -39,11 +39,18 @@ from dataclasses import dataclass
 from typing import List, Optional
 
 import requests
+from dotenv import load_dotenv
+
+# Même .env que le backend (racine du dépôt). Les variables déjà exportées
+# dans le shell gardent la priorité (load_dotenv n'écrase pas l'existant) —
+# indispensable pour que SENSOR_MODE, PROBE_SERVO_CHANNEL, ROBOT_SPEED_MPS…
+# configurés dans .env soient vus par le processus robot (pas seulement le backend).
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
 from .acquisition_manager import AcquisitionManager, MeasurementRecord
 from .offline_buffer import OfflineBuffer
 from .robot import build_probe, build_robot
-from .sensors.rs485_4in1 import build_sensor
+from .sensors.rs485_4in1 import build_sensor, resolve_sensor_mode
 
 
 # Plan 3×3 par défaut (repli hors-ligne ultime) — coordonnées en mètres.
@@ -164,7 +171,9 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
     n'entame pas le déplacement suivant.
     """
     mode = os.getenv("APP_MODE", "mock").lower()
-    print(f"[mission] APP_MODE={mode} | API={_backend_url()} | {len(points)} point(s)", flush=True)
+    sensor_mode = resolve_sensor_mode()
+    print(f"[mission] APP_MODE={mode} | SENSOR_MODE={sensor_mode} | "
+          f"API={_backend_url()} | {len(points)} point(s)", flush=True)
 
     if reset:
         try:
@@ -174,8 +183,11 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
             print("[mission] backend non joignable — on continue en local", flush=True)
 
     robot = build_robot()
-    probe = build_probe()
+    # Le bras/sonde réutilise le PCA9685 déjà ouvert par le robot (même bus I2C).
+    probe = build_probe(pca=getattr(robot, "_pca", None))
     sensor = build_sensor()
+    # Le rythme d'acquisition suit APP_MODE (pas SENSOR_MODE) : sur le robot
+    # réel, la collecte reste visible (~5 s) même quand les mesures sont mockées.
     manager = AcquisitionManager(sensor=sensor, interval_s=0.0 if mode == "mock" else 0.5)
     outbox = OfflineBuffer()
     records: List[MeasurementRecord] = []
@@ -187,10 +199,12 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
         print(f"[mission] outbox : {flushed} mesure(s) en attente retransmise(s), "
               f"{outbox.pending()} restante(s).", flush=True)
 
+    aborted = False
     try:
         for p in points:
             if should_abort is not None and should_abort():
                 print("[mission] ⛔ arrêt d'urgence demandé — mission interrompue.", flush=True)
+                aborted = True
                 break
             print(f"[mission] point {p.label}", flush=True)
             robot.move_to_point(p.x, p.y)        # déplacement réel/mock
@@ -212,6 +226,14 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
                 f"EC={rec.ec} mS/cm  quality={rec.quality}  {tag}",
                 flush=True,
             )
+        # Retour à l'origine en fin de mission (jamais après un arrêt d'urgence :
+        # le robot doit rester immobile là où il a été stoppé).
+        if not aborted and records and \
+                os.getenv("ROBOT_RETURN_HOME", "0").strip().lower() in ("1", "true", "yes"):
+            print("[mission] retour à l'origine (0, 0)", flush=True)
+            robot.move_to_point(0.0, 0.0)
+        if not aborted and records and hasattr(robot, "mission_complete"):
+            robot.mission_complete()   # bip + clignotement de fin (robot réel)
     finally:
         # Dernière tentative de vidage de la file avant de rendre la main.
         if outbox.pending():
@@ -250,11 +272,19 @@ def watch_loop(poll_s: float = 1.5) -> int:
             # reset=False : /api/mission/start a déjà réinitialisé l'état.
             # should_abort : si la commande repasse à idle (bouton arrêt
             # d'urgence /api/mission/stop ou /end), on stoppe entre deux points.
-            run_mission(
-                plan, reset=False,
-                should_abort=lambda: _fetch_command() in ("idle", "abort"),
-            )
-            print("[watch] mission terminée — retour en attente", flush=True)
+            # Une erreur de mission (ex. obstacle persistant → RuntimeError) ne
+            # doit JAMAIS tuer le daemon : le robot est déjà stoppé par le
+            # finally de run_mission, on journalise et on retourne en attente.
+            try:
+                run_mission(
+                    plan, reset=False,
+                    should_abort=lambda: _fetch_command() in ("idle", "abort"),
+                )
+            except Exception as err:
+                print(f"[watch] ⚠ mission interrompue : {err} — retour en attente",
+                      flush=True)
+            else:
+                print("[watch] mission terminée — retour en attente", flush=True)
         elif command != "requested":
             handled = False
         time.sleep(poll_s)

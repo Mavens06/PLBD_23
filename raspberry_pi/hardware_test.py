@@ -24,6 +24,12 @@ import argparse
 import os
 import sys
 
+from dotenv import load_dotenv
+
+# Même .env que le backend / l'orchestrateur (cf. main.py) : le test matériel
+# doit voir PROBE_SERVO_CHANNEL, STEER_*_DEG, DRIVE_THROTTLE_SCALE…
+load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
+
 from .robot import build_probe, build_robot
 
 
