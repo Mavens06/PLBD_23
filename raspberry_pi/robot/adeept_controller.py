@@ -290,7 +290,11 @@ class AdeeptRobotController(RobotController):
         """
         # Mise en rotation
         if self._turn_mode == "pivot":
-            self._set_angle(self._steer_ch, self._steer_center)
+            # Roues avant braquées DANS le sens du pivot : elles roulent le
+            # long du cercle de rotation au lieu de racler latéralement.
+            self._set_angle(self._steer_ch,
+                            self._steer_right if clockwise else self._steer_left)
+            time.sleep(0.1)
             t = self._pivot_throttle * (-1.0 if self._pivot_invert else 1.0)
             # avant = throttle négatif sur ce câblage → pivot horaire (droite)
             # = roue gauche en avant (-t), roue droite en arrière (+t)
