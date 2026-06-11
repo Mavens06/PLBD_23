@@ -163,10 +163,31 @@ class AdeeptRobotController(RobotController):
             except Exception as err:
                 _log(f"⚠ ultrason indisponible ({err}) — anti-obstacle désactivé.")
 
+        # --- Gyroscope MPU6500 (rotations asservies) -------------------------
+        # TURN_MODE=pivot : rotation SUR PLACE (moteurs gauche/droite opposés,
+        # pas d'avance d'arc) · TURN_MODE=arc : virage en arc validé.
+        # Avec gyro : on tourne jusqu'à l'angle MESURÉ (90°/180°), indépendant
+        # des batteries et du sol. Sans gyro : repli arc chronométré.
+        self._turn_mode = os.getenv("TURN_MODE", "arc").strip().lower()
+        self._pivot_throttle = abs(_envf("PIVOT_THROTTLE", 0.15))
+        self._pivot_invert = os.getenv("PIVOT_INVERT", "0").strip().lower() \
+            in ("1", "true", "yes")
+        self._gyro_margin_deg = _envf("GYRO_STOP_MARGIN_DEG", 8.0)
+        self._turn_timeout_s = _envf("TURN_TIMEOUT_S", 10.0)
+        self._gyro = None
+        if os.getenv("GYRO_ENABLED", "1").strip().lower() in ("1", "true", "yes"):
+            try:
+                from .imu import GyroZ
+                self._gyro = GyroZ()   # calibration : le robot doit être immobile
+            except Exception as err:
+                _log(f"⚠ gyroscope indisponible ({err}) — rotations chronométrées.")
+
         _log(f"prêt (PCA 0x{self._addr:02x} @ {self._freq}Hz, "
              f"drive={self._drive_throttle}, turn={self._turn_throttle}, "
              f"scale={self._world_scale}, "
-             f"ultrason={'on' if self._distance_sensor else 'off'})")
+             f"ultrason={'on' if self._distance_sensor else 'off'}, "
+             f"rotation={self._turn_mode}"
+             f"{'+gyro' if self._gyro else ' chronométrée'})")
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
@@ -180,6 +201,11 @@ class AdeeptRobotController(RobotController):
         value = max(-1.0, min(1.0, value))
         self._left.throttle = value
         self._right.throttle = value
+
+    def _throttle_lr(self, left: float, right: float) -> None:
+        """Commande différentielle (pivot sur place)."""
+        self._left.throttle = max(-1.0, min(1.0, left))
+        self._right.throttle = max(-1.0, min(1.0, right))
 
     def _read_distance_cm(self) -> float | None:
         if self._distance_sensor is None:
@@ -255,19 +281,70 @@ class AdeeptRobotController(RobotController):
             time.sleep(self._straighten_s)
             self._throttle(0.0)
 
+    def _turn_gyro(self, target_deg: float, clockwise: bool) -> None:
+        """
+        Rotation ASSERVIE AU GYROSCOPE : on met le robot en rotation (pivot
+        différentiel ou arc selon TURN_MODE) et on intègre la vitesse angulaire
+        jusqu'à l'angle cible (moins GYRO_STOP_MARGIN_DEG pour l'inertie).
+        Garde-fou : timeout TURN_TIMEOUT_S → arrêt propre.
+        """
+        # Mise en rotation
+        if self._turn_mode == "pivot":
+            self._set_angle(self._steer_ch, self._steer_center)
+            t = self._pivot_throttle * (-1.0 if self._pivot_invert else 1.0)
+            # avant = throttle négatif sur ce câblage → pivot horaire (droite)
+            # = roue gauche en avant (-t), roue droite en arrière (+t)
+            if clockwise:
+                self._throttle_lr(-t, t)
+            else:
+                self._throttle_lr(t, -t)
+        else:
+            self._set_angle(self._steer_ch,
+                            self._steer_right if clockwise else self._steer_left)
+            time.sleep(0.1)
+            self._throttle(self._turn_throttle)
+
+        angle = 0.0
+        last = time.monotonic()
+        deadline = last + self._turn_timeout_s
+        try:
+            while True:
+                now = time.monotonic()
+                angle += abs(self._gyro.rate_dps()) * (now - last)
+                last = now
+                if angle >= target_deg - self._gyro_margin_deg:
+                    break
+                if now > deadline:
+                    _log(f"⚠ rotation gyro : timeout à {angle:.0f}° "
+                         f"(cible {target_deg}°)")
+                    break
+                time.sleep(0.004)
+        finally:
+            self._throttle_lr(0.0, 0.0)
+            try:
+                self._set_angle(self._steer_ch, self._steer_center)
+            except Exception:
+                pass
+        _log(f"rotation gyro : {angle:.0f}° mesurés (cible {target_deg}°, "
+             f"mode {self._turn_mode})")
+        if self._turn_pause_s > 0:
+            time.sleep(self._turn_pause_s)
+
     def _turn_to(self, target: str) -> None:
-        """Oriente le robot vers le cap cible (quarts de tour en arc)."""
+        """Oriente le robot vers le cap cible (gyro si dispo, sinon chrono)."""
         delta = (HEADINGS.index(target) - HEADINGS.index(self._heading)) % 4
         if delta == 0:
             return
-        if delta == 1:
-            _log(f"rotation droite → {target}")
+        name = {1: "rotation droite", 2: "demi-tour", 3: "rotation gauche"}[delta]
+        _log(f"{name} → {target}")
+        if self._gyro is not None:
+            clockwise = delta in (1, 2)
+            self._turn_gyro(180.0 if delta == 2 else 90.0, clockwise)
+        elif delta == 1:
             self._turn_arc(self._steer_right, self._turn_90_s)
         elif delta == 2:
-            _log(f"demi-tour → {target}")
             self._turn_arc(self._steer_right, self._turn_90_s * 2)
         else:
-            _log(f"rotation gauche → {target}")
             self._turn_arc(self._steer_left, self._turn_90_s)
         self._heading = target
 
@@ -309,11 +386,15 @@ class AdeeptRobotController(RobotController):
             return
         _log(f"va au point (x={x}, y={y}) depuis ({self._x}, {self._y}) "
              f"cap {self._heading} — échelle {self._world_scale}")
+        # L'avance d'arc ne concerne que les virages en ARC : un pivot sur
+        # place (gyro) ne déplace pas le robot, aucune compensation à faire.
+        arc_advance = 0.0 if (self._turn_mode == "pivot" and self._gyro is not None) \
+            else self._turn_advance_m
         pending_arc_advance = 0.0
         for kind, value in legs:
             if kind == "turn":
                 self._turn_to(str(value))
-                pending_arc_advance = self._turn_advance_m
+                pending_arc_advance = arc_advance
             else:
                 dist_plan = float(value)
                 dist_phys = dist_plan * self._world_scale
@@ -356,6 +437,8 @@ class AdeeptRobotController(RobotController):
                     self._distance_sensor.close()
             except Exception:
                 pass
+            if self._gyro is not None:
+                self._gyro.close()
             self._signals.close()
             try:
                 self._pca.deinit()
