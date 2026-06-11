@@ -116,6 +116,9 @@ class AdeeptRobotController(RobotController):
         self._drive_throttle = _envf("DRIVE_THROTTLE", -0.15)
         self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
         self._turn_90_s = _envf("TURN_90_S", 1.2)
+        # Après le virage : roues recentrées + courte avance pour réaligner
+        # le châssis avant la prochaine ligne droite (validé au sol).
+        self._straighten_s = _envf("TURN_STRAIGHTEN_S", 0.4)
         # ~35-40 cm en 2.0 s à 0.15 de throttle → ≈ 0.19 m/s.
         self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.19)
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
@@ -227,13 +230,19 @@ class AdeeptRobotController(RobotController):
         self._throttle(0.0)
 
     def _turn_arc(self, steer_deg: float, duration: float) -> None:
-        """Virage en arc validé : braquage à fond + avance, puis recentrage."""
+        """Virage en arc validé : braquage à fond + avance, puis recentrage
+        et courte avance roues droites pour redresser le châssis."""
         self._set_angle(self._steer_ch, steer_deg)
         time.sleep(0.1)
         self._throttle(self._turn_throttle)
         time.sleep(max(0.0, duration))
         self._throttle(0.0)
         self._set_angle(self._steer_ch, self._steer_center)
+        if self._straighten_s > 0:
+            time.sleep(0.1)
+            self._throttle(self._drive_throttle)
+            time.sleep(self._straighten_s)
+            self._throttle(0.0)
 
     def _turn_to(self, target: str) -> None:
         """Oriente le robot vers le cap cible (quarts de tour en arc)."""
