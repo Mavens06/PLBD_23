@@ -200,6 +200,9 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
               f"{outbox.pending()} restante(s).", flush=True)
 
     aborted = False
+    if hasattr(robot, "mission_start"):
+        robot.mission_start()    # buzzer 4 s + LEDs 4 s : la mission démarre
+
     try:
         for p in points:
             if should_abort is not None and should_abort():

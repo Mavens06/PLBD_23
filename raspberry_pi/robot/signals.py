@@ -64,6 +64,60 @@ class MissionSignals:
         except Exception:
             pass
 
+    def signal(self, buzzer_s: float, blink_s: float, note: str = "C4") -> None:
+        """
+        Signal combiné : buzzer pendant `buzzer_s` ET clignotement des LEDs
+        pendant `blink_s`, démarrés EN MÊME TEMPS (durées indépendantes).
+        Ex. début de mission : signal(4, 4) · point mesuré : signal(1, 2).
+        """
+        start = time.monotonic()
+        total = max(buzzer_s, blink_s, 0.0)
+        buzzing = False
+        if self._buzzer is not None and buzzer_s > 0:
+            try:
+                self._buzzer.play(note)
+                buzzing = True
+            except Exception:
+                pass
+        led_on = False
+        try:
+            while True:
+                elapsed = time.monotonic() - start
+                if elapsed >= total:
+                    break
+                if buzzing and elapsed >= buzzer_s:
+                    try:
+                        self._buzzer.stop()
+                    except Exception:
+                        pass
+                    buzzing = False
+                if elapsed < blink_s and self._leds:
+                    led_on = not led_on
+                    try:
+                        for led in self._leds:
+                            led.on() if led_on else led.off()
+                    except Exception:
+                        pass
+                elif led_on:
+                    led_on = False
+                    try:
+                        for led in self._leds:
+                            led.off()
+                    except Exception:
+                        pass
+                time.sleep(min(0.35, max(0.05, total - elapsed)))
+        finally:
+            if buzzing:
+                try:
+                    self._buzzer.stop()
+                except Exception:
+                    pass
+            try:
+                for led in self._leds:
+                    led.off()
+            except Exception:
+                pass
+
     def blink(self, duration: float = 0.3) -> None:
         if not self._leds:
             return

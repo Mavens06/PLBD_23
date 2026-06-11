@@ -21,6 +21,7 @@ class TestMissionSignalsFallback(unittest.TestCase):
         # Aucune de ces méthodes ne doit lever, même sans gpiozero/broches.
         s.beep("C4", 0.0)
         s.blink(0.0)
+        s.signal(buzzer_s=0.1, blink_s=0.2)
         s.alert_on()
         s.alert_off()
         s.close()

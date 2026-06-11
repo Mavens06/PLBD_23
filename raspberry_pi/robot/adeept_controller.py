@@ -158,8 +158,6 @@ class AdeeptRobotController(RobotController):
              f"drive={self._drive_throttle}, turn={self._turn_throttle}, "
              f"scale={self._world_scale}, "
              f"ultrason={'on' if self._distance_sensor else 'off'})")
-        self._signals.beep("C4", 0.15)
-        self._signals.blink(0.3)
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
@@ -314,10 +312,14 @@ class AdeeptRobotController(RobotController):
         self.stop()
         self._signals.blink(0.2)   # point atteint (validé : blink à l'arrivée)
 
+    def mission_start(self) -> None:
+        """Signal de début de mission : buzzer 4 s + LEDs clignotantes 4 s."""
+        _log("signal de début de mission (4s)")
+        self._signals.signal(buzzer_s=4.0, blink_s=4.0)
+
     def point_complete(self) -> None:
-        """Signal après CHAQUE mesure : bip + clignotement des 2 LEDs."""
-        self._signals.beep("C4", 0.2)
-        self._signals.blink(0.5)
+        """Signal après CHAQUE mesure : buzzer 1 s + LEDs clignotantes 2 s."""
+        self._signals.signal(buzzer_s=1.0, blink_s=2.0)
 
     def mission_complete(self) -> None:
         """Signal de fin de mission (bip aigu + clignotement long, validé)."""
