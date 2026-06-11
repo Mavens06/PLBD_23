@@ -126,6 +126,8 @@ class AdeeptRobotController(RobotController):
         # distance est déduite de la ligne droite qui suit chaque rotation,
         # sinon l'erreur s'accumule à chaque virage du parcours.
         self._turn_advance_m = _envf("TURN_ADVANCE_M", 0.0)
+        # Pause d'arrêt complet en fin de virage (stabilisation du châssis).
+        self._turn_pause_s = _envf("TURN_PAUSE_S", 1.0)
         # ~35-40 cm en 2.0 s à 0.15 de throttle → ≈ 0.19 m/s.
         self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.19)
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
@@ -243,6 +245,10 @@ class AdeeptRobotController(RobotController):
         time.sleep(max(0.0, duration))
         self._throttle(0.0)
         self._set_angle(self._steer_ch, self._steer_center)
+        # Pause d'arrêt complet après le virage : le châssis se stabilise
+        # avant la ligne droite suivante (précision du reliquat compensé).
+        if self._turn_pause_s > 0:
+            time.sleep(self._turn_pause_s)
         if self._straighten_s > 0:
             time.sleep(0.1)
             self._throttle(self._drive_throttle)

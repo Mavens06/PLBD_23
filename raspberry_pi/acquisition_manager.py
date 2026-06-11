@@ -89,6 +89,13 @@ class AcquisitionManager:
         self._samples = max(1, samples)
         self._interval_s = max(0.0, interval_s)
         if stabilization_s is None:
+            env = os.getenv("ACQ_STABILIZATION_S", "").strip()
+            if env:
+                try:
+                    stabilization_s = float(env)
+                except ValueError:
+                    stabilization_s = None
+        if stabilization_s is None:
             stabilization_s = (
                 self.DEFAULT_STABILIZATION_S
                 if os.getenv("APP_MODE", "mock").lower() == "hardware"

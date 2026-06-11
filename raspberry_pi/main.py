@@ -187,8 +187,15 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
     probe = build_probe(pca=getattr(robot, "_pca", None))
     sensor = build_sensor()
     # Le rythme d'acquisition suit APP_MODE (pas SENSOR_MODE) : sur le robot
-    # réel, la collecte reste visible (~5 s) même quand les mesures sont mockées.
-    manager = AcquisitionManager(sensor=sensor, interval_s=0.0 if mode == "mock" else 0.5)
+    # réel, la collecte reste visible même quand les mesures sont mockées.
+    # ACQ_INTERVAL_S (et ACQ_STABILIZATION_S côté AcquisitionManager)
+    # permettent de raccourcir la phase de mesure pour les essais.
+    default_interval = 0.0 if mode == "mock" else 0.5
+    try:
+        interval_s = float(os.getenv("ACQ_INTERVAL_S", default_interval))
+    except (TypeError, ValueError):
+        interval_s = default_interval
+    manager = AcquisitionManager(sensor=sensor, interval_s=interval_s)
     outbox = OfflineBuffer()
     records: List[MeasurementRecord] = []
 
