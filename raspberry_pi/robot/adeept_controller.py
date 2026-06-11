@@ -72,12 +72,15 @@ def manhattan_legs(
 
     Renvoie ([("turn", cap), ("drive", distance_m), …], cap_final).
     Axe X = Est/Ouest, axe Y = Nord/Sud (dy > 0 → "N", comme le code validé).
+    L'axe Y est traité EN PREMIER : le robot démarre cap Nord, il prolonge
+    donc sa ligne droite avant de tourner (validé au sol — un Y-d'abord évite
+    un virage inutile en début de trajet).
     Fonction PURE : aucune dépendance matérielle, testée dans tests/.
     """
     legs: List[Tuple[str, object]] = []
     h = heading if heading in HEADINGS else "N"
     dx, dy = x1 - x0, y1 - y0
-    for delta, pos_cap, neg_cap in ((dx, "E", "W"), (dy, "N", "S")):
+    for delta, pos_cap, neg_cap in ((dy, "N", "S"), (dx, "E", "W")):
         if abs(delta) < 1e-6:
             continue
         cap = pos_cap if delta > 0 else neg_cap
