@@ -72,15 +72,18 @@ def manhattan_legs(
 
     Renvoie ([("turn", cap), ("drive", distance_m), …], cap_final).
     Axe X = Est/Ouest, axe Y = Nord/Sud (dy > 0 → "N", comme le code validé).
-    L'axe Y est traité EN PREMIER : le robot démarre cap Nord, il prolonge
-    donc sa ligne droite avant de tourner (validé au sol — un Y-d'abord évite
-    un virage inutile en début de trajet).
+    L'axe ALIGNÉ AVEC LE CAP COURANT est traité en premier : le robot
+    prolonge sa trajectoire avant de tourner (cap N/S → Y d'abord, cap E/W →
+    X d'abord). Validé au sol — c'est le mouvement « naturel » attendu.
     Fonction PURE : aucune dépendance matérielle, testée dans tests/.
     """
     legs: List[Tuple[str, object]] = []
     h = heading if heading in HEADINGS else "N"
     dx, dy = x1 - x0, y1 - y0
-    for delta, pos_cap, neg_cap in ((dy, "N", "S"), (dx, "E", "W")):
+    x_axis = (dx, "E", "W")
+    y_axis = (dy, "N", "S")
+    axes = (x_axis, y_axis) if h in ("E", "W") else (y_axis, x_axis)
+    for delta, pos_cap, neg_cap in axes:
         if abs(delta) < 1e-6:
             continue
         cap = pos_cap if delta > 0 else neg_cap
@@ -322,9 +325,9 @@ class AdeeptRobotController(RobotController):
         self._signals.signal(buzzer_s=1.0, blink_s=2.0)
 
     def mission_complete(self) -> None:
-        """Signal de fin de mission (bip aigu + clignotement long, validé)."""
-        self._signals.beep("C5", 0.3)
-        self._signals.blink(0.8)
+        """Signal de fin de mission : identique au départ (buzzer 4 s + LEDs 4 s)."""
+        _log("signal de fin de mission (4s)")
+        self._signals.signal(buzzer_s=4.0, blink_s=4.0)
 
     def close(self) -> None:
         try:

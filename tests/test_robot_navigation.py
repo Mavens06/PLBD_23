@@ -41,6 +41,12 @@ class TestManhattanLegs(unittest.TestCase):
         legs, _ = manhattan_legs(0.0, 0.0, 5.0, 0.0, "E")
         self.assertEqual(legs, [("drive", 5.0)])
 
+    def test_heading_east_continues_east_then_turns(self):
+        # Cap E : prolonge vers l'Est PUIS tourne (axe du cap traité en premier).
+        legs, heading = manhattan_legs(1.0, 3.0, 2.0, 2.0, "E")
+        self.assertEqual(legs, [("drive", 1.0), ("turn", "S"), ("drive", 1.0)])
+        self.assertEqual(heading, "S")
+
     def test_unknown_heading_defaults_to_north(self):
         legs, heading = manhattan_legs(0.0, 0.0, 0.0, 1.0, "???")
         self.assertEqual(legs, [("drive", 1.0)])
