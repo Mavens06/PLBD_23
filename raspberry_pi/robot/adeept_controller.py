@@ -314,6 +314,11 @@ class AdeeptRobotController(RobotController):
         self.stop()
         self._signals.blink(0.2)   # point atteint (validé : blink à l'arrivée)
 
+    def point_complete(self) -> None:
+        """Signal après CHAQUE mesure : bip + clignotement des 2 LEDs."""
+        self._signals.beep("C4", 0.2)
+        self._signals.blink(0.5)
+
     def mission_complete(self) -> None:
         """Signal de fin de mission (bip aigu + clignotement long, validé)."""
         self._signals.beep("C5", 0.3)

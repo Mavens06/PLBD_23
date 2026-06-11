@@ -212,6 +212,8 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
             probe.stabilize()                    # contact sol + stabilisation
             rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur
             probe.raise_probe()                  # remontée avant déplacement suivant
+            if hasattr(robot, "point_complete"):
+                robot.point_complete()           # bip + LEDs : mesure du point faite
             records.append(rec)
             payload = _record_to_payload(rec)
             if _post_payload(payload):
