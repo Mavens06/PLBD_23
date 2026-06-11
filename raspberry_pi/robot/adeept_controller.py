@@ -172,7 +172,11 @@ class AdeeptRobotController(RobotController):
         self._pivot_throttle = abs(_envf("PIVOT_THROTTLE", 0.15))
         self._pivot_invert = os.getenv("PIVOT_INVERT", "0").strip().lower() \
             in ("1", "true", "yes")
-        self._gyro_margin_deg = _envf("GYRO_STOP_MARGIN_DEG", 8.0)
+        # Marge d'arrêt anticipé (inertie) — séparée par sens car la friction
+        # n'est pas symétrique sur ce châssis (validé au sol).
+        default_margin = _envf("GYRO_STOP_MARGIN_DEG", 8.0)
+        self._gyro_margin_right = _envf("GYRO_STOP_MARGIN_RIGHT_DEG", default_margin)
+        self._gyro_margin_left = _envf("GYRO_STOP_MARGIN_LEFT_DEG", default_margin)
         self._turn_timeout_s = _envf("TURN_TIMEOUT_S", 10.0)
         self._gyro = None
         if os.getenv("GYRO_ENABLED", "1").strip().lower() in ("1", "true", "yes"):
@@ -308,6 +312,7 @@ class AdeeptRobotController(RobotController):
             time.sleep(0.1)
             self._throttle(self._turn_throttle)
 
+        margin = self._gyro_margin_right if clockwise else self._gyro_margin_left
         angle = 0.0
         last = time.monotonic()
         deadline = last + self._turn_timeout_s
@@ -316,7 +321,7 @@ class AdeeptRobotController(RobotController):
                 now = time.monotonic()
                 angle += abs(self._gyro.rate_dps()) * (now - last)
                 last = now
-                if angle >= target_deg - self._gyro_margin_deg:
+                if angle >= target_deg - margin:
                     break
                 if now > deadline:
                     _log(f"⚠ rotation gyro : timeout à {angle:.0f}° "
