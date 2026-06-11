@@ -122,6 +122,10 @@ class AdeeptRobotController(RobotController):
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
         self._straighten_s = _envf("TURN_STRAIGHTEN_S", 0.4)
+        # Le virage en arc AVANCE le robot (~20 cm mesurés au sol) : cette
+        # distance est déduite de la ligne droite qui suit chaque rotation,
+        # sinon l'erreur s'accumule à chaque virage du parcours.
+        self._turn_advance_m = _envf("TURN_ADVANCE_M", 0.0)
         # ~35-40 cm en 2.0 s à 0.15 de throttle → ≈ 0.19 m/s.
         self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.19)
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
@@ -299,16 +303,24 @@ class AdeeptRobotController(RobotController):
             return
         _log(f"va au point (x={x}, y={y}) depuis ({self._x}, {self._y}) "
              f"cap {self._heading} — échelle {self._world_scale}")
+        pending_arc_advance = 0.0
         for kind, value in legs:
             if kind == "turn":
                 self._turn_to(str(value))
+                pending_arc_advance = self._turn_advance_m
             else:
                 dist_plan = float(value)
                 dist_phys = dist_plan * self._world_scale
+                if pending_arc_advance > 0:
+                    comp = min(pending_arc_advance, dist_phys)
+                    dist_phys -= comp
+                    pending_arc_advance = 0.0
+                    _log(f"compensation virage : -{comp:.2f} m (l'arc a déjà avancé)")
                 duration = dist_phys / self._speed_mps if self._speed_mps > 0 else 0.0
                 _log(f"ligne droite {dist_plan:.2f} m plan → {dist_phys:.2f} m réel "
                      f"≈ {duration:.1f}s")
-                self._drive_straight(self._drive_throttle, duration)
+                if duration > 0:
+                    self._drive_straight(self._drive_throttle, duration)
                 time.sleep(0.2)
         self._x, self._y = x, y
         self._heading = final_heading
