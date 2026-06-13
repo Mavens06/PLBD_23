@@ -81,6 +81,9 @@ const _robot = { x: null, y: null, fromX: 0, fromY: 0, toX: 0, toY: 0,
 let _robotRAF = null;
 const _easeInOut = (u) => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
 
+// Glisser-déposer d'un point de mesure sur la carte.
+let _drag = null, _suppressClick = false;
+
 // Synchronise la cible d'animation avec le point actif du robot (appelé par
 // drawMap). Démarre la boucle RAF si une nouvelle cible apparaît.
 function _syncRobotTarget() {
@@ -284,11 +287,17 @@ function _layoutField(plan, W, H, pad) {
     x: spanX < 1e-6 ? W / 2 : padX + (px - b.minX) * s,
     y: spanY < 1e-6 ? H / 2 : H - padY - (py - b.minY) * s,
   });
+  // Inverse de project : écran (px) → plan (mètres). Utilisé pour déplacer un
+  // point en le glissant sur la carte.
+  const invert = (sx, sy) => ({
+    x: spanX < 1e-6 ? b.minX : b.minX + (sx - padX) / s,
+    y: spanY < 1e-6 ? b.minY : b.minY + (H - padY - sy) / s,
+  });
   const placed = plan.map((p) => {
     const xy = project(p.x, p.y);
     return { label: p.label, x: xy.x, y: xy.y };
   });
-  return { placed, pxPerM: s, span: Math.max(spanX, spanY), project };
+  return { placed, pxPerM: s, span: Math.max(spanX, spanY), project, invert };
 }
 
 // Rayon des marqueurs adapté au nombre de points (légèrement agrandi).
@@ -336,7 +345,7 @@ function drawMap() {
   const plan = currentPlan();
   const n = Math.max(1, plan.length);
   const pad = 0.12;
-  const { placed, pxPerM, span, project } = _layoutField(plan, W, H, pad);
+  const { placed, pxPerM, span, project, invert } = _layoutField(plan, W, H, pad);
   const r = _markerRadius(n);
 
   // 2b) Trajet planifié (sous les marqueurs)
@@ -418,8 +427,46 @@ function drawMap() {
   };
 
   canvas.onclick = (e) => {
+    if (_suppressClick) { _suppressClick = false; return; }  // fin d'un glisser
     selectZone(zoneAt(e));
     showPage('reco', document.querySelector('[onclick*=reco]'));
+  };
+
+  // Glisser-déposer d'un point sur la carte (comme déplacer un pion) — pointer
+  // events → souris ET tactile. Le glisser modifie les coordonnées du point ;
+  // un simple clic (sans déplacement) sélectionne la zone comme avant.
+  canvas.style.touchAction = 'none';
+  const _toCanvas = (e) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: (e.clientX - rect.left) * (W / rect.width),
+             y: (e.clientY - rect.top) * (H / rect.height) };
+  };
+  canvas.onpointerdown = (e) => {
+    const c = _toCanvas(e);
+    let best = -1, bd = 1e9;
+    placed.forEach((p, i) => { const d = Math.hypot(c.x - p.x, c.y - p.y); if (d < bd) { bd = d; best = i; } });
+    if (best >= 0 && bd <= r + 8) {
+      _drag = { i: best, moved: false };
+      try { canvas.setPointerCapture(e.pointerId); } catch (_) {}
+    }
+  };
+  canvas.onpointermove = (e) => {
+    if (!_drag) return;
+    const c = _toCanvas(e);
+    const pm = invert(c.x, c.y);
+    APP_STATE.plan[_drag.i].x = Math.round(pm.x * 100) / 100;
+    APP_STATE.plan[_drag.i].y = Math.round(pm.y * 100) / 100;
+    _drag.moved = true;
+    drawMap();
+  };
+  canvas.onpointerup = () => {
+    if (!_drag) return;
+    if (_drag.moved && typeof renderPlanEditor === 'function') {
+      _suppressClick = true;        // empêche la sélection juste après un glisser
+      renderPlanEditor();           // reflète les nouvelles coordonnées dans l'éditeur
+    }
+    _drag = null;
+    drawMap();
   };
 
   const tip = document.getElementById('mapTooltip');

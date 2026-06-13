@@ -213,9 +213,36 @@ function renderAdvice() {
 // Injecté en JS au-dessus de la carte mission → présent dans toutes les
 // variantes HTML sans les modifier. N points définis → N blocs sur la carte.
 // ---------------------------------------------------------------------------
-// Espacement minimal entre deux points (prototype). On suppose le sol homogène
-// dans un petit rayon : inutile (et irréaliste) de mesurer trop rapproché.
-const MIN_SPACING_M = 0.5;
+// Espacement minimal entre deux points (mètres « terrain »). Avec
+// ROBOT_WORLD_SCALE=0.15, 1.7 m terrain ≈ 25 cm physiques — la résolution
+// réelle du robot (le virage en arc avale déjà ~20 cm). En dessous, deux points
+// sont indistinguables sur la parcelle de 1 m².
+const MIN_SPACING_M = 1.7;
+// Plafond de points pour la parcelle prototype (1 m²) : au-delà, dérive du
+// dead-reckoning + empreinte robot rendent les mesures non fiables.
+const MAX_PLAN_POINTS = 9;
+// Espacement des plans prédéfinis (~30 cm physiques à l'échelle 0.15).
+const PRESET_SPACING_M = 2.0;
+
+// Génère un plan en SERPENTIN par colonnes (montée/descente), départ au coin
+// (0,0), sens validé sur le robot — déplacement continu sans saut diagonal.
+function _serpentinePlan(n) {
+  const S = PRESET_SPACING_M;
+  const cols = [
+    [{ x: 0, y: 0 }, { x: 0, y: S }, { x: 0, y: 2 * S }],            // colonne 1 ↑
+    [{ x: S, y: 2 * S }, { x: S, y: S }, { x: S, y: 0 }],            // colonne 2 ↓
+    [{ x: 2 * S, y: 0 }, { x: 2 * S, y: S }, { x: 2 * S, y: 2 * S }],// colonne 3 ↑
+  ];
+  const seq = [];
+  cols.forEach((c) => c.forEach((p) => { if (seq.length < n) seq.push(p); }));
+  return seq.map((p, i) => ({ label: 'P' + (i + 1), x: p.x, y: p.y }));
+}
+
+function applyPreset(n) {
+  applyPlanPoints(_serpentinePlan(Math.min(n, MAX_PLAN_POINTS)));
+  showToast(t('planApplied', { n }));
+  renderAll();
+}
 
 function _injectPlanStyles() {
   if (document.getElementById('planEditorStyles')) return;
@@ -237,7 +264,11 @@ function _injectPlanStyles() {
   .plan-del{border:none;background:#fbeceb;color:#c0392b;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:13px;transition:background .15s,transform .1s}
   .plan-del:hover{background:#f3d4d2}.plan-del:active{transform:scale(.92)}
   .plan-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
-  .plan-actions>button{flex:1;min-width:140px}`;
+  .plan-actions>button{flex:1;min-width:140px}
+  .plan-presets{display:flex;align-items:center;gap:8px;margin:0 0 13px;flex-wrap:wrap}
+  .plan-preset-lbl{font-size:12px;font-weight:700;color:#3b7a44}
+  .plan-preset-btn{min-width:40px;height:32px;border:1px solid #cfe3cf;background:#fff;color:#2f7a3a;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;transition:background .15s,transform .1s,border-color .15s}
+  .plan-preset-btn:hover{background:#eaf5ea;border-color:#4a9c55}.plan-preset-btn:active{transform:scale(.92)}`;
   document.head.appendChild(s);
 }
 
@@ -273,6 +304,12 @@ function renderPlanEditor() {
       <span class="plan-hd-badge">${APP_STATE.plan.length} ${t('planPoints')}</span>
     </div>
     <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })}</div>
+    <div class="plan-presets">
+      <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
+      <button class="plan-preset-btn" onclick="applyPreset(3)">3</button>
+      <button class="plan-preset-btn" onclick="applyPreset(5)">5</button>
+      <button class="plan-preset-btn" onclick="applyPreset(9)">9</button>
+    </div>
     <div class="plan-rows">${rows}</div>
     <div class="plan-actions">
       <button class="btn-soft" onclick="addPlanRow()">＋ ${t('planAdd')}</button>
@@ -287,9 +324,13 @@ function renderPlanEditor() {
 }
 
 function addPlanRow() {
+  if (APP_STATE.plan.length >= MAX_PLAN_POINTS) {
+    showToast(t('planMax', { n: MAX_PLAN_POINTS }));
+    return;
+  }
   // Décale le nouveau point de l'espacement min depuis le dernier (jamais superposé).
   const last = APP_STATE.plan[APP_STATE.plan.length - 1] || { x: 0, y: 0 };
-  APP_STATE.plan.push({ label: _nextPlanLabel(), x: Math.round((last.x + 1) * 10) / 10, y: last.y });
+  APP_STATE.plan.push({ label: _nextPlanLabel(), x: Math.round((last.x + PRESET_SPACING_M) * 10) / 10, y: last.y });
   renderPlanEditor();
 }
 

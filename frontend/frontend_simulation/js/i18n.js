@@ -55,6 +55,7 @@
       missionPlanTitle:"Plan de mission", planPoints:"points", planCol:"Point", planAdd:"Ajouter un point", planApply:"Appliquer le plan", planRemove:"Supprimer",
       planMin:"Au moins un point de mesure est requis.", planInvalid:"Labels vides ou en double — corrigez le plan.", planApplied:"Plan appliqué : {n} point(s)",
       planSpacingNote:"Définissez les points de mesure par coordonnées · espacement min. {d} m", planTooClose:"{a} et {b} trop proches (min. {d} m d'écart)",
+      planQuick:"Plans rapides", planMax:"Maximum {n} points pour cette parcelle.", planDragHint:"Astuce : glissez un point sur la carte pour le déplacer.",
       weatherTitle:"Météo 3 j", weatherRain:"{mm} mm de pluie prévus", irrigDeferred:"irrigation reportée (pluie prévue)", irrigReduced:"dose réduite (pluie prévue)", weatherNoRain:"arrosage selon le besoin"
     },
     ar: {
@@ -90,6 +91,7 @@
       missionPlanTitle:"خطة المهمة", planPoints:"نقاط", planCol:"النقطة", planAdd:"إضافة نقطة", planApply:"تطبيق الخطة", planRemove:"حذف",
       planMin:"مطلوب نقطة قياس واحدة على الأقل.", planInvalid:"أسماء فارغة أو مكررة — صحّح الخطة.", planApplied:"تم تطبيق الخطة: {n} نقطة",
       planSpacingNote:"حدّد نقاط القياس بالإحداثيات · المسافة الدنيا {d} م", planTooClose:"{a} و {b} متقاربتان جداً (الحد الأدنى {d} م)",
+      planQuick:"خطط سريعة", planMax:"الحد الأقصى {n} نقاط لهذه القطعة.", planDragHint:"نصيحة: اسحب نقطة على الخريطة لتحريكها.",
       weatherTitle:"الطقس 3 أيام", weatherRain:"{mm} ملم أمطار متوقعة", irrigDeferred:"تأجيل الري (أمطار متوقعة)", irrigReduced:"تقليل الجرعة (أمطار متوقعة)", weatherNoRain:"الري حسب الحاجة"
     },
     da: {
@@ -125,6 +127,7 @@
       missionPlanTitle:"بلان المهمة", planPoints:"نقط", planCol:"النقطة", planAdd:"زيد نقطة", planApply:"طبق البلان", planRemove:"حيد",
       planMin:"خاص على الأقل نقطة قياس وحدة.", planInvalid:"أسماء خاوية ولا مكررة — صحح البلان.", planApplied:"تطبق البلان: {n} نقطة",
       planSpacingNote:"حدد نقط القياس بالكوردوني · المسافة الصغيرة {d} م", planTooClose:"{a} و {b} قراب بزاف (خاص {d} م على الأقل)",
+      planQuick:"بلانات سريعة", planMax:"الماكسيموم {n} نقط لهاد القطعة.", planDragHint:"نصيحة: جر نقطة فالخريطة باش تحركها.",
       weatherTitle:"الطقس 3 أيام", weatherRain:"{mm} ملم شتا متوقع", irrigDeferred:"تأجيل السقي (شتا جايا)", irrigReduced:"نقصان الجرعة (شتا جايا)", weatherNoRain:"السقي حسب الحاجة"
     }
   };
