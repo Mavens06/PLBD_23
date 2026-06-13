@@ -1,4 +1,13 @@
-const API_BASE = (window.AGRIBOTICS_API_BASE || 'http://localhost:8000/api').replace(/\/$/, '');
+// Base de l'API backend. Par défaut, on dérive l'hôte de la PAGE servie : si
+// l'interface est ouverte depuis http://<ip-de-la-pi>:5500, le backend visé est
+// http://<ip-de-la-pi>:8000 — l'app fonctionne donc depuis n'importe quel
+// appareil du réseau (PC, tablette), pas seulement sur la Pi en local.
+// Surcharge possible via window.AGRIBOTICS_API_BASE. Repli localhost en file://.
+const _apiHost = (location.protocol.startsWith('http') && location.hostname)
+  ? location.hostname : 'localhost';
+const API_BASE = (window.AGRIBOTICS_API_BASE
+  || `${location.protocol.startsWith('http') ? location.protocol : 'http:'}//${_apiHost}:8000/api`
+).replace(/\/$/, '');
 
 async function fetchJSON(path, opts = {}) {
   const r = await fetch(API_BASE + path, opts);
