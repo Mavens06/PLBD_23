@@ -123,6 +123,13 @@ class MissionPlanIn(BaseModel):
     points: list[MissionPointIn]
 
 
+class ActivePointIn(BaseModel):
+    """Position courante du robot, signalée à l'ARRIVÉE sur un point (avant la
+    mesure). Permet à l'interface d'animer le robot en temps réel."""
+    point: str
+    status: str = "measuring"
+
+
 def _first_not_none(*values):
     """Renvoie la première valeur non-None (sans piège du falsy-zero d'`or`)."""
     for v in values:
@@ -393,6 +400,22 @@ def stop_mission():
     if APP_STATE.robot.status not in ("done",):
         APP_STATE.robot.status = "emergency_stop"
     return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
+
+
+@app.post("/api/mission/active", dependencies=[Depends(require_api_key)])
+def set_active_point(payload: ActivePointIn):
+    """
+    Met à jour la position COURANTE du robot (point actif) sans enregistrer de
+    mesure. Le robot l'appelle dès qu'il ARRIVE sur un point, avant de descendre
+    la sonde : l'interface fait alors glisser le robot vers ce point en temps
+    réel, au lieu d'attendre que la mesure soit postée (synchro carte ↔ robot).
+    """
+    if APP_STATE.has_point(payload.point):
+        APP_STATE.robot.active_point = payload.point
+        if APP_STATE.robot.status not in ("done",):
+            APP_STATE.robot.status = payload.status or "measuring"
+    return {"ok": True, "active_point": APP_STATE.robot.active_point,
+            "status": APP_STATE.robot.status}
 
 
 @app.post("/api/mission/reset", dependencies=[Depends(require_api_key)])

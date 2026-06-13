@@ -221,17 +221,19 @@ const MIN_SPACING_M = 1.7;
 // Plafond de points pour la parcelle prototype (1 m²) : au-delà, dérive du
 // dead-reckoning + empreinte robot rendent les mesures non fiables.
 const MAX_PLAN_POINTS = 9;
-// Espacement des plans prédéfinis (~30 cm physiques à l'échelle 0.15).
-const PRESET_SPACING_M = 2.0;
+// Espacement des plans prédéfinis (~27 cm physiques à l'échelle 0.15).
+const PRESET_SPACING_M = 1.8;
 
-// Génère un plan en SERPENTIN par colonnes (montée/descente), départ au coin
-// (0,0), sens validé sur le robot — déplacement continu sans saut diagonal.
+// Génère un plan en SERPENTIN par colonnes (montée/descente), sens validé sur
+// le robot — déplacement continu sans saut diagonal. Le 1er point est DÉCALÉ
+// d'un pas du coin de départ (0,0) : le robot ROULE jusqu'à lui avant de
+// mesurer (pas de mesure « à l'arrêt » sur la position de parking).
 function _serpentinePlan(n) {
   const S = PRESET_SPACING_M;
   const cols = [
-    [{ x: 0, y: 0 }, { x: 0, y: S }, { x: 0, y: 2 * S }],            // colonne 1 ↑
-    [{ x: S, y: 2 * S }, { x: S, y: S }, { x: S, y: 0 }],            // colonne 2 ↓
-    [{ x: 2 * S, y: 0 }, { x: 2 * S, y: S }, { x: 2 * S, y: 2 * S }],// colonne 3 ↑
+    [{ x: 0, y: S }, { x: 0, y: 2 * S }, { x: 0, y: 3 * S }],              // colonne 1 ↑
+    [{ x: S, y: 3 * S }, { x: S, y: 2 * S }, { x: S, y: S }],              // colonne 2 ↓
+    [{ x: 2 * S, y: S }, { x: 2 * S, y: 2 * S }, { x: 2 * S, y: 3 * S }],  // colonne 3 ↑
   ];
   const seq = [];
   cols.forEach((c) => c.forEach((p) => { if (seq.length < n) seq.push(p); }));

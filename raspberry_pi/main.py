@@ -145,6 +145,18 @@ def _post_payload(payload: dict) -> bool:
         return False
 
 
+def _post_active(label: str) -> None:
+    """Signale au backend que le robot vient d'ARRIVER sur `label` (avant la
+    mesure) → l'interface l'anime en temps réel. Best-effort : un échec réseau
+    n'interrompt jamais la mission (la mesure, elle, reste bufferisée si besoin)."""
+    try:
+        requests.post(f"{_backend_url()}/api/mission/active",
+                      json={"point": label, "status": "measuring"},
+                      timeout=3, headers=_auth_headers())
+    except requests.RequestException:
+        pass
+
+
 def _fetch_command() -> Optional[str]:
     """Lit la commande mission courante du backend (None si injoignable)."""
     try:
@@ -218,6 +230,7 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
                 break
             print(f"[mission] point {p.label}", flush=True)
             robot.move_to_point(p.x, p.y)        # déplacement réel/mock
+            _post_active(p.label)                # arrivée → l'UI fait glisser le robot ici
             probe.lower_probe()                  # descente de la sonde
             probe.stabilize()                    # contact sol + stabilisation
             rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur

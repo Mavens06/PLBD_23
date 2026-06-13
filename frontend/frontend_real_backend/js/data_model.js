@@ -2,13 +2,15 @@
 // mètres. La source de vérité DYNAMIQUE est APP_STATE.plan (défini dans state.js) ;
 // ce tableau sert d'amorçage et de repli. N points → N blocs sur la carte.
 // ORDRE = serpentin (boustrophédon) validé sur le robot : on monte la colonne
-// x=0 (Nord), on passe à x=3 et on la descend, puis on remonte x=6 — déplacement
-// CONTINU sans saut diagonal. (Les labels/coords restent identiques ; seul
-// l'ordre de visite change, ce qui définit le « sens d'évolution » du robot.)
+// x=0 (Nord), on passe à x=1.8 et on la descend, puis on remonte x=3.6 —
+// déplacement CONTINU sans saut diagonal. Le 1er point est DÉCALÉ du coin de
+// départ (0,0) pour que le robot roule avant sa première mesure. Espacement
+// 1.8 m « terrain » ≈ 27 cm physiques (échelle 0.15) → tient dans 1 m². (Seules
+// les coordonnées changent ; les labels A1..C3 gardent leurs profils/cultures.)
 const DEFAULT_PLAN = [
-  {label:'A1',x:0,y:0}, {label:'B1',x:0,y:3}, {label:'C1',x:0,y:6},   // colonne x=0 ↑
-  {label:'C2',x:3,y:6}, {label:'B2',x:3,y:3}, {label:'A2',x:3,y:0},   // colonne x=3 ↓
-  {label:'A3',x:6,y:0}, {label:'B3',x:6,y:3}, {label:'C3',x:6,y:6},   // colonne x=6 ↑
+  {label:'A1',x:0,y:1.8}, {label:'B1',x:0,y:3.6}, {label:'C1',x:0,y:5.4},     // colonne x=0 ↑
+  {label:'C2',x:1.8,y:5.4}, {label:'B2',x:1.8,y:3.6}, {label:'A2',x:1.8,y:1.8}, // colonne x=1.8 ↓
+  {label:'A3',x:3.6,y:1.8}, {label:'B3',x:3.6,y:3.6}, {label:'C3',x:3.6,y:5.4}, // colonne x=3.6 ↑
 ];
 const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
 

@@ -8,6 +8,16 @@
 (function () {
   window.CHATBOT_SPEAK = window.CHATBOT_SPEAK !== false;
 
+  // Base de l'API dérivée de l'hôte de la page (cf. api.js) : l'interface
+  // ouverte depuis http://<ip-pi>:5500 parle au backend http://<ip-pi>:8000.
+  // Sans ça, le chatbot visait localhost:8000 = la machine du navigateur, d'où
+  // « backend non joignable » depuis un PC/tablette.
+  const _chatHost = (location.protocol.startsWith("http") && location.hostname)
+    ? location.hostname : "localhost";
+  const CHAT_API_BASE = (window.AGRIBOTICS_API_BASE
+    || `${location.protocol.startsWith("http") ? location.protocol : "http:"}//${_chatHost}:8000/api`
+  ).replace(/\/$/, "");
+
   function safeAverage() {
     try {
       return averageField(APP_STATE.fieldData || {});
@@ -128,7 +138,7 @@
         // Historique multi-tours (6 derniers) pour une conversation suivie.
         history: (window.chatHistory || []).slice(-6),
       };
-      const base = (window.AGRIBOTICS_API_BASE || "http://localhost:8000/api").replace(/\/$/, "");
+      const base = CHAT_API_BASE;
       const chatHeaders = { "Content-Type": "application/json" };
       if (window.AGRIBOTICS_API_KEY) chatHeaders["X-API-Key"] = window.AGRIBOTICS_API_KEY;
       const r = await fetch(`${base}/chat`, {
@@ -175,7 +185,7 @@
   // indépendante des voix locales du navigateur. Retourne une promesse rejetée
   // si l'appel échoue → le caller bascule alors sur la voix locale.
   function speakViaCloudTTS(text, done) {
-    const base = (window.AGRIBOTICS_API_BASE || "http://localhost:8000/api").replace(/\/$/, "");
+    const base = CHAT_API_BASE;
     setVoiceState("thinking");                 // feedback visuel pendant le chargement audio
     const ttsHeaders = { "Content-Type": "application/json" };
     if (window.AGRIBOTICS_API_KEY) ttsHeaders["X-API-Key"] = window.AGRIBOTICS_API_KEY;
