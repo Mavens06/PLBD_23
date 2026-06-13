@@ -57,6 +57,129 @@ function _bgImage() {
   return (_bgImg.complete && _bgImg.naturalWidth) ? _bgImg : null;
 }
 
+// --- Image du robot (remplace l'emoji 🤖) -----------------------------------
+// Photo du robot réel posée à assets/robot.png ; repli emoji si absente.
+const ROBOT_IMG_URL = (typeof window !== 'undefined' && window.AGRIBOTICS_ROBOT_IMG) || 'assets/robot.png';
+let _robotImg = null, _robotImgFailed = false;
+function _robotImage() {
+  if (_robotImgFailed || typeof Image === 'undefined') return null;
+  if (!_robotImg) {
+    _robotImg = new Image();
+    _robotImg.onload = () => drawMap();
+    _robotImg.onerror = () => { _robotImgFailed = true; };
+    _robotImg.src = ROBOT_IMG_URL;
+  }
+  return (_robotImg.complete && _robotImg.naturalWidth) ? _robotImg : null;
+}
+
+// --- Animation fluide du robot (glissement + cap, façon caméra de suivi) -----
+// Position du robot en coordonnées PLAN (mètres) : on interpole de l'ancien
+// point vers le point actif sur une durée fixe avec accélération douce, plutôt
+// que de « sauter ». drawMap() dessine la position courante ; _robotRAF anime.
+const _robot = { x: null, y: null, fromX: 0, fromY: 0, toX: 0, toY: 0,
+                 t0: 0, dur: 900, animating: false, angle: 0, targetLabel: null };
+let _robotRAF = null;
+const _easeInOut = (u) => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
+
+// Synchronise la cible d'animation avec le point actif du robot (appelé par
+// drawMap). Démarre la boucle RAF si une nouvelle cible apparaît.
+function _syncRobotTarget() {
+  const label = APP_STATE.robot && APP_STATE.robot.activePoint;
+  const p = label ? planPoint(label) : null;
+  if (!p) return;
+  if (_robot.x === null) {            // 1re apparition : placer sans glisser
+    _robot.x = p.x; _robot.y = p.y; _robot.targetLabel = label;
+    return;
+  }
+  if (label !== _robot.targetLabel) { // nouveau point → lancer le glissement
+    _robot.fromX = _robot.x; _robot.fromY = _robot.y;
+    _robot.toX = p.x; _robot.toY = p.y;
+    _robot.t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    _robot.animating = true;
+    _robot.targetLabel = label;
+    if (!_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
+  }
+}
+
+function _robotStep() {
+  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+  const u = Math.min(1, (now - _robot.t0) / _robot.dur);
+  const e = _easeInOut(u);
+  _robot.x = _robot.fromX + (_robot.toX - _robot.fromX) * e;
+  _robot.y = _robot.fromY + (_robot.toY - _robot.fromY) * e;
+  drawMap();
+  if (u < 1) {
+    _robotRAF = requestAnimationFrame(_robotStep);
+  } else {
+    _robot.animating = false; _robotRAF = null;
+  }
+}
+
+// Dessine le robot (image ronde + halo de suivi + cap) à sa position animée.
+function _drawRobot(ctx, project, pxPerM, r) {
+  if (_robot.x === null) return;
+  const s = project(_robot.x, _robot.y);
+  const size = Math.max(26, r * 2.0);
+
+  // cap : direction du déplacement courant (repère écran)
+  const a = project(_robot.fromX, _robot.fromY), b = project(_robot.toX, _robot.toY);
+  const dx = b.x - a.x, dy = b.y - a.y;
+  if (_robot.animating && (dx || dy)) _robot.angle = Math.atan2(dy, dx);
+
+  // halo pulsé pendant le déplacement
+  if (_robot.animating) {
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() / 180);
+    ctx.beginPath(); ctx.arc(s.x, s.y, size / 2 + 6 + pulse * 4, 0, Math.PI * 2);
+    ctx.fillStyle = `rgba(124,196,90,${0.18 + pulse * 0.12})`; ctx.fill();
+  }
+
+  // jeton circulaire : image du robot détourée en cercle
+  const img = _robotImage();
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.45)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 3;
+  ctx.beginPath(); ctx.arc(s.x, s.y, size / 2, 0, Math.PI * 2);
+  ctx.fillStyle = '#fff'; ctx.fill();
+  ctx.restore();
+  if (img) {
+    ctx.save();
+    ctx.beginPath(); ctx.arc(s.x, s.y, size / 2 - 1.5, 0, Math.PI * 2); ctx.clip();
+    const m = Math.min(img.naturalWidth, img.naturalHeight);
+    ctx.drawImage(img, (img.naturalWidth - m) / 2, (img.naturalHeight - m) / 2, m, m,
+                  s.x - size / 2, s.y - size / 2, size, size);
+    ctx.restore();
+  } else {
+    ctx.font = `${Math.round(size * 0.7)}px serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText('🤖', s.x, s.y);
+    ctx.textBaseline = 'alphabetic';
+  }
+
+  // anneau + petite flèche de cap
+  ctx.beginPath(); ctx.arc(s.x, s.y, size / 2, 0, Math.PI * 2);
+  ctx.strokeStyle = '#7cc45a'; ctx.lineWidth = 3; ctx.stroke();
+  ctx.save();
+  ctx.translate(s.x, s.y); ctx.rotate(_robot.angle);
+  ctx.beginPath();
+  ctx.moveTo(size / 2 + 9, 0); ctx.lineTo(size / 2 + 2, -5); ctx.lineTo(size / 2 + 2, 5);
+  ctx.closePath();
+  ctx.fillStyle = '#7cc45a'; ctx.fill();
+  ctx.restore();
+}
+
+// Trajet planifié (ordre du plan) : polyligne pointillée pour matérialiser le
+// parcours du robot — segment « parcouru » plus marqué jusqu'au robot.
+function _drawRoute(ctx, placed) {
+  if (placed.length < 2) return;
+  ctx.save();
+  ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.setLineDash([5, 5]);
+  ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 2;
+  ctx.beginPath();
+  placed.forEach((p, i) => (i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y)));
+  ctx.stroke();
+  ctx.restore();
+}
+
 // Mosaïque agricole vue du ciel (parcelles irrégulières, sillons, haies, piste).
 function drawAerial(ctx, W, H) {
   const rnd = _rng(20240529);
@@ -155,12 +278,17 @@ function _layoutField(plan, W, H, pad) {
   else s = Math.min(usableW / Math.max(spanX, 1e-6), usableH / Math.max(spanY, 1e-6));
   const drawnW = spanX * s, drawnH = spanY * s;
   const ox = (W - drawnW) / 2, oy = (H - drawnH) / 2;
-  const placed = plan.map((p) => ({
-    label: p.label,
-    x: spanX < 1e-6 ? W / 2 : ox + (p.x - b.minX) * s,
-    y: spanY < 1e-6 ? H / 2 : oy + (p.y - b.minY) * s,
-  }));
-  return { placed, pxPerM: s, span: Math.max(spanX, spanY) };
+  // Projection plan (mètres) → écran (px). Utilisée pour les points ET la
+  // position animée du robot, qui partagent ainsi exactement le même repère.
+  const project = (px, py) => ({
+    x: spanX < 1e-6 ? W / 2 : ox + (px - b.minX) * s,
+    y: spanY < 1e-6 ? H / 2 : oy + (py - b.minY) * s,
+  });
+  const placed = plan.map((p) => {
+    const xy = project(p.x, p.y);
+    return { label: p.label, x: xy.x, y: xy.y };
+  });
+  return { placed, pxPerM: s, span: Math.max(spanX, spanY), project };
 }
 
 // Rayon des marqueurs adapté au nombre de points (légèrement agrandi).
@@ -208,8 +336,11 @@ function drawMap() {
   const plan = currentPlan();
   const n = Math.max(1, plan.length);
   const pad = 0.12;
-  const { placed, pxPerM, span } = _layoutField(plan, W, H, pad);
+  const { placed, pxPerM, span, project } = _layoutField(plan, W, H, pad);
   const r = _markerRadius(n);
+
+  // 2b) Trajet planifié (sous les marqueurs)
+  _drawRoute(ctx, placed);
 
   // 3) Marqueurs « capteurs » : disque coloré (statut), anneau, label, valeur
   placed.forEach((pt) => {
@@ -255,13 +386,9 @@ function drawMap() {
     }
   });
 
-  // 4) Robot sur le point actif
-  const robotPt = placed.find((p) => p.label === APP_STATE.robot.activePoint);
-  if (robotPt) {
-    ctx.font = '22px serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('🤖', robotPt.x, robotPt.y - r - 16);
-  }
+  // 4) Robot animé sur le point actif (glissement fluide + cap + halo)
+  _syncRobotTarget();
+  _drawRobot(ctx, project, pxPerM, r);
 
   // 5) Échelle réelle + rose des vents
   _drawScaleBar(ctx, W, H, pxPerM, span);
