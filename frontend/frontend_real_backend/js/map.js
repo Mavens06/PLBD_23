@@ -276,13 +276,13 @@ function _layoutField(plan, W, H, pad) {
   let s;
   if (spanX < 1e-6 && spanY < 1e-6) s = 1;                 // point unique
   else s = Math.min(usableW / Math.max(spanX, 1e-6), usableH / Math.max(spanY, 1e-6));
-  const drawnW = spanX * s, drawnH = spanY * s;
-  const ox = (W - drawnW) / 2, oy = (H - drawnH) / 2;
-  // Projection plan (mètres) → écran (px). Utilisée pour les points ET la
-  // position animée du robot, qui partagent ainsi exactement le même repère.
+  // Origine du plan (minX, minY = point de départ du robot) ANCRÉE dans le coin
+  // bas-gauche, +x vers la droite et +y (Nord) vers le HAUT (cohérent avec la
+  // rose des vents). Le robot part donc d'un coin, pas du centre.
+  const padX = W * pad, padY = H * pad;
   const project = (px, py) => ({
-    x: spanX < 1e-6 ? W / 2 : ox + (px - b.minX) * s,
-    y: spanY < 1e-6 ? H / 2 : oy + (py - b.minY) * s,
+    x: spanX < 1e-6 ? W / 2 : padX + (px - b.minX) * s,
+    y: spanY < 1e-6 ? H / 2 : H - padY - (py - b.minY) * s,
   });
   const placed = plan.map((p) => {
     const xy = project(p.x, p.y);
@@ -324,7 +324,7 @@ function drawMap() {
 
   const W = canvas.offsetWidth || 360;
   canvas.width = W;
-  canvas.height = Math.round(W * 0.66);
+  canvas.height = W;                 // carte CARRÉE (parcelle carrée)
   const H = canvas.height;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
