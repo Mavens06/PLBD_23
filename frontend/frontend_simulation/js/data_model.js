@@ -1,10 +1,14 @@
 // Plan de mission par défaut : grille 3×3, espacement 3 m. Coordonnées (x,y) en
 // mètres. La source de vérité DYNAMIQUE est APP_STATE.plan (défini dans state.js) ;
 // ce tableau sert d'amorçage et de repli. N points → N blocs sur la carte.
+// ORDRE = serpentin (boustrophédon) validé sur le robot : on monte la colonne
+// x=0 (Nord), on passe à x=3 et on la descend, puis on remonte x=6 — déplacement
+// CONTINU sans saut diagonal. (Les labels/coords restent identiques ; seul
+// l'ordre de visite change, ce qui définit le « sens d'évolution » du robot.)
 const DEFAULT_PLAN = [
-  {label:'A1',x:0,y:0}, {label:'A2',x:3,y:0}, {label:'A3',x:6,y:0},
-  {label:'B1',x:0,y:3}, {label:'B2',x:3,y:3}, {label:'B3',x:6,y:3},
-  {label:'C1',x:0,y:6}, {label:'C2',x:3,y:6}, {label:'C3',x:6,y:6},
+  {label:'A1',x:0,y:0}, {label:'B1',x:0,y:3}, {label:'C1',x:0,y:6},   // colonne x=0 ↑
+  {label:'C2',x:3,y:6}, {label:'B2',x:3,y:3}, {label:'A2',x:3,y:0},   // colonne x=3 ↓
+  {label:'A3',x:6,y:0}, {label:'B3',x:6,y:3}, {label:'C3',x:6,y:6},   // colonne x=6 ↑
 ];
 const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
 
