@@ -86,20 +86,27 @@ let _drag = null, _suppressClick = false;
 
 // Synchronise la cible d'animation avec le point actif du robot (appelé par
 // drawMap). Démarre la boucle RAF si une nouvelle cible apparaît.
+function _startPoint() {
+  return (typeof START_POINT !== 'undefined') ? START_POINT : { label: 'Départ', x: 0, y: 0 };
+}
+
 function _syncRobotTarget() {
   const label = APP_STATE.robot && APP_STATE.robot.activePoint;
-  const p = label ? planPoint(label) : null;
-  if (!p) return;
+  let p = label ? planPoint(label) : null;
+  // Point actif inconnu du plan (HOME / Départ / pas encore en mission) → le
+  // robot stationne au DÉPART (coin), d'où il glissera vers le 1er point mesuré.
+  const key = p ? label : '__start__';
+  if (!p) p = _startPoint();
   if (_robot.x === null) {            // 1re apparition : placer sans glisser
-    _robot.x = p.x; _robot.y = p.y; _robot.targetLabel = label;
+    _robot.x = p.x; _robot.y = p.y; _robot.targetLabel = key;
     return;
   }
-  if (label !== _robot.targetLabel) { // nouveau point → lancer le glissement
+  if (key !== _robot.targetLabel) {   // nouvelle cible → lancer le glissement
     _robot.fromX = _robot.x; _robot.fromY = _robot.y;
     _robot.toX = p.x; _robot.toY = p.y;
     _robot.t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
     _robot.animating = true;
-    _robot.targetLabel = label;
+    _robot.targetLabel = key;
     if (!_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
   }
 }
@@ -167,6 +174,28 @@ function _drawRobot(ctx, project, pxPerM, r) {
   ctx.closePath();
   ctx.fillStyle = '#7cc45a'; ctx.fill();
   ctx.restore();
+}
+
+// Marqueur du point de DÉPART (coin) : losange « maison » distinct des points
+// de mesure, sans valeur — c'est la base du robot, jamais mesurée.
+function _drawStart(ctx, pt, r) {
+  const s = Math.max(9, r * 0.85);
+  ctx.save();
+  ctx.translate(pt.x, pt.y);
+  ctx.shadowColor = 'rgba(0,0,0,0.40)'; ctx.shadowBlur = 7; ctx.shadowOffsetY = 2;
+  ctx.beginPath();                     // losange
+  ctx.moveTo(0, -s); ctx.lineTo(s, 0); ctx.lineTo(0, s); ctx.lineTo(-s, 0); ctx.closePath();
+  ctx.fillStyle = '#2f3e46'; ctx.fill();
+  ctx.restore();
+  ctx.beginPath();
+  ctx.moveTo(0 + pt.x, -s + pt.y); ctx.lineTo(s + pt.x, 0 + pt.y);
+  ctx.lineTo(0 + pt.x, s + pt.y); ctx.lineTo(-s + pt.x, 0 + pt.y); ctx.closePath();
+  ctx.strokeStyle = 'rgba(255,255,255,0.85)'; ctx.lineWidth = 2; ctx.stroke();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+  ctx.font = `${Math.round(s * 0.9)}px serif`;
+  ctx.textBaseline = 'middle'; ctx.fillText('🏠', pt.x, pt.y + 0.5); ctx.textBaseline = 'alphabetic';
+  ctx.font = '800 10px DM Sans';
+  ctx.fillText(t('start') || 'Départ', pt.x, pt.y - s - 5);
 }
 
 // Trajet planifié (ordre du plan) : polyligne pointillée pour matérialiser le
@@ -341,15 +370,24 @@ function drawMap() {
   // 1) Fond : photo satellite si dispo, sinon mosaïque aérienne procédurale
   drawBackground(ctx, W, H, 18);
 
-  // 2) Disposition réelle (distances préservées) — calculée une seule fois
+  // 2) Disposition réelle (distances préservées) — le point de DÉPART est
+  // inclus dans les bornes pour qu'il s'ancre au coin, mais n'est PAS un point
+  // de mesure : on le dessine à part et on l'exclut des marqueurs/clics.
   const plan = currentPlan();
   const n = Math.max(1, plan.length);
   const pad = 0.12;
-  const { placed, pxPerM, span, project, invert } = _layoutField(plan, W, H, pad);
+  const layoutPts = [_startPoint(), ...plan];
+  const layout = _layoutField(layoutPts, W, H, pad);
+  const { pxPerM, span, project, invert } = layout;
+  const startPlaced = layout.placed[0];
+  const placed = layout.placed.slice(1);              // points de mesure seuls
   const r = _markerRadius(n);
 
-  // 2b) Trajet planifié (sous les marqueurs)
-  _drawRoute(ctx, placed);
+  // 2b) Trajet planifié : départ → 1er point, puis le serpentin
+  _drawRoute(ctx, [startPlaced, ...placed]);
+
+  // 2c) Marqueur du point de départ (coin)
+  _drawStart(ctx, startPlaced, r);
 
   // 3) Marqueurs « capteurs » : disque coloré (statut), anneau, label, valeur
   placed.forEach((pt) => {

@@ -218,9 +218,10 @@ function renderAdvice() {
 // réelle du robot (le virage en arc avale déjà ~20 cm). En dessous, deux points
 // sont indistinguables sur la parcelle de 1 m².
 const MIN_SPACING_M = 1.7;
-// Plafond de points pour la parcelle prototype (1 m²) : au-delà, dérive du
-// dead-reckoning + empreinte robot rendent les mesures non fiables.
-const MAX_PLAN_POINTS = 9;
+// Plafond de points de MESURE pour la parcelle prototype (1 m²) : au-delà,
+// dérive du dead-reckoning + empreinte robot rendent les mesures non fiables.
+// (Le point de départ ne compte pas — il n'est pas mesuré.)
+const MAX_PLAN_POINTS = 8;
 // Espacement des plans prédéfinis (~27 cm physiques à l'échelle 0.15).
 const PRESET_SPACING_M = 1.8;
 
@@ -310,7 +311,7 @@ function renderPlanEditor() {
       <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
       <button class="plan-preset-btn" onclick="applyPreset(3)">3</button>
       <button class="plan-preset-btn" onclick="applyPreset(5)">5</button>
-      <button class="plan-preset-btn" onclick="applyPreset(9)">9</button>
+      <button class="plan-preset-btn" onclick="applyPreset(8)">8</button>
     </div>
     <div class="plan-rows">${rows}</div>
     <div class="plan-actions">
