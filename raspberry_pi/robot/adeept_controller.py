@@ -129,7 +129,12 @@ class AdeeptRobotController(RobotController):
         # Pause d'arrêt complet en fin de virage (stabilisation du châssis).
         self._turn_pause_s = _envf("TURN_PAUSE_S", 1.0)
         # ~35-40 cm en 2.0 s à 0.15 de throttle → ≈ 0.19 m/s.
+        # En mode PULSÉ, c'est la vitesse MOYENNE des segments avant (avec
+        # pauses) qui doit être renseignée ici — sinon les distances sont fausses.
         self._speed_mps = _envf("ROBOT_SPEED_MPS", 0.19)
+        # Vitesse du RECUL de compensation (au crawl, throttle -DRIVE_THROTTLE),
+        # découplée de l'avant qui peut être pulsé/plus rapide. Défaut = ROBOT_SPEED_MPS.
+        self._reverse_speed = _envf("REVERSE_SPEED_MPS", self._speed_mps)
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
         self._world_scale = max(0.01, _envf("ROBOT_WORLD_SCALE", 1.0))
 
@@ -473,9 +478,9 @@ class AdeeptRobotController(RobotController):
         """Recule en ligne droite d'une distance donnée (sans maintien de cap :
         la géométrie de braquage s'inverse en marche arrière). Sert à annuler
         l'avance provoquée par un virage en arc."""
-        if dist_m <= 0 or self._speed_mps <= 0:
+        if dist_m <= 0 or self._reverse_speed <= 0:
             return
-        duration = dist_m / self._speed_mps
+        duration = dist_m / self._reverse_speed
         _log(f"recul compensation d'arc : {dist_m:.2f} m ≈ {duration:.1f}s")
         # avant = drive_throttle (négatif) → arrière = -drive_throttle (positif)
         self._drive_straight(-self._drive_throttle, duration,
