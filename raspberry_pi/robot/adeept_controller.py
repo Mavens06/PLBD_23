@@ -162,6 +162,11 @@ class AdeeptRobotController(RobotController):
         # droite : celle-ci tourne lentement pour la précision (DRIVE_THROTTLE
         # bas), mais le k-turn doit rouler franchement pour ne pas caler.
         self._kturn_throttle = abs(_envf("KTURN_THROTTLE", 0.15))
+        # Recul de compensation APRÈS un virage en ARC (gyro) : l'arc fait
+        # avancer le robot ; on recule de cette distance pour revenir sur le
+        # point. Préféré à la déduction sur la ligne droite suivante (qui échoue
+        # quand la ligne est courte ou orientée autrement). À calibrer au sol.
+        self._turn_backup_m = _envf("TURN_BACKUP_M", 0.0)
 
         # --- Initialisation matérielle --------------------------------------
         i2c = busio.I2C(board.SCL, board.SDA)
@@ -282,7 +287,8 @@ class AdeeptRobotController(RobotController):
         _log("voie dégagée — reprise du déplacement")
 
     def _drive_straight(self, throttle: float, duration: float,
-                        check_obstacles: bool = True) -> None:
+                        check_obstacles: bool = True,
+                        correct_heading: bool = True) -> None:
         """
         Ligne droite temporisée puis FREIN ACTIF (anti-glissement) en fin de
         segment : le robot s'immobilise net au lieu de rouler en roue libre.
@@ -296,7 +302,7 @@ class AdeeptRobotController(RobotController):
         """
         center = self._steer_center + self._steer_trim
         self._set_angle(self._steer_ch, center)
-        hold = self._heading_hold and self._gyro is not None
+        hold = self._heading_hold and self._gyro is not None and correct_heading
         remaining = max(0.0, duration)
         heading_dev = 0.0                       # dérive de cap intégrée (°)
         since_obstacle = 0.0
@@ -325,6 +331,18 @@ class AdeeptRobotController(RobotController):
             self._throttle(-throttle * 0.6)
             time.sleep(self._brake_pulse_s)
         self._throttle(0.0)
+
+    def _reverse_distance(self, dist_m: float) -> None:
+        """Recule en ligne droite d'une distance donnée (sans maintien de cap :
+        la géométrie de braquage s'inverse en marche arrière). Sert à annuler
+        l'avance provoquée par un virage en arc."""
+        if dist_m <= 0 or self._speed_mps <= 0:
+            return
+        duration = dist_m / self._speed_mps
+        _log(f"recul compensation d'arc : {dist_m:.2f} m ≈ {duration:.1f}s")
+        # avant = drive_throttle (négatif) → arrière = -drive_throttle (positif)
+        self._drive_straight(-self._drive_throttle, duration,
+                             check_obstacles=False, correct_heading=False)
 
     def _turn_arc(self, steer_deg: float, duration: float) -> None:
         """Virage en arc validé : braquage à fond + avance, puis recentrage
@@ -458,6 +476,12 @@ class AdeeptRobotController(RobotController):
              f"mode {self._turn_mode})")
         if self._turn_pause_s > 0:
             time.sleep(self._turn_pause_s)
+        # Virage en ARC : il a fait AVANCER le robot → on recule de la distance
+        # provoquée par l'arc pour revenir sur le point (compensation directe).
+        if self._turn_mode != "pivot" and self._turn_backup_m > 0:
+            self._reverse_distance(self._turn_backup_m)
+            if self._turn_pause_s > 0:
+                time.sleep(self._turn_pause_s)
 
     def _turn_to(self, target: str) -> None:
         """Oriente le robot vers le cap cible (gyro si dispo, sinon chrono)."""
@@ -519,11 +543,13 @@ class AdeeptRobotController(RobotController):
             return
         _log(f"va au point (x={x}, y={y}) depuis ({self._x}, {self._y}) "
              f"cap {self._heading} — échelle {self._world_scale}")
-        # L'avance d'arc ne concerne que les virages en ARC : une rotation sur
-        # place (pivot / k-turn au gyro) ne déplace pas le robot, aucune
-        # compensation à déduire de la ligne droite suivante.
+        # Avance d'arc à déduire de la ligne droite suivante UNIQUEMENT si elle
+        # n'est pas déjà compensée autrement :
+        #  • rotation sur place (pivot / k-turn au gyro) → pas d'avance ;
+        #  • virage en arc avec recul de compensation (TURN_BACKUP_M) → déjà annulée.
         in_place_turn = self._gyro is not None and self._turn_mode in ("pivot", "kturn")
-        arc_advance = 0.0 if in_place_turn else self._turn_advance_m
+        arc_backup = self._turn_mode != "pivot" and self._turn_backup_m > 0
+        arc_advance = 0.0 if (in_place_turn or arc_backup) else self._turn_advance_m
         pending_arc_advance = 0.0
         for kind, value in legs:
             if kind == "turn":
