@@ -168,6 +168,12 @@ class AdeeptRobotController(RobotController):
         self._heading_kp = _envf("HEADING_HOLD_KP", 2.0)
         self._heading_sign = 1.0 if _envf("HEADING_HOLD_SIGN", 1.0) >= 0 else -1.0
         self._heading_max_corr = _envf("HEADING_HOLD_MAX_DEG", 25.0)
+        # Suiveur de ligne VIRTUEL : « ligne » = cap initial, écart mesuré par le
+        # gyro, correction PID. Kp seul = comportement actuel (P) ; Ki annule
+        # l'écart résiduel du biais mécanique ; Kd amortit (anti-oscillation).
+        # Ki/Kd à 0 par défaut → logique inchangée, activables par .env.
+        self._heading_ki = _envf("HEADING_KI", 0.0)
+        self._heading_kd = _envf("HEADING_KD", 0.0)
         self._heading_debug = os.getenv("HEADING_DEBUG", "0").strip().lower() \
             in ("1", "true", "yes")
         # Correction de cap par MINI-COUPS DE VOLANT discrets (feedforward) :
@@ -368,6 +374,8 @@ class AdeeptRobotController(RobotController):
         fine = hold or nudge
         remaining = max(0.0, duration)
         heading_dev = 0.0                       # dérive de cap intégrée (°)
+        i_acc = 0.0                             # intégrale de l'écart (terme I)
+        i_clamp = (self._heading_max_corr / self._heading_ki) if self._heading_ki > 0 else 0.0
         since_obstacle = 0.0
         since_debug = 0.0
         since_nudge = 0.0
@@ -388,8 +396,10 @@ class AdeeptRobotController(RobotController):
                 # en saturation, cf. essai à −0.09).
                 dev_clamp = self._heading_max_corr / max(0.1, self._heading_kp)
                 heading_dev = max(-dev_clamp, min(dev_clamp, heading_dev))
-                corr = self._heading_sign * self._heading_kp * heading_dev
-                corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+                i_acc += heading_dev * elapsed
+                if i_clamp:
+                    i_acc = max(-i_clamp, min(i_clamp, i_acc))   # anti-windup I
+                corr = self._heading_pid(heading_dev, rate, i_acc)
                 self._set_angle(self._steer_ch, center - corr)
                 since_debug += elapsed
                 if self._heading_debug and since_debug >= 0.3:
@@ -426,6 +436,17 @@ class AdeeptRobotController(RobotController):
             time.sleep(self._brake_pulse_s)
         self._throttle(0.0)
 
+    def _heading_pid(self, dev: float, rate: float, i_acc: float) -> float:
+        """Correction PID du suiveur de ligne virtuel (cible : écart de cap = 0).
+        dev = écart de cap (∫taux), rate = taux courant (terme D), i_acc = ∫dev.
+        Renvoie l'angle de correction (borné), signe châssis appliqué."""
+        corr = self._heading_sign * (
+            self._heading_kp * dev
+            + self._heading_ki * i_acc
+            + self._heading_kd * rate
+        )
+        return max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+
     def _drive_pulsed(self, duration: float, check_obstacles: bool = True) -> None:
         """
         Ligne droite par À-COUPS : impulsions à PULSE_THROTTLE (régime
@@ -438,9 +459,12 @@ class AdeeptRobotController(RobotController):
         self._set_angle(self._steer_ch, center)
         hold = self._gyro is not None
         heading_dev = 0.0
+        i_acc = 0.0
         dev_clamp = self._heading_max_corr / max(0.1, self._heading_kp)
+        i_clamp = (self._heading_max_corr / self._heading_ki) if self._heading_ki > 0 else 0.0
         end = time.monotonic() + max(0.0, duration)
         n_pulse = 0
+        corr = 0.0
         while time.monotonic() < end:
             if check_obstacles:
                 self._ensure_path_clear()
@@ -452,16 +476,20 @@ class AdeeptRobotController(RobotController):
                 time.sleep(0.04)
                 now = time.monotonic()
                 if hold:
-                    heading_dev += self._gyro.rate_dps() * (now - last)
+                    dt2 = now - last
+                    rate = self._gyro.rate_dps()
+                    heading_dev += rate * dt2
                     heading_dev = max(-dev_clamp, min(dev_clamp, heading_dev))
-                    corr = self._heading_sign * self._heading_kp * heading_dev
-                    corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+                    i_acc += heading_dev * dt2
+                    if i_clamp:
+                        i_acc = max(-i_clamp, min(i_clamp, i_acc))   # anti-windup I
+                    corr = self._heading_pid(heading_dev, rate, i_acc)
                     self._set_angle(self._steer_ch, center - corr)
                 last = now
             n_pulse += 1
             if self._heading_debug:
                 _log(f"pulse #{n_pulse}: dev={heading_dev:+.1f}° "
-                     f"braquage={center - self._heading_sign * self._heading_kp * heading_dev:.0f}°")
+                     f"corr={corr:+.1f}° braquage={center - corr:.0f}°")
             # --- pause OFF (vitesse moyenne basse ; pas d'intégration à l'arrêt) ---
             self._throttle(0.0)
             self._set_angle(self._steer_ch, center)
