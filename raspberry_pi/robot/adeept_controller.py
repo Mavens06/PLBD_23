@@ -158,6 +158,10 @@ class AdeeptRobotController(RobotController):
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
         self._kturn_pulse_s = _envf("KTURN_PULSE_S", 0.5)
+        # Throttle (magnitude) des impulsions du k-turn — séparé de la ligne
+        # droite : celle-ci tourne lentement pour la précision (DRIVE_THROTTLE
+        # bas), mais le k-turn doit rouler franchement pour ne pas caler.
+        self._kturn_throttle = abs(_envf("KTURN_THROTTLE", 0.15))
 
         # --- Initialisation matérielle --------------------------------------
         i2c = busio.I2C(board.SCL, board.SDA)
@@ -376,17 +380,20 @@ class AdeeptRobotController(RobotController):
         bwd_steer = self._steer_left if clockwise else self._steer_right
         margin = self._gyro_margin_right if clockwise else self._gyro_margin_left
         pulse = self._kturn_pulse_s
+        # Avant = throttle NÉGATIF sur ce câblage ; arrière = positif.
+        fwd_t = -self._kturn_throttle
+        bwd_t = self._kturn_throttle
         angle = 0.0
         deadline = time.monotonic() + self._turn_timeout_s
         try:
             while angle < target_deg - margin and time.monotonic() < deadline:
-                # 1) avance braqué (avant = drive_throttle, négatif sur ce câblage)
-                angle += self._gyro_drive_pulse(self._drive_throttle, fwd_steer, pulse)
+                # 1) avance braqué dans le sens du virage
+                angle += self._gyro_drive_pulse(fwd_t, fwd_steer, pulse)
                 if angle >= target_deg - margin:
                     break
                 time.sleep(0.12)
                 # 2) recule contre-braqué (même sens de rotation, translation annulée)
-                angle += self._gyro_drive_pulse(-self._drive_throttle, bwd_steer, pulse)
+                angle += self._gyro_drive_pulse(bwd_t, bwd_steer, pulse)
                 time.sleep(0.12)
         finally:
             self._throttle(0.0)
