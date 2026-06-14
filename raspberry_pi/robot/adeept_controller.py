@@ -165,6 +165,16 @@ class AdeeptRobotController(RobotController):
         self._heading_max_corr = _envf("HEADING_HOLD_MAX_DEG", 25.0)
         self._heading_debug = os.getenv("HEADING_DEBUG", "0").strip().lower() \
             in ("1", "true", "yes")
+        # Correction de cap par MINI-COUPS DE VOLANT discrets (feedforward) :
+        # pendant la ligne droite, toutes les STRAIGHT_NUDGE_EVERY_S, on braque
+        # brièvement (STRAIGHT_NUDGE_S) de STRAIGHT_NUDGE_DEG puis on recentre.
+        # + = coups à GAUCHE (corrige une dérive à droite). Stable (pas de
+        # boucle) et efficace au pas (braquage franc, pas un micro-trim).
+        self._straight_nudge = os.getenv("STRAIGHT_NUDGE", "0").strip().lower() \
+            in ("1", "true", "yes")
+        self._nudge_every = max(0.2, _envf("STRAIGHT_NUDGE_EVERY_S", 1.5))
+        self._nudge_s = max(0.05, _envf("STRAIGHT_NUDGE_S", 0.25))
+        self._nudge_deg = _envf("STRAIGHT_NUDGE_DEG", 30.0)
         # Manœuvre en 3 points (TURN_MODE=kturn) : durée d'une impulsion
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
@@ -332,28 +342,45 @@ class AdeeptRobotController(RobotController):
         center = self._steer_center + self._steer_trim
         self._set_angle(self._steer_ch, center)
         hold = self._heading_hold and self._gyro is not None and correct_heading
+        nudge = self._straight_nudge and correct_heading and not hold
+        fine = hold or nudge
         remaining = max(0.0, duration)
         heading_dev = 0.0                       # dérive de cap intégrée (°)
         since_obstacle = 0.0
         since_debug = 0.0
+        since_nudge = 0.0
+        nudge_left = 0.0                         # temps restant du coup de volant
         last = time.monotonic()
         self._throttle(throttle)
         while remaining > 0:
-            dt = min(0.05 if hold else 0.4, remaining)
+            dt = min(0.05 if fine else 0.4, remaining)
             time.sleep(dt)
             remaining -= dt
             now = time.monotonic()
+            elapsed = now - last
             if hold:
                 rate = self._gyro.rate_dps()
-                heading_dev += rate * (now - last)
+                heading_dev += rate * elapsed
                 corr = self._heading_sign * self._heading_kp * heading_dev
                 corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
                 self._set_angle(self._steer_ch, center - corr)
-                since_debug += (now - last)
+                since_debug += elapsed
                 if self._heading_debug and since_debug >= 0.3:
                     since_debug = 0.0
                     _log(f"cap: taux={rate:+.1f}°/s dev={heading_dev:+.1f}° "
                          f"corr={corr:+.1f}° → braquage={center - corr:.0f}°")
+            elif nudge:
+                if nudge_left > 0:               # coup de volant en cours
+                    nudge_left -= elapsed
+                    if nudge_left <= 0:
+                        self._set_angle(self._steer_ch, center)   # redressement
+                else:
+                    since_nudge += elapsed
+                    if since_nudge >= self._nudge_every:
+                        since_nudge = 0.0
+                        nudge_left = self._nudge_s
+                        # + = gauche (braquage vers 0° = self._steer_left)
+                        self._set_angle(self._steer_ch, center - self._nudge_deg)
             last = now
             since_obstacle += dt
             if check_obstacles and since_obstacle >= 0.4:
