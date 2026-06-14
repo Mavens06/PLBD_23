@@ -149,6 +149,11 @@ class AdeeptRobotController(RobotController):
         # une asymétrie moteur, pas au braquage). + = booste le moteur droit
         # (corrige une dérive vers la DROITE). Plage utile ≈ [-0.4, 0.4].
         self._drive_balance = max(-0.8, min(0.8, _envf("DRIVE_BALANCE", 0.0)))
+        # Boost ADDITIF d'un seul moteur (throttle units), efficace à BASSE
+        # vitesse là où le multiplicatif est sans effet (zone plate près du
+        # seuil) : + accélère le moteur DROIT (corrige une dérive à droite) en
+        # laissant le gauche à sa valeur — donc sans risque de le faire caler.
+        self._drive_balance_add = max(-0.5, min(0.5, _envf("DRIVE_BALANCE_ADD", 0.0)))
         # Maintien de cap au gyroscope pendant les lignes droites (annule la
         # dérive résiduelle que le trim seul ne corrige pas). Opt-in : si la
         # correction AGGRAVE la dérive, le signe est inversé sur ce châssis →
@@ -236,7 +241,7 @@ class AdeeptRobotController(RobotController):
              f"rotation={self._turn_mode}"
              f"{'+gyro' if self._gyro else ' chronométrée'}, "
              f"trim={self._steer_trim:+.0f}°, "
-             f"balance={self._drive_balance:+.2f}, "
+             f"balance={self._drive_balance:+.2f}/{self._drive_balance_add:+.2f}, "
              f"cap={'hold' if self._heading_hold and self._gyro else 'libre'})")
 
     # -- Bas niveau ----------------------------------------------------------
@@ -255,8 +260,19 @@ class AdeeptRobotController(RobotController):
         que le trim de braquage quand la cause est une asymétrie des moteurs."""
         value = max(-1.0, min(1.0, value))
         b = self._drive_balance
-        self._left.throttle = max(-1.0, min(1.0, value * (1.0 - b)))
-        self._right.throttle = max(-1.0, min(1.0, value * (1.0 + b)))
+        left = value * (1.0 - b)
+        right = value * (1.0 + b)
+        # Boost additif d'un seul moteur (sens = direction de marche, pour
+        # AUGMENTER la magnitude sans inverser ni caler l'autre moteur).
+        a = self._drive_balance_add
+        if a != 0.0 and value != 0.0:
+            s = -1.0 if value < 0 else 1.0      # +magnitude = même signe que la marche
+            if a > 0:
+                right += s * abs(a)             # booste la droite
+            else:
+                left += s * abs(a)              # booste la gauche
+        self._left.throttle = max(-1.0, min(1.0, left))
+        self._right.throttle = max(-1.0, min(1.0, right))
 
     def _throttle_lr(self, left: float, right: float) -> None:
         """Commande différentielle (pivot sur place)."""
