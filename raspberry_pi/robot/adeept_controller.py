@@ -145,6 +145,10 @@ class AdeeptRobotController(RobotController):
         # si le robot dérive vers la GAUCHE, augmenter (ex. +4) ; vers la DROITE,
         # diminuer (ex. -4). N'affecte que les lignes droites.
         self._steer_trim = _envf("STEER_TRIM_DEG", 0.0)
+        # Équilibrage des 2 moteurs de propulsion (dérive en ligne droite due à
+        # une asymétrie moteur, pas au braquage). + = booste le moteur droit
+        # (corrige une dérive vers la DROITE). Plage utile ≈ [-0.4, 0.4].
+        self._drive_balance = max(-0.8, min(0.8, _envf("DRIVE_BALANCE", 0.0)))
         # Maintien de cap au gyroscope pendant les lignes droites (annule la
         # dérive résiduelle que le trim seul ne corrige pas). Opt-in : si la
         # correction AGGRAVE la dérive, le signe est inversé sur ce châssis →
@@ -232,6 +236,7 @@ class AdeeptRobotController(RobotController):
              f"rotation={self._turn_mode}"
              f"{'+gyro' if self._gyro else ' chronométrée'}, "
              f"trim={self._steer_trim:+.0f}°, "
+             f"balance={self._drive_balance:+.2f}, "
              f"cap={'hold' if self._heading_hold and self._gyro else 'libre'})")
 
     # -- Bas niveau ----------------------------------------------------------
@@ -243,9 +248,15 @@ class AdeeptRobotController(RobotController):
         s.angle = max(0.0, min(180.0, float(angle)))
 
     def _throttle(self, value: float) -> None:
+        """Avance/recul des DEUX moteurs, avec ÉQUILIBRAGE (DRIVE_BALANCE) :
+        si les 2 moteurs ne tournent pas exactement à la même vitesse, le robot
+        dérive en ligne droite. `+balance` accélère le moteur DROIT (corrige une
+        dérive vers la droite) ; `-balance` accélère le gauche. Plus efficace
+        que le trim de braquage quand la cause est une asymétrie des moteurs."""
         value = max(-1.0, min(1.0, value))
-        self._left.throttle = value
-        self._right.throttle = value
+        b = self._drive_balance
+        self._left.throttle = max(-1.0, min(1.0, value * (1.0 - b)))
+        self._right.throttle = max(-1.0, min(1.0, value * (1.0 + b)))
 
     def _throttle_lr(self, left: float, right: float) -> None:
         """Commande différentielle (pivot sur place)."""
