@@ -175,6 +175,17 @@ class AdeeptRobotController(RobotController):
         self._nudge_every = max(0.2, _envf("STRAIGHT_NUDGE_EVERY_S", 1.5))
         self._nudge_s = max(0.05, _envf("STRAIGHT_NUDGE_S", 0.25))
         self._nudge_deg = _envf("STRAIGHT_NUDGE_DEG", 30.0)
+        # Mode PULSÉ (STRAIGHT_PULSE) : on roule par à-coups à PULSE_THROTTLE
+        # (régime contrôlable, hors zone morte) entrecoupés de pauses, pour
+        # garder une vitesse MOYENNE lente tout en gardant l'autorité de
+        # braquage et la lisibilité gyro. Le maintien de cap agit PENDANT
+        # chaque impulsion, avec anti-emballement. C'est la parade au mur de la
+        # zone morte (au crawl ni braquage ni équilibrage ne mordent).
+        self._straight_pulse = os.getenv("STRAIGHT_PULSE", "0").strip().lower() \
+            in ("1", "true", "yes")
+        self._pulse_throttle = _envf("PULSE_THROTTLE", -0.12)
+        self._pulse_on_s = max(0.1, _envf("PULSE_ON_S", 0.4))
+        self._pulse_off_s = max(0.0, _envf("PULSE_OFF_S", 0.8))
         # Manœuvre en 3 points (TURN_MODE=kturn) : durée d'une impulsion
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
@@ -253,7 +264,8 @@ class AdeeptRobotController(RobotController):
              f"trim={self._steer_trim:+.0f}°, "
              f"balance={self._drive_balance:+.2f}/{self._drive_balance_add:+.2f}, "
              f"cap={'hold' if self._heading_hold and self._gyro else 'libre'}, "
-             f"nudge={'on' if self._straight_nudge else 'off'})")
+             f"nudge={'on' if self._straight_nudge else 'off'}, "
+             f"pulse={'on' if self._straight_pulse else 'off'})")
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
@@ -340,6 +352,10 @@ class AdeeptRobotController(RobotController):
         L'ultrason est vérifié toutes les ~0.4 s pendant le déplacement
         (l'obstacle peut surgir en cours de segment, pas seulement avant).
         """
+        # Mode pulsé : délègue (roule par à-coups en régime contrôlable).
+        if self._straight_pulse and correct_heading:
+            self._drive_pulsed(duration, check_obstacles)
+            return
         center = self._steer_center + self._steer_trim
         self._set_angle(self._steer_ch, center)
         hold = self._heading_hold and self._gyro is not None and correct_heading
@@ -362,6 +378,11 @@ class AdeeptRobotController(RobotController):
             if hold:
                 rate = self._gyro.rate_dps()
                 heading_dev += rate * elapsed
+                # Anti-emballement : on borne la dérive intégrée pour qu'elle
+                # puisse REVENIR quand le taux s'inverse (sinon windup → blocage
+                # en saturation, cf. essai à −0.09).
+                dev_clamp = self._heading_max_corr / max(0.1, self._heading_kp)
+                heading_dev = max(-dev_clamp, min(dev_clamp, heading_dev))
                 corr = self._heading_sign * self._heading_kp * heading_dev
                 corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
                 self._set_angle(self._steer_ch, center - corr)
@@ -397,6 +418,54 @@ class AdeeptRobotController(RobotController):
         # puis arrêt franc. Sans ça le robot « glisse » sur le point de mesure.
         if self._brake_pulse_s > 0:
             self._throttle(-throttle * 0.6)
+            time.sleep(self._brake_pulse_s)
+        self._throttle(0.0)
+
+    def _drive_pulsed(self, duration: float, check_obstacles: bool = True) -> None:
+        """
+        Ligne droite par À-COUPS : impulsions à PULSE_THROTTLE (régime
+        contrôlable, hors zone morte) séparées de pauses → vitesse MOYENNE
+        lente, mais autorité de braquage et lisibilité gyro conservées. Le
+        maintien de cap (gyro) agit pendant chaque impulsion, avec anti-windup.
+        La distance dépend de la vitesse MOYENNE : caler ROBOT_SPEED_MPS dessus.
+        """
+        center = self._steer_center + self._steer_trim
+        self._set_angle(self._steer_ch, center)
+        hold = self._gyro is not None
+        heading_dev = 0.0
+        dev_clamp = self._heading_max_corr / max(0.1, self._heading_kp)
+        end = time.monotonic() + max(0.0, duration)
+        n_pulse = 0
+        while time.monotonic() < end:
+            if check_obstacles:
+                self._ensure_path_clear()
+            # --- impulsion ON (régime contrôlable) ---
+            self._throttle(self._pulse_throttle)
+            last = time.monotonic()
+            on_end = min(end, last + self._pulse_on_s)
+            while time.monotonic() < on_end:
+                time.sleep(0.04)
+                now = time.monotonic()
+                if hold:
+                    heading_dev += self._gyro.rate_dps() * (now - last)
+                    heading_dev = max(-dev_clamp, min(dev_clamp, heading_dev))
+                    corr = self._heading_sign * self._heading_kp * heading_dev
+                    corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+                    self._set_angle(self._steer_ch, center - corr)
+                last = now
+            n_pulse += 1
+            if self._heading_debug:
+                _log(f"pulse #{n_pulse}: dev={heading_dev:+.1f}° "
+                     f"braquage={center - self._heading_sign * self._heading_kp * heading_dev:.0f}°")
+            # --- pause OFF (vitesse moyenne basse ; pas d'intégration à l'arrêt) ---
+            self._throttle(0.0)
+            self._set_angle(self._steer_ch, center)
+            off_end = min(end, time.monotonic() + self._pulse_off_s)
+            while time.monotonic() < off_end:
+                time.sleep(0.04)
+        # Frein actif + arrêt franc.
+        if self._brake_pulse_s > 0:
+            self._throttle(-self._pulse_throttle * 0.6)
             time.sleep(self._brake_pulse_s)
         self._throttle(0.0)
 

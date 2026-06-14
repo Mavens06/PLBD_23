@@ -51,14 +51,28 @@ class GyroZ:
         return raw / self.LSB_PER_DPS
 
     def _calibrate(self, seconds: float) -> float:
-        """Moyenne du taux à l'arrêt = biais. Le robot doit être IMMOBILE."""
-        total, n = 0.0, 0
-        end = time.monotonic() + max(0.2, seconds)
-        while time.monotonic() < end:
-            total += self._read_raw_dps()
-            n += 1
-            time.sleep(0.005)
-        return total / n if n else 0.0
+        """Biais à l'arrêt = MÉDIANE des taux (robuste aux glitches I2C, ex. un
+        −40°/s parasite). Le robot doit être IMMOBILE. Si la médiane est
+        aberrante (robot bougé pendant la calibration), on relit une fois."""
+        for attempt in range(2):
+            samples = []
+            end = time.monotonic() + max(0.5, seconds)
+            while time.monotonic() < end:
+                samples.append(self._read_raw_dps())
+                time.sleep(0.005)
+            if not samples:
+                return 0.0
+            samples.sort()
+            median = samples[len(samples) // 2]
+            # Un gyro au repos dérive de quelques °/s au plus : au-delà, la
+            # calibration est invalide (mouvement / glitch) → on retente.
+            if abs(median) <= 15.0 or attempt == 1:
+                if abs(median) > 15.0:
+                    _log(f"⚠ biais aberrant ({median:+.1f}°/s) — robot immobile ?")
+                return median
+            _log(f"⚠ biais suspect ({median:+.1f}°/s) — nouvelle calibration…")
+            time.sleep(0.3)
+        return 0.0
 
     def rate_dps(self) -> float:
         """Vitesse angulaire Z en °/s, biais déduit (signe = sens de rotation)."""
