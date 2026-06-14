@@ -86,6 +86,46 @@ _MAX_MESSAGE_CHARS = 2000
 _MAX_HISTORY_TURNS = 8
 
 
+_ARABIC_DIGITS = str.maketrans("0123456789", "٠١٢٣٤٥٦٧٨٩")
+
+
+def strip_markdown(text: str) -> str:
+    """Retire la mise en forme Markdown d'un texte destiné à être LU à voix
+    haute (la synthèse vocale prononçait sinon « astérisque », « dièse »…).
+
+    Couvre : gras/italique (`*`, `_`), titres (`#`), listes (`- `, `* `, `1. `),
+    code (`` ` ``), liens `[texte](url)` → `texte`. Conserve la ponctuation
+    normale et les nombres.
+    """
+    s = text or ""
+    # Liens markdown [texte](url) → texte
+    s = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", s)
+    # Gras/italique : on retire les marqueurs * et _ (pas les _ internes aux mots)
+    s = re.sub(r"\*{1,3}([^*]+)\*{1,3}", r"\1", s)
+    s = re.sub(r"`{1,3}([^`]+)`{1,3}", r"\1", s)
+    # Titres et puces en début de ligne
+    s = re.sub(r"(?m)^\s{0,3}#{1,6}\s*", "", s)
+    s = re.sub(r"(?m)^\s*[-*•]\s+", "", s)
+    # Marqueurs résiduels isolés
+    s = s.replace("**", "").replace("*", "").replace("#", "").replace("`", "")
+    # Espaces multiples → simple
+    s = re.sub(r"[ \t]{2,}", " ", s)
+    return s.strip()
+
+
+def _digits_to_arabic(text: str) -> str:
+    """Convertit les chiffres latins (0-9) en chiffres arabes (٠-٩).
+
+    Sans ça, la voix Gemini lit les nombres EN ANGLAIS au milieu d'une phrase
+    arabe (« pH six point five » au lieu de « pH ٦٫٥ »). Les chiffres arabes
+    forcent une prononciation arabe naturelle. Seul le point DÉCIMAL (entre
+    deux chiffres) devient la virgule décimale arabe (٫) — les points de fin de
+    phrase sont préservés.
+    """
+    s = re.sub(r"(\d)\.(\d)", r"\1٫\2", text or "")   # 6.5 → 6٫5 (décimale)
+    return s.translate(_ARABIC_DIGITS)
+
+
 def _build_sensor_context(sensor_data: Optional[dict]) -> str:
     """Sérialise les lectures capteur en contexte texte pour le prompt."""
     if not sensor_data:
@@ -111,11 +151,16 @@ def _build_system_prompt(
     selected_crop: Optional[str],
     robot_state: Optional[dict],
     correction_context: Optional[str] = None,
+    all_zones_context: Optional[str] = None,
 ) -> str:
     """Compose un prompt système robuste, ancré sur les données réelles."""
     lang_label = _LANG_LABELS.get(language, _LANG_LABELS["fr"])
 
     sensor_context = _build_sensor_context(sensor_data)
+
+    # Récapitulatif de TOUTES les zones déjà mesurées (pas seulement la zone
+    # sélectionnée) : l'agriculteur peut interroger n'importe quelle zone passée.
+    all_zones_block = (all_zones_context + " ") if all_zones_context else ""
 
     if ml_prediction:
         ml_context = (
@@ -157,6 +202,7 @@ def _build_system_prompt(
         "explication générale, sans prétendre l'avoir mesuré.) "
         f"Les seules cultures cibles à recommander sont : {_TARGET_CROPS}. "
         + sensor_context
+        + all_zones_block
         + ml_context
         + zone_context
         + crop_context
@@ -182,8 +228,21 @@ def _build_system_prompt(
         "(4) Si le message n'a aucun rapport avec l'agriculture ou le champ, réoriente "
         "poliment l'agriculteur vers ton rôle en une phrase, sans le brusquer. "
         "(5) Si une culture mieux adaptée au sol est indiquée, mentionne-la. "
-        f"Réponds EXCLUSIVEMENT en {lang_label}, de façon naturelle et respectueuse. "
-        "N'explique pas ta nature technique ni ton fonctionnement interne."
+        "(6) Plusieurs zones ont pu être mesurées : si l'agriculteur évoque une zone "
+        "précise (ex. B2, P3) ou compare des zones, appuie-toi sur le récapitulatif de "
+        "TOUTES les zones mesurées ci-dessus, pas seulement la dernière. Si une zone "
+        "demandée n'y figure pas, dis simplement qu'elle n'a pas encore été mesurée. "
+        "(7) Ta réponse est LUE À VOIX HAUTE et affichée en texte brut : n'utilise "
+        "AUCUNE mise en forme Markdown (pas d'astérisques *, pas de #, pas de gras, pas "
+        "de tirets de liste). Écris en phrases simples ; pour énumérer, écris « 1) … 2) … ». "
+        + (
+            "Réponds en darija marocaine authentique (parlée, الدارجة) : utilise un "
+            "vocabulaire et des tournures dialectales (ex. « كاين »، « خاصك »، « دير »، "
+            "« الماء »، « التربة »), PAS de l'arabe classique. "
+            if language == "da" else
+            f"Réponds EXCLUSIVEMENT en {lang_label}, de façon naturelle et respectueuse. "
+        )
+        + "N'explique pas ta nature technique ni ton fonctionnement interne."
     )
 
 
@@ -196,6 +255,7 @@ async def generate_expert_response(
     selected_crop: Optional[str] = None,
     robot_state: Optional[dict] = None,
     correction_context: Optional[str] = None,
+    all_zones_context: Optional[str] = None,
     history: Optional[list] = None,
 ) -> str:
     """
@@ -250,6 +310,7 @@ async def generate_expert_response(
         selected_crop=selected_crop,
         robot_state=robot_state,
         correction_context=correction_context,
+        all_zones_context=all_zones_context,
     )
 
     # Format de l'API Generative Language : le prompt système passe par
@@ -394,7 +455,12 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
             "(clé gratuite : https://aistudio.google.com/apikey)."
         )
 
-    clean = (text or "").strip()
+    # Nettoyage AVANT lecture : on retire la mise en forme Markdown (sinon la
+    # voix prononce « astérisque ») et, en arabe/darija, on bascule les chiffres
+    # en chiffres arabes pour qu'ils soient lus en arabe et non en anglais.
+    clean = strip_markdown((text or "").strip())
+    if language in ("ar", "da"):
+        clean = _digits_to_arabic(clean)
     if not clean:
         raise RuntimeError("Texte vide : rien à synthétiser.")
 

@@ -231,6 +231,25 @@ def _measurement_from_sensor_data(sensor_data: Optional[dict]) -> Optional[RuleM
     return RuleMeasurement(ph=ph, humidity=hum, temperature=temp, ec=ec)
 
 
+def _build_all_zones_context() -> Optional[str]:
+    """Récapitule TOUTES les zones déjà mesurées (source autoritative :
+    APP_STATE), pour que le chatbot puisse répondre sur n'importe quelle zone
+    passée et pas seulement la dernière mesurée."""
+    zones = APP_STATE.measurements_by_zone
+    if not zones:
+        return None
+    parts = []
+    for label, m in zones.items():
+        parts.append(
+            f"{label}: pH {m.ph}, humidité {m.humidity}%, "
+            f"température {m.temp}°C, EC {m.ec} mS/cm"
+        )
+    return (
+        "Récapitulatif des zones DÉJÀ MESURÉES par le robot "
+        f"({len(parts)} zone(s)) : " + " ; ".join(parts) + ". "
+    )
+
+
 def _build_correction_context(selected_crop: Optional[str], sensor_data: Optional[dict]):
     """Diagnostic de correction sérialisé pour le prompt, ou None si non applicable."""
     if not selected_crop or selected_crop not in CROP_CATALOG:
@@ -282,6 +301,9 @@ async def chat(request: ChatRequest):
         request.selected_crop, sensor_data,
     )
 
+    # Contexte multi-zones : toutes les mesures connues du backend (autoritatif).
+    all_zones_context = _build_all_zones_context()
+
     try:
         answer = await generate_expert_response(
             message=request.message,
@@ -292,6 +314,7 @@ async def chat(request: ChatRequest):
             selected_crop=request.selected_crop,
             robot_state=request.robot_state,
             correction_context=correction_context,
+            all_zones_context=all_zones_context,
             history=request.history,
         )
     except RuntimeError as err:

@@ -133,6 +133,32 @@ class AdeeptRobotController(RobotController):
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
         self._world_scale = max(0.01, _envf("ROBOT_WORLD_SCALE", 1.0))
 
+        # --- Arrêt net & alignement (corrections de déplacement) -------------
+        # Les moteurs DC tournent en ROUE LIBRE à throttle=0 : à l'arrivée sur
+        # un point le robot « glisse » encore un peu — et la sonde descendait
+        # pendant ce glissement. FREIN ACTIF (brève impulsion inverse) en fin de
+        # ligne droite + pause d'immobilisation avant de rendre la main.
+        self._brake_pulse_s = _envf("BRAKE_PULSE_S", 0.08)
+        self._settle_pause_s = _envf("SETTLE_PAUSE_S", 0.6)
+        # Trim du servo de direction : compense un désalignement MÉCANIQUE des
+        # roues (le robot « penche » en ligne droite). Signe à régler au sol :
+        # si le robot dérive vers la GAUCHE, augmenter (ex. +4) ; vers la DROITE,
+        # diminuer (ex. -4). N'affecte que les lignes droites.
+        self._steer_trim = _envf("STEER_TRIM_DEG", 0.0)
+        # Maintien de cap au gyroscope pendant les lignes droites (annule la
+        # dérive résiduelle que le trim seul ne corrige pas). Opt-in : si la
+        # correction AGGRAVE la dérive, le signe est inversé sur ce châssis →
+        # mettre HEADING_HOLD_SIGN=-1.
+        self._heading_hold = os.getenv("HEADING_HOLD", "0").strip().lower() \
+            in ("1", "true", "yes")
+        self._heading_kp = _envf("HEADING_HOLD_KP", 2.0)
+        self._heading_sign = 1.0 if _envf("HEADING_HOLD_SIGN", 1.0) >= 0 else -1.0
+        self._heading_max_corr = _envf("HEADING_HOLD_MAX_DEG", 25.0)
+        # Manœuvre en 3 points (TURN_MODE=kturn) : durée d'une impulsion
+        # avant/arrière braquée. Plus court = empreinte plus petite, plus de
+        # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
+        self._kturn_pulse_s = _envf("KTURN_PULSE_S", 0.5)
+
         # --- Initialisation matérielle --------------------------------------
         i2c = busio.I2C(board.SCL, board.SDA)
         self._pca = PCA9685(i2c, address=self._addr)
@@ -164,8 +190,10 @@ class AdeeptRobotController(RobotController):
                 _log(f"⚠ ultrason indisponible ({err}) — anti-obstacle désactivé.")
 
         # --- Gyroscope MPU6500 (rotations asservies) -------------------------
-        # TURN_MODE=pivot : rotation SUR PLACE (moteurs gauche/droite opposés,
-        # pas d'avance d'arc) · TURN_MODE=arc : virage en arc validé.
+        # TURN_MODE=kturn : MANŒUVRE EN 3 POINTS (avant braqué ↔ arrière contre-
+        # braqué) — rotation quasi sur place SANS raclage, recommandée au sol ·
+        # TURN_MODE=pivot : rotation sur place (moteurs G/D opposés, peut racler
+        # les roues) · TURN_MODE=arc : virage en arc (avance d'arc géométrique).
         # Avec gyro : on tourne jusqu'à l'angle MESURÉ (90°/180°), indépendant
         # des batteries et du sol. Sans gyro : repli arc chronométré.
         self._turn_mode = os.getenv("TURN_MODE", "arc").strip().lower()
@@ -191,7 +219,9 @@ class AdeeptRobotController(RobotController):
              f"scale={self._world_scale}, "
              f"ultrason={'on' if self._distance_sensor else 'off'}, "
              f"rotation={self._turn_mode}"
-             f"{'+gyro' if self._gyro else ' chronométrée'})")
+             f"{'+gyro' if self._gyro else ' chronométrée'}, "
+             f"trim={self._steer_trim:+.0f}°, "
+             f"cap={'hold' if self._heading_hold and self._gyro else 'libre'})")
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
@@ -250,20 +280,46 @@ class AdeeptRobotController(RobotController):
     def _drive_straight(self, throttle: float, duration: float,
                         check_obstacles: bool = True) -> None:
         """
-        Ligne droite temporisée, roues centrées, arrêt en fin de segment.
+        Ligne droite temporisée puis FREIN ACTIF (anti-glissement) en fin de
+        segment : le robot s'immobilise net au lieu de rouler en roue libre.
+
+        Deux corrections de trajectoire :
+          • trim statique du servo (STEER_TRIM_DEG) — désalignement mécanique ;
+          • maintien de cap au gyroscope (HEADING_HOLD) — on intègre la dérive
+            de lacet et on contre-braque proportionnellement.
         L'ultrason est vérifié toutes les ~0.4 s pendant le déplacement
         (l'obstacle peut surgir en cours de segment, pas seulement avant).
         """
-        self._set_angle(self._steer_ch, self._steer_center)
+        center = self._steer_center + self._steer_trim
+        self._set_angle(self._steer_ch, center)
+        hold = self._heading_hold and self._gyro is not None
         remaining = max(0.0, duration)
-        chunk = 0.4
+        heading_dev = 0.0                       # dérive de cap intégrée (°)
+        since_obstacle = 0.0
+        last = time.monotonic()
+        self._throttle(throttle)
         while remaining > 0:
-            if check_obstacles:
-                self._ensure_path_clear()
-            self._throttle(throttle)
-            dt = min(chunk, remaining)
+            dt = min(0.05 if hold else 0.4, remaining)
             time.sleep(dt)
             remaining -= dt
+            now = time.monotonic()
+            if hold:
+                heading_dev += self._gyro.rate_dps() * (now - last)
+                corr = self._heading_sign * self._heading_kp * heading_dev
+                corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+                self._set_angle(self._steer_ch, center - corr)
+            last = now
+            since_obstacle += dt
+            if check_obstacles and since_obstacle >= 0.4:
+                since_obstacle = 0.0
+                self._ensure_path_clear()       # peut suspendre puis reprendre
+                self._throttle(throttle)        # relance après une pause éventuelle
+                last = time.monotonic()         # évite un saut d'intégration
+        # Frein actif : brève impulsion en sens inverse pour tuer l'inertie,
+        # puis arrêt franc. Sans ça le robot « glisse » sur le point de mesure.
+        if self._brake_pulse_s > 0:
+            self._throttle(-throttle * 0.6)
+            time.sleep(self._brake_pulse_s)
         self._throttle(0.0)
 
     def _turn_arc(self, steer_deg: float, duration: float) -> None:
@@ -284,6 +340,63 @@ class AdeeptRobotController(RobotController):
             self._throttle(self._drive_throttle)
             time.sleep(self._straighten_s)
             self._throttle(0.0)
+
+    def _gyro_drive_pulse(self, throttle: float, steer_deg: float,
+                          max_s: float) -> float:
+        """Avance/recule braqué pendant `max_s` en intégrant |gyro|.
+        Renvoie l'angle (°) balayé par le châssis pendant l'impulsion."""
+        self._set_angle(self._steer_ch, steer_deg)
+        time.sleep(0.05)
+        swept = 0.0
+        last = time.monotonic()
+        end = last + max(0.0, max_s)
+        self._throttle(throttle)
+        while time.monotonic() < end:
+            time.sleep(0.005)
+            now = time.monotonic()
+            swept += abs(self._gyro.rate_dps()) * (now - last)
+            last = now
+        self._throttle(0.0)
+        return swept
+
+    def _turn_kturn(self, target_deg: float, clockwise: bool) -> None:
+        """
+        Rotation quasi SUR PLACE par MANŒUVRE EN 3 POINTS (demi-tours de volant
+        alternés), asservie au gyroscope.
+
+        Sur une voiture (direction Ackermann à l'avant), une « rotation sur
+        place » par moteurs opposés fait RACLER les roues. Ici on alterne :
+          1) AVANT, roues braquées vers le sens du virage  → tourne le châssis ;
+          2) ARRIÈRE, roues contre-braquées               → tourne ENCORE dans
+             le MÊME sens, et annule la translation de l'étape 1.
+        Résultat : empreinte minimale (≈ sur place), roulement propre. On répète
+        jusqu'à l'angle MESURÉ (moins la marge d'inertie). Garde-fou : timeout.
+        """
+        fwd_steer = self._steer_right if clockwise else self._steer_left
+        bwd_steer = self._steer_left if clockwise else self._steer_right
+        margin = self._gyro_margin_right if clockwise else self._gyro_margin_left
+        pulse = self._kturn_pulse_s
+        angle = 0.0
+        deadline = time.monotonic() + self._turn_timeout_s
+        try:
+            while angle < target_deg - margin and time.monotonic() < deadline:
+                # 1) avance braqué (avant = drive_throttle, négatif sur ce câblage)
+                angle += self._gyro_drive_pulse(self._drive_throttle, fwd_steer, pulse)
+                if angle >= target_deg - margin:
+                    break
+                time.sleep(0.12)
+                # 2) recule contre-braqué (même sens de rotation, translation annulée)
+                angle += self._gyro_drive_pulse(-self._drive_throttle, bwd_steer, pulse)
+                time.sleep(0.12)
+        finally:
+            self._throttle(0.0)
+            try:
+                self._set_angle(self._steer_ch, self._steer_center + self._steer_trim)
+            except Exception:
+                pass
+        _log(f"rotation k-turn : {angle:.0f}° mesurés (cible {target_deg}°)")
+        if self._turn_pause_s > 0:
+            time.sleep(self._turn_pause_s)
 
     def _turn_gyro(self, target_deg: float, clockwise: bool) -> None:
         """
@@ -348,7 +461,11 @@ class AdeeptRobotController(RobotController):
         _log(f"{name} → {target}")
         if self._gyro is not None:
             clockwise = delta in (1, 2)
-            self._turn_gyro(180.0 if delta == 2 else 90.0, clockwise)
+            target = 180.0 if delta == 2 else 90.0
+            if self._turn_mode == "kturn":
+                self._turn_kturn(target, clockwise)
+            else:
+                self._turn_gyro(target, clockwise)
         elif delta == 1:
             self._turn_arc(self._steer_right, self._turn_90_s)
         elif delta == 2:
@@ -395,10 +512,11 @@ class AdeeptRobotController(RobotController):
             return
         _log(f"va au point (x={x}, y={y}) depuis ({self._x}, {self._y}) "
              f"cap {self._heading} — échelle {self._world_scale}")
-        # L'avance d'arc ne concerne que les virages en ARC : un pivot sur
-        # place (gyro) ne déplace pas le robot, aucune compensation à faire.
-        arc_advance = 0.0 if (self._turn_mode == "pivot" and self._gyro is not None) \
-            else self._turn_advance_m
+        # L'avance d'arc ne concerne que les virages en ARC : une rotation sur
+        # place (pivot / k-turn au gyro) ne déplace pas le robot, aucune
+        # compensation à déduire de la ligne droite suivante.
+        in_place_turn = self._gyro is not None and self._turn_mode in ("pivot", "kturn")
+        arc_advance = 0.0 if in_place_turn else self._turn_advance_m
         pending_arc_advance = 0.0
         for kind, value in legs:
             if kind == "turn":
@@ -421,6 +539,10 @@ class AdeeptRobotController(RobotController):
         self._x, self._y = x, y
         self._heading = final_heading
         self.stop()
+        # Immobilisation COMPLÈTE avant de rendre la main : la sonde ne doit
+        # JAMAIS descendre pendant que le robot glisse encore (cf. frein actif).
+        if self._settle_pause_s > 0:
+            time.sleep(self._settle_pause_s)
         self._signals.blink(0.2)   # point atteint (validé : blink à l'arrivée)
 
     def mission_start(self) -> None:
