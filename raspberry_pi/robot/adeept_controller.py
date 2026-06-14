@@ -252,7 +252,8 @@ class AdeeptRobotController(RobotController):
              f"{'+gyro' if self._gyro else ' chronométrée'}, "
              f"trim={self._steer_trim:+.0f}°, "
              f"balance={self._drive_balance:+.2f}/{self._drive_balance_add:+.2f}, "
-             f"cap={'hold' if self._heading_hold and self._gyro else 'libre'})")
+             f"cap={'hold' if self._heading_hold and self._gyro else 'libre'}, "
+             f"nudge={'on' if self._straight_nudge else 'off'})")
 
     # -- Bas niveau ----------------------------------------------------------
     def _set_angle(self, channel: int, angle: float) -> None:
@@ -380,7 +381,11 @@ class AdeeptRobotController(RobotController):
                         since_nudge = 0.0
                         nudge_left = self._nudge_s
                         # + = gauche (braquage vers 0° = self._steer_left)
-                        self._set_angle(self._steer_ch, center - self._nudge_deg)
+                        target = center - self._nudge_deg
+                        self._set_angle(self._steer_ch, target)
+                        if self._heading_debug:
+                            _log(f"nudge gauche {self._nudge_deg:.0f}° "
+                                 f"({self._nudge_s:.2f}s) → braquage={target:.0f}°")
             last = now
             since_obstacle += dt
             if check_obstacles and since_obstacle >= 0.4:
