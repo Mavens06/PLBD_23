@@ -154,6 +154,8 @@ class AdeeptRobotController(RobotController):
         self._heading_kp = _envf("HEADING_HOLD_KP", 2.0)
         self._heading_sign = 1.0 if _envf("HEADING_HOLD_SIGN", 1.0) >= 0 else -1.0
         self._heading_max_corr = _envf("HEADING_HOLD_MAX_DEG", 25.0)
+        self._heading_debug = os.getenv("HEADING_DEBUG", "0").strip().lower() \
+            in ("1", "true", "yes")
         # Manœuvre en 3 points (TURN_MODE=kturn) : durée d'une impulsion
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
@@ -306,6 +308,7 @@ class AdeeptRobotController(RobotController):
         remaining = max(0.0, duration)
         heading_dev = 0.0                       # dérive de cap intégrée (°)
         since_obstacle = 0.0
+        since_debug = 0.0
         last = time.monotonic()
         self._throttle(throttle)
         while remaining > 0:
@@ -314,10 +317,16 @@ class AdeeptRobotController(RobotController):
             remaining -= dt
             now = time.monotonic()
             if hold:
-                heading_dev += self._gyro.rate_dps() * (now - last)
+                rate = self._gyro.rate_dps()
+                heading_dev += rate * (now - last)
                 corr = self._heading_sign * self._heading_kp * heading_dev
                 corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
                 self._set_angle(self._steer_ch, center - corr)
+                since_debug += (now - last)
+                if self._heading_debug and since_debug >= 0.3:
+                    since_debug = 0.0
+                    _log(f"cap: taux={rate:+.1f}°/s dev={heading_dev:+.1f}° "
+                         f"corr={corr:+.1f}° → braquage={center - corr:.0f}°")
             last = now
             since_obstacle += dt
             if check_obstacles and since_obstacle >= 0.4:
