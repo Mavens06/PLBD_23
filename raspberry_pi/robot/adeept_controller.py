@@ -813,11 +813,15 @@ class AdeeptRobotController(RobotController):
         _log(f"{name} → {target}")
         if self._gyro is not None:
             clockwise = delta in (1, 2)
-            target = 180.0 if delta == 2 else 90.0
+            # Angle à tourner (NE PAS écraser `target`, qui reste la chaîne de
+            # cap "N/E/S/W" affectée à self._heading en fin de fonction — sinon
+            # un float fuite dans le cap et HEADINGS.index() plante au virage
+            # suivant d'un même déplacement en L).
+            target_deg = 180.0 if delta == 2 else 90.0
             if self._turn_mode == "kturn":
-                self._turn_kturn(target, clockwise)
+                self._turn_kturn(target_deg, clockwise)
             else:
-                self._turn_gyro(target, clockwise)
+                self._turn_gyro(target_deg, clockwise)
         elif delta == 1:
             self._turn_arc(self._steer_right, self._turn_90_s)
         elif delta == 2:
