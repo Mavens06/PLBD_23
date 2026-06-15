@@ -141,6 +141,12 @@ class AppState:
             self.robot = RobotState()
             self.command = "idle"
         _safe_persist(persistence.replace_plan, [p.as_dict() for p in self.plan])
+        # Un NOUVEAU plan = état mission vierge : on vide aussi les mesures
+        # PERSISTÉES (sinon, après un redémarrage backend — ex. brownout —,
+        # _hydrate_from_storage rechargerait d'anciennes mesures dont les labels
+        # peuvent matcher le nouveau plan [P1, P2…] → points faussement « déjà
+        # mesurés », robot/UI qui saute au dernier point).
+        _safe_persist(persistence.clear_measurements)
 
     # -- Progression --------------------------------------------------------
     @property
