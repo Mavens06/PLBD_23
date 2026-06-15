@@ -197,6 +197,29 @@ class AdeeptRobotController(RobotController):
         self._pulse_throttle = _envf("PULSE_THROTTLE", -0.12)
         self._pulse_on_s = max(0.1, _envf("PULSE_ON_S", 0.4))
         self._pulse_off_s = max(0.0, _envf("PULSE_OFF_S", 0.8))
+        # Mode SUIVEUR DE LIGNE VIRTUEL CONTINU (STRAIGHT_MODE=line ou LINE_FOLLOW=1).
+        # Le segment courant EST la ligne : roulage CONTINU (rampes de
+        # démarrage/arrêt → zéro à-coup, contrairement au pulsé) et redressement
+        # PERMANENT pour rester centré. Asservissement combiné, style Stanley :
+        #   • erreur de CAP   = ∫ gyro            (°)
+        #   • écart LATÉRAL   = ∫ v·sin(cap)      (m, dead-reckoning)
+        #   corr = Kp·cap + Kcross·écart + Kd·taux. Throttle CONTINU dans le
+        # régime contrôlable (hors zone morte) → autorité de braquage réelle.
+        # Prioritaire sur le mode pulsé.
+        self._line_follow = os.getenv("STRAIGHT_MODE", "").strip().lower() == "line" \
+            or os.getenv("LINE_FOLLOW", "0").strip().lower() in ("1", "true", "yes")
+        self._line_throttle = _envf("LINE_THROTTLE", self._pulse_throttle)
+        self._line_kp = _envf("LINE_KP", max(0.1, self._heading_kp))
+        self._line_kcross = _envf("LINE_KCROSS", 80.0)        # ° de braquage par m d'écart
+        self._line_cross_clamp = abs(_envf("LINE_CROSS_CLAMP", 0.15))  # m (borne anti-windup)
+        self._line_ramp_s = max(0.0, _envf("LINE_RAMP_S", 0.3))
+        # DIFFÉRENTIEL de correction (« roue à gauche / roue à droite ») : à
+        # basse vitesse le braquage du servo avant n'a AUCUNE autorité (les roues
+        # avant braquées ne font pas tourner le châssis au crawl). Le différentiel
+        # moteur, lui, fait pivoter le robot à TOUTE vitesse. On module donc les
+        # 2 moteurs proportionnellement à la correction : fraction du throttle de
+        # base transférée d'une roue à l'autre à pleine correction. 0 = désactivé.
+        self._line_diff = max(0.0, min(0.9, _envf("LINE_DIFF", 0.0)))
         # Manœuvre en 3 points (TURN_MODE=kturn) : durée d'une impulsion
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
@@ -210,6 +233,10 @@ class AdeeptRobotController(RobotController):
         # point. Préféré à la déduction sur la ligne droite suivante (qui échoue
         # quand la ligne est courte ou orientée autrement). À calibrer au sol.
         self._turn_backup_m = _envf("TURN_BACKUP_M", 0.0)
+        # Facteur appliqué à la distance d'un segment qui suit IMMÉDIATEMENT un
+        # virage (1.0 = inchangé). Resserre le serpentin / compense l'avance du
+        # pivot. Demandé par Marius : 0.5 (moitié après chaque virage).
+        self._post_turn_scale = max(0.0, _envf("POST_TURN_LEG_SCALE", 1.0))
 
         # --- Initialisation matérielle --------------------------------------
         i2c = busio.I2C(board.SCL, board.SDA)
@@ -217,6 +244,19 @@ class AdeeptRobotController(RobotController):
         self._pca.frequency = self._freq
         self._left = _motor.DCMotor(self._pca.channels[m1a], self._pca.channels[m1b])
         self._right = _motor.DCMotor(self._pca.channels[m2a], self._pca.channels[m2b])
+        # SLOW_DECAY (mode roue libre lente) — validé sur le robot de Marius :
+        # à bas throttle les moteurs tournent en douceur et gardent du couple,
+        # au lieu de brouter/caler (FAST_DECAY par défaut). Indispensable pour
+        # le suiveur de ligne continu à basse vitesse (anti-zone-morte).
+        try:
+            self._left.decay_mode = _motor.SLOW_DECAY
+            self._right.decay_mode = _motor.SLOW_DECAY
+        except Exception as err:
+            _log(f"⚠ decay_mode non réglable ({err})")
+
+        # Cache des objets Servo (1 par canal) : éviter d'en recréer un à CHAQUE
+        # _set_angle (le suiveur appelle ~50 Hz) — moins de trafic I2C, bus plus sûr.
+        self._servos: dict[int, object] = {}
 
         self._x = 0.0
         self._y = 0.0
@@ -276,15 +316,37 @@ class AdeeptRobotController(RobotController):
              f"balance={self._drive_balance:+.2f}/{self._drive_balance_add:+.2f}, "
              f"cap={'hold' if self._heading_hold and self._gyro else 'libre'}, "
              f"nudge={'on' if self._straight_nudge else 'off'}, "
-             f"pulse={'on' if self._straight_pulse else 'off'})")
+             f"pulse={'on' if self._straight_pulse else 'off'}, "
+             f"line={'on' if self._line_follow else 'off'})")
 
     # -- Bas niveau ----------------------------------------------------------
+    def _i2c_write(self, fn, retries: int = 3) -> None:
+        """Écriture I2C TOLÉRANTE aux glitches : sous charge moteur, le PCA peut
+        renvoyer un « Remote I/O error » (Errno 121) transitoire (micro-creux de
+        tension). On retente quelques fois ; en dernier recours on IGNORE — un
+        glitch ponctuel ne doit JAMAIS tuer la mission (la boucle réémet la
+        consigne au tour suivant). Résilience terrain, comme le buffer hors-ligne."""
+        for attempt in range(retries):
+            try:
+                fn()
+                return
+            except OSError as err:
+                if attempt == retries - 1:
+                    _log(f"⚠ I2C : glitch ignoré après {retries} essais ({err})")
+                    return
+                time.sleep(0.008)
+
     def _set_angle(self, channel: int, angle: float) -> None:
-        """Positionne un servo (miroir exact du set_angle validé)."""
-        from adafruit_motor import servo
-        s = servo.Servo(self._pca.channels[channel], min_pulse=500, max_pulse=2400,
-                        actuation_range=180)
-        s.angle = max(0.0, min(180.0, float(angle)))
+        """Positionne un servo (miroir exact du set_angle validé), objet mis en
+        cache et écriture I2C tolérante aux glitches."""
+        s = self._servos.get(channel)
+        if s is None:
+            from adafruit_motor import servo
+            s = servo.Servo(self._pca.channels[channel], min_pulse=500,
+                            max_pulse=2400, actuation_range=180)
+            self._servos[channel] = s
+        val = max(0.0, min(180.0, float(angle)))
+        self._i2c_write(lambda: setattr(s, "angle", val))
 
     def _throttle(self, value: float) -> None:
         """Avance/recul des DEUX moteurs, avec ÉQUILIBRAGE (DRIVE_BALANCE) :
@@ -305,13 +367,17 @@ class AdeeptRobotController(RobotController):
                 right += s * abs(a)             # booste la droite
             else:
                 left += s * abs(a)              # booste la gauche
-        self._left.throttle = max(-1.0, min(1.0, left))
-        self._right.throttle = max(-1.0, min(1.0, right))
+        lv = max(-1.0, min(1.0, left))
+        rv = max(-1.0, min(1.0, right))
+        self._i2c_write(lambda: setattr(self._left, "throttle", lv))
+        self._i2c_write(lambda: setattr(self._right, "throttle", rv))
 
     def _throttle_lr(self, left: float, right: float) -> None:
-        """Commande différentielle (pivot sur place)."""
-        self._left.throttle = max(-1.0, min(1.0, left))
-        self._right.throttle = max(-1.0, min(1.0, right))
+        """Commande différentielle (pivot sur place / correction du suiveur)."""
+        lv = max(-1.0, min(1.0, left))
+        rv = max(-1.0, min(1.0, right))
+        self._i2c_write(lambda: setattr(self._left, "throttle", lv))
+        self._i2c_write(lambda: setattr(self._right, "throttle", rv))
 
     def _read_distance_cm(self) -> float | None:
         if self._distance_sensor is None:
@@ -363,6 +429,11 @@ class AdeeptRobotController(RobotController):
         L'ultrason est vérifié toutes les ~0.4 s pendant le déplacement
         (l'obstacle peut surgir en cours de segment, pas seulement avant).
         """
+        # Suiveur de ligne virtuel CONTINU (prioritaire) : roulage fluide +
+        # redressement permanent pour rester centré sur la ligne.
+        if self._line_follow and correct_heading:
+            self._drive_line_follow(duration, check_obstacles)
+            return
         # Mode pulsé : délègue (roule par à-coups en régime contrôlable).
         if self._straight_pulse and correct_heading:
             self._drive_pulsed(duration, check_obstacles)
@@ -499,6 +570,86 @@ class AdeeptRobotController(RobotController):
         # Frein actif + arrêt franc.
         if self._brake_pulse_s > 0:
             self._throttle(-self._pulse_throttle * 0.6)
+            time.sleep(self._brake_pulse_s)
+        self._throttle(0.0)
+
+    def _ramp_throttle(self, start: float, target: float, secs: float) -> None:
+        """Rampe LINÉAIRE de throttle sur `secs` (anti-à-coup au départ/arrêt)."""
+        if secs <= 0:
+            self._throttle(target)
+            return
+        steps = max(1, int(secs / 0.03))
+        for i in range(1, steps + 1):
+            self._throttle(start + (target - start) * i / steps)
+            time.sleep(secs / steps)
+
+    def _drive_line_follow(self, duration: float, check_obstacles: bool = True) -> None:
+        """
+        SUIVEUR DE LIGNE VIRTUEL CONTINU. Le segment courant EST la ligne :
+        le robot roule EN CONTINU (démarrage/arrêt en rampe → zéro à-coup) et se
+        redresse en PERMANENCE pour rester CENTRÉ sur la ligne. Asservissement
+        combiné (style Stanley), cible : écart de cap ET écart latéral = 0 :
+          • cap   = ∫ gyro                 → erreur angulaire vs la ligne (°)
+          • écart = ∫ v·sin(cap)·dt        → décalage latéral estimé (m)
+          corr = Kp·cap + Kcross·écart + Kd·taux  (borné, signe châssis appliqué).
+        À la différence du crawl continu (zone morte → gyro aveugle, braquage
+        sans autorité), on roule à LINE_THROTTLE, dans le régime contrôlable.
+        """
+        import math
+        center = self._steer_center + self._steer_trim
+        self._set_angle(self._steer_ch, center)
+        hold = self._gyro is not None
+        v = abs(self._speed_mps) or 0.1
+        heading_dev = 0.0          # erreur de cap intégrée (°)
+        cross = 0.0                # écart latéral estimé (m)
+        dev_clamp = self._heading_max_corr / max(0.1, self._line_kp)
+        end = time.monotonic() + max(0.0, duration)
+        corr = 0.0
+        n = 0
+        # Démarrage en rampe douce (anti-à-coup) puis croisière continue.
+        self._ramp_throttle(0.0, self._line_throttle, self._line_ramp_s)
+        last = time.monotonic()
+        while time.monotonic() < end:
+            if check_obstacles:
+                self._ensure_path_clear()
+            time.sleep(0.02)
+            now = time.monotonic()
+            dt = now - last
+            last = now
+            if hold:
+                rate = self._gyro.rate_dps()
+                heading_dev += rate * dt
+                heading_dev = max(-dev_clamp, min(dev_clamp, heading_dev))
+                cross += v * math.sin(math.radians(heading_dev)) * dt
+                cross = max(-self._line_cross_clamp, min(self._line_cross_clamp, cross))
+                err = heading_dev + self._line_kcross * cross
+                corr = self._heading_sign * (self._line_kp * err
+                                             + self._heading_kd * rate)
+                corr = max(-self._heading_max_corr, min(self._heading_max_corr, corr))
+                self._set_angle(self._steer_ch, center - corr)
+                # DIFFÉRENTIEL : à basse vitesse le volant ne mord pas, mais une
+                # roue plus lente que l'autre fait pivoter le robot. On RALENTIT
+                # SEULEMENT la roue intérieure (jamais accélérer l'extérieure
+                # au-delà de la base) → vitesse PLAFONNÉE à la base (pas de
+                # survitesse, pas de roue qui cale pendant que l'autre s'emballe),
+                # et tourner ralentit le robot (bon pour rester précis). corr>0 =
+                # redressement à GAUCHE → on ralentit la roue GAUCHE.
+                if self._line_diff > 0:
+                    d = self._line_diff * (corr / self._heading_max_corr)  # signé
+                    base = self._line_throttle
+                    if d >= 0:   # tourner à gauche : ralentir la roue gauche
+                        self._throttle_lr(base * (1.0 - d), base)
+                    else:        # tourner à droite : ralentir la roue droite
+                        self._throttle_lr(base, base * (1.0 + d))
+            n += 1
+            if self._heading_debug and n % 15 == 0:
+                _log(f"ligne: cap={heading_dev:+.1f}° écart={cross * 100:+.1f}cm "
+                     f"corr={corr:+.1f}° braquage={center - corr:.0f}°")
+        # Arrêt en rampe douce + frein léger (toujours sans à-coup).
+        self._ramp_throttle(self._line_throttle, 0.0, self._line_ramp_s)
+        self._set_angle(self._steer_ch, center)
+        if self._brake_pulse_s > 0:
+            self._throttle(-self._line_throttle * 0.4)
             time.sleep(self._brake_pulse_s)
         self._throttle(0.0)
 
@@ -721,13 +872,22 @@ class AdeeptRobotController(RobotController):
         arc_backup = self._turn_mode != "pivot" and self._turn_backup_m > 0
         arc_advance = 0.0 if (in_place_turn or arc_backup) else self._turn_advance_m
         pending_arc_advance = 0.0
+        just_turned = False
         for kind, value in legs:
             if kind == "turn":
                 self._turn_to(str(value))
                 pending_arc_advance = arc_advance
+                just_turned = True
             else:
                 dist_plan = float(value)
                 dist_phys = dist_plan * self._world_scale
+                # Segment qui suit IMMÉDIATEMENT un virage : distance réduite
+                # (POST_TURN_LEG_SCALE) — demandé pour resserrer le serpentin et
+                # compenser une éventuelle avance résiduelle du pivot.
+                if just_turned and self._post_turn_scale != 1.0:
+                    dist_phys *= self._post_turn_scale
+                    _log(f"segment post-virage : ×{self._post_turn_scale:.2f}")
+                just_turned = False
                 if pending_arc_advance > 0:
                     comp = min(pending_arc_advance, dist_phys)
                     dist_phys -= comp
