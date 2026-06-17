@@ -235,18 +235,21 @@ def _build_system_prompt(
         "y compris en expliquant en détail quand on te le demande. Règles : "
         "(1) Pour tout ce qui concerne CE sol précis (son état, sa correction, la "
         "culture adaptée), appuie-toi STRICTEMENT sur les mesures et le diagnostic "
-        "ci-dessus : n'invente jamais de chiffres ni de mesures, et ne mentionne jamais "
-        "N/P/K. "
+        "ci-dessus : n'invente jamais de mesures, et ne mentionne jamais N/P/K. "
+        "IMPORTANT : ne CITE JAMAIS les valeurs chiffrées (aucun nombre — pas de pH "
+        "chiffré, pas de pourcentage d'humidité, pas de °C, pas de mS/cm). Décris "
+        "l'état du sol UNIQUEMENT avec des termes QUALITATIFS : « élevé », « faible », "
+        "« correct », « trop acide », « trop salé », « limite », « idéal »… "
+        "L'agriculteur veut comprendre l'état et quoi faire, pas lire des nombres. "
         "(2) Pour les questions agronomiques générales (bonnes pratiques, comment faire, "
         "pourquoi, quand semer/irriguer/amender…), donne des explications claires et "
         "pédagogiques fondées sur des connaissances agricoles établies. "
-        "(3) Sois CONCIS et vas droit au but : par défaut 1 à 2 phrases courtes "
-        "(une seule idée par phrase, pas de remplissage, pas de répétition de la "
-        "question). Donne le chiffre ou l'action utile, sans préambule. Développe "
-        "SEULEMENT si l'agriculteur demande explicitement une explication, un "
-        "« pourquoi », un « comment » ou plus de détails — et même là, reste bref : "
-        "100 mots maximum, 4 points maximum, et termine toujours par une phrase "
-        "complète (jamais coupée). "
+        "(3) Donne des recommandations DÉTAILLÉES et bien EXPLIQUÉES : dis clairement "
+        "le POURQUOI (quel paramètre du sol est en cause, qualitativement, et son effet "
+        "sur la culture choisie) puis le COMMENT (les actions concrètes à appliquer, "
+        "étape par étape). Sois pédagogique et structuré, mais reste lisible : jusqu'à "
+        "environ 200 mots et 6 points si nécessaire, et termine TOUJOURS par une phrase "
+        "complète (jamais coupée en milieu). "
         "(4) Si le message n'a aucun rapport avec l'agriculture ou le champ, réoriente "
         "poliment l'agriculteur vers ton rôle en une phrase, sans le brusquer. "
         "(5) Si une culture mieux adaptée au sol est indiquée, mentionne-la. "
@@ -367,11 +370,10 @@ async def generate_expert_response(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.4,
-            # Réponses CONCISES par défaut (cf. prompt : 1-2 phrases, détaillé ≤ 100
-            # mots). 512 tokens suffisent largement et réduisent nettement la latence
-            # (surtout en arabe/darija, plus coûteux en tokens). Assez pour terminer
-            # une phrase sans coupure.
-            "maxOutputTokens": 512,
+            # Mode DÉTAILLÉ (cf. prompt : recommandations expliquées, ~200 mots / 6
+            # points, sans citer de chiffres). 900 tokens laissent terminer une
+            # réponse arabe/darija complète (plus coûteuse en tokens) sans coupure.
+            "maxOutputTokens": 900,
             # Désactive le mode "thinking" des modèles Gemini 2.5 : pour une
             # réponse courte, le raisonnement interne consommerait tout le
             # budget de tokens (réponse tronquée / vide) et ajoute de la latence.
