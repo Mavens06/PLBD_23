@@ -1,4 +1,21 @@
-const API_BASE = (window.AGRIBOTICS_API_BASE || 'http://localhost:8000/api').replace(/\/$/, '');
+// Base de l'API backend. Par défaut, on dérive l'hôte de la PAGE servie : si
+// l'interface est ouverte depuis http://<ip-de-la-pi>:5500, le backend visé est
+// http://<ip-de-la-pi>:8000 — l'app fonctionne donc depuis n'importe quel
+// appareil du réseau (PC, tablette), pas seulement sur la Pi en local.
+// Surcharge possible via window.AGRIBOTICS_API_BASE. Repli localhost en file://.
+// Dérivation de l'URL de l'API :
+//  • dev (frontend servi à part sur :5500/:5501) → backend sur le même hôte:8000 ;
+//  • prod / tunnel HTTPS (frontend servi PAR le backend, origine unique) →
+//    MÊME ORIGINE + /api (sinon une PWA HTTPS ne peut pas appeler http://IP:8000).
+//  • file:// → repli localhost.
+// Surcharge possible via window.AGRIBOTICS_API_BASE.
+const _isHttp = location.protocol.startsWith('http');
+const _devSplit = _isHttp && (location.port === '5500' || location.port === '5501');
+const API_BASE = (window.AGRIBOTICS_API_BASE
+  || (!_isHttp ? 'http://localhost:8000/api'
+      : _devSplit ? `${location.protocol}//${location.hostname}:8000/api`
+      : `${location.origin}/api`)
+).replace(/\/$/, '');
 
 async function fetchJSON(path, opts = {}) {
   const r = await fetch(API_BASE + path, opts);
@@ -13,12 +30,22 @@ async function syncFromBackend() {
   ]);
 
   if (mission.status === 'fulfilled' && mission.value.robot) {
-    const r = mission.value.robot;
+    const mv = mission.value;
+    // Adopter le plan du backend (défini via l'UI puis exécuté par le robot) :
+    // la carte reflète exactement les points que le robot va mesurer.
+    if (Array.isArray(mv.plan) && mv.plan.length) {
+      const sameLabels =
+        mv.plan.length === APP_STATE.plan.length &&
+        mv.plan.every((p, i) => p.label === APP_STATE.plan[i].label
+          && p.x === APP_STATE.plan[i].x && p.y === APP_STATE.plan[i].y);
+      if (!sameLabels) applyPlanPoints(mv.plan);
+    }
+    const r = mv.robot;
     APP_STATE.robot.status = r.status || APP_STATE.robot.status;
     APP_STATE.robot.activePoint = r.active_point || r.activePoint || APP_STATE.robot.activePoint;
     APP_STATE.robot.progress = Number(r.progress_pct ?? r.progress ?? APP_STATE.robot.progress);
-    APP_STATE.robot.measuredPoints = Number(mission.value.measured_points ?? APP_STATE.robot.measuredPoints);
-    APP_STATE.robot.totalPoints = Number(mission.value.total_points ?? APP_STATE.robot.totalPoints);
+    APP_STATE.robot.measuredPoints = Number(mv.measured_points ?? APP_STATE.robot.measuredPoints);
+    APP_STATE.robot.totalPoints = Number(mv.total_points ?? APP_STATE.robot.totalPoints);
   }
 
   if (measurements.status === 'fulfilled') {
@@ -44,6 +71,7 @@ async function syncFromBackend() {
 
 async function postBackend(path, payload = {}) {
   const headers = { 'Content-Type': 'application/json' };
+  // Clé API optionnelle : envoyée seulement si le backend l'exige (window.AGRIBOTICS_API_KEY).
   if (window.AGRIBOTICS_API_KEY) headers['X-API-Key'] = window.AGRIBOTICS_API_KEY;
   return fetchJSON(path, {
     method: 'POST',
@@ -52,22 +80,44 @@ async function postBackend(path, payload = {}) {
   });
 }
 
-// Météo (Open-Meteo en direct — API publique sans clé, CORS autorisé). Affine
-// l'irrigation. Localisation par défaut : plaine du Saïss (Maroc). Repli silencieux.
+// Météo (Open-Meteo via le backend) — affine l'irrigation. Repli silencieux.
 window.fetchWeather = async function () {
   try {
-    const lat = window.AGRIBOTICS_LAT || 33.9, lon = window.AGRIBOTICS_LON || -5.55;
-    const url = `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}`
-      + `&daily=precipitation_sum,temperature_2m_max&forecast_days=3&timezone=auto`;
-    const d = await (await fetch(url)).json();
-    const rain = (d.daily && d.daily.precipitation_sum) || [];
-    const rain3d = rain.reduce((s, v) => s + (v || 0), 0);
-    APP_STATE.weather = {
-      available: true,
-      rain3d: Math.round(rain3d * 10) / 10,
-      tmax: ((d.daily && d.daily.temperature_2m_max) || [])[0],
-    };
+    const w = await fetchJSON('/weather');
+    APP_STATE.weather = (w && w.available)
+      ? { available: true, rain3d: w.rain_3d_mm, tmax: w.tmax }
+      : { available: false };
   } catch (_) {
     APP_STATE.weather = { available: false };
+  }
+};
+
+// Diagnostic de correction faisant autorité, calculé par le backend
+// (rules.correction). Normalisé pour renderDiagnostic(). Repli silencieux
+// sur le rendu local si le backend est injoignable.
+const _CORR_UNIT  = { ph:'', humidity:'%', temperature:'°C', ec:' mS/cm' };
+const _CORR_LABEL = { ph:'ph', humidity:'humidity', temperature:'temperature', ec:'mapEc' };
+
+window.fetchCorrection = async function (zone, crop) {
+  const data = APP_STATE.fieldData[zone];
+  if (!data) return null;
+  try {
+    const r = await fetchJSON(`/recommendation/${zone}/correction?crop=${encodeURIComponent(crop)}`);
+    const items = (r.diagnostics || []).map((d) => ({
+      label: t(_CORR_LABEL[d.variable] || d.variable),
+      val: d.value,
+      unit: _CORR_UNIT[d.variable] ?? '',
+      range: d.range,
+      status: d.status === 'ok' ? 'good' : d.status,   // ok | low | high
+    }));
+    const local = {
+      crop: r.target_crop || crop,
+      compatibility: Math.round(r.compatibility),
+      items,
+      betterSuited: (r.better_suited || []).map((b) => ({ name: b.crop, score: Math.round(b.score) })),
+    };
+    return { local, actions: recommendActionsForZone(data, crop) };
+  } catch (_) {
+    return null;
   }
 };

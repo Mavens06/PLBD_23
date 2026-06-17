@@ -42,10 +42,14 @@
   // ouverte depuis http://<ip-pi>:5500 parle au backend http://<ip-pi>:8000.
   // Sans ça, le chatbot visait localhost:8000 = la machine du navigateur, d'où
   // « backend non joignable » depuis un PC/tablette.
-  const _chatHost = (location.protocol.startsWith("http") && location.hostname)
-    ? location.hostname : "localhost";
+  // Même règle que api.js : dev (:5500/:5501) → hôte:8000 ; prod/tunnel HTTPS
+  // (origine unique servie par le backend) → même origine + /api ; file:// → localhost.
+  const _isHttpChat = location.protocol.startsWith("http");
+  const _devSplitChat = _isHttpChat && (location.port === "5500" || location.port === "5501");
   const CHAT_API_BASE = (window.AGRIBOTICS_API_BASE
-    || `${location.protocol.startsWith("http") ? location.protocol : "http:"}//${_chatHost}:8000/api`
+    || (!_isHttpChat ? "http://localhost:8000/api"
+        : _devSplitChat ? `${location.protocol}//${location.hostname}:8000/api`
+        : `${location.origin}/api`)
   ).replace(/\/$/, "");
 
   function safeAverage() {

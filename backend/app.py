@@ -167,9 +167,10 @@ def _first_not_none(*values):
 # Routes
 # ---------------------------------------------------------------------------
 
-@app.get("/")
+@app.get("/info")
 def read_root():
-    """Vérifie que le serveur est en cours d'exécution."""
+    """Infos serveur + config LLM (l'ancienne route `/` ; `/` sert maintenant
+    le frontend statique pour une origine UNIQUE, cf. montage en fin de fichier)."""
     cfg = _llm_config()
     return {
         "message": "Agribotics backend is running",
@@ -574,3 +575,22 @@ def get_soil_correction(point: str, crop: str):
     rule_m = RuleMeasurement(ph=m.ph, humidity=m.humidity,
                              temperature=m.temp, ec=m.ec)
     return {"point": point, "measurement": m.as_dict(), **diagnose(rule_m, crop)}
+
+
+# ---------------------------------------------------------------------------
+# Service du frontend (PWA) par le backend — ORIGINE UNIQUE
+# ---------------------------------------------------------------------------
+# Sert l'interface ET l'API derrière la même origine (un seul port). Indispensable
+# pour un tunnel HTTPS (cloudflared) : une PWA servie en HTTPS ne peut pas appeler
+# un backend en http://IP:8000 (mixed-content bloqué). Monté EN DERNIER → les
+# routes /api, /health, /info, /docs… ont la priorité ; le reste (HTML/CSS/JS/
+# assets/manifest/sw.js) est servi en statique. En accès direct LAN (:5500), le
+# frontend continue de viser :8000 (cf. api.js) — ce montage ne gêne pas.
+from fastapi.staticfiles import StaticFiles as _StaticFiles
+
+_FRONTEND_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "frontend", "frontend_real_backend",
+)
+if os.path.isdir(_FRONTEND_DIR):
+    app.mount("/", _StaticFiles(directory=_FRONTEND_DIR, html=True), name="frontend")

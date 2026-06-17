@@ -3,10 +3,18 @@
 // http://<ip-de-la-pi>:8000 — l'app fonctionne donc depuis n'importe quel
 // appareil du réseau (PC, tablette), pas seulement sur la Pi en local.
 // Surcharge possible via window.AGRIBOTICS_API_BASE. Repli localhost en file://.
-const _apiHost = (location.protocol.startsWith('http') && location.hostname)
-  ? location.hostname : 'localhost';
+// Dérivation de l'URL de l'API :
+//  • dev (frontend servi à part sur :5500/:5501) → backend sur le même hôte:8000 ;
+//  • prod / tunnel HTTPS (frontend servi PAR le backend, origine unique) →
+//    MÊME ORIGINE + /api (sinon une PWA HTTPS ne peut pas appeler http://IP:8000).
+//  • file:// → repli localhost.
+// Surcharge possible via window.AGRIBOTICS_API_BASE.
+const _isHttp = location.protocol.startsWith('http');
+const _devSplit = _isHttp && (location.port === '5500' || location.port === '5501');
 const API_BASE = (window.AGRIBOTICS_API_BASE
-  || `${location.protocol.startsWith('http') ? location.protocol : 'http:'}//${_apiHost}:8000/api`
+  || (!_isHttp ? 'http://localhost:8000/api'
+      : _devSplit ? `${location.protocol}//${location.hostname}:8000/api`
+      : `${location.origin}/api`)
 ).replace(/\/$/, '');
 
 async function fetchJSON(path, opts = {}) {
