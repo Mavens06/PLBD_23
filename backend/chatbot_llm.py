@@ -240,12 +240,13 @@ def _build_system_prompt(
         "(2) Pour les questions agronomiques générales (bonnes pratiques, comment faire, "
         "pourquoi, quand semer/irriguer/amender…), donne des explications claires et "
         "pédagogiques fondées sur des connaissances agricoles établies. "
-        "(3) Adapte la longueur : par défaut 2 à 4 phrases concrètes ; mais si "
-        "l'agriculteur demande une explication, un « pourquoi », un « comment » ou plus "
-        "de détails, DÉVELOPPE en étapes pratiques simples à appliquer. Même en mode "
-        "détaillé, reste SYNTHÉTIQUE : environ 250 mots maximum, 6 points maximum, et "
-        "TERMINE toujours par une courte phrase de conclusion (ne laisse jamais une "
-        "réponse coupée en milieu de phrase). "
+        "(3) Sois CONCIS et vas droit au but : par défaut 1 à 2 phrases courtes "
+        "(une seule idée par phrase, pas de remplissage, pas de répétition de la "
+        "question). Donne le chiffre ou l'action utile, sans préambule. Développe "
+        "SEULEMENT si l'agriculteur demande explicitement une explication, un "
+        "« pourquoi », un « comment » ou plus de détails — et même là, reste bref : "
+        "100 mots maximum, 4 points maximum, et termine toujours par une phrase "
+        "complète (jamais coupée). "
         "(4) Si le message n'a aucun rapport avec l'agriculture ou le champ, réoriente "
         "poliment l'agriculteur vers ton rôle en une phrase, sans le brusquer. "
         "(5) Si une culture mieux adaptée au sol est indiquée, mentionne-la. "
@@ -366,10 +367,11 @@ async def generate_expert_response(
         "contents": contents,
         "generationConfig": {
             "temperature": 0.4,
-            # Assez large pour des explications détaillées complètes (sans coupure
-            # en milieu de phrase) quand l'agriculteur en demande, sans être illimité
-            # (coût/latence). Réponses courtes par défaut.
-            "maxOutputTokens": 1100,
+            # Réponses CONCISES par défaut (cf. prompt : 1-2 phrases, détaillé ≤ 100
+            # mots). 512 tokens suffisent largement et réduisent nettement la latence
+            # (surtout en arabe/darija, plus coûteux en tokens). Assez pour terminer
+            # une phrase sans coupure.
+            "maxOutputTokens": 512,
             # Désactive le mode "thinking" des modèles Gemini 2.5 : pour une
             # réponse courte, le raisonnement interne consommerait tout le
             # budget de tokens (réponse tronquée / vide) et ajoute de la latence.

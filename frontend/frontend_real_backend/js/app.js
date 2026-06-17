@@ -393,10 +393,26 @@ function _injectChatStyles() {
   @keyframes fabPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.7}}
   .chat-panel{position:fixed;right:18px;bottom:84px;width:min(440px,94vw);height:min(640px,80vh);background:#fff;border-radius:18px;box-shadow:0 16px 44px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;z-index:61;transform:translateY(16px) scale(.96);opacity:0;pointer-events:none;transition:transform .2s,opacity .2s}
   .chat-panel.open{transform:none;opacity:1;pointer-events:auto}
-  .chat-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#3b7a44,#2f6437);color:#fff;font-weight:800;font-size:14px}
-  .chat-close{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px}
-  .chat-close:hover{background:rgba(255,255,255,.34)}
-  .chat-panel .chatbot-card{box-shadow:none;border-radius:0;margin:0;flex:1;min-height:0;overflow:auto}`;
+  .chat-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#3b7a44,#2f6437);color:#fff;font-weight:800;font-size:14px;cursor:move;user-select:none}
+  .chat-head-actions{display:flex;gap:6px;align-items:center}
+  .chat-close,.chat-icon-btn{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px}
+  .chat-close:hover,.chat-icon-btn:hover{background:rgba(255,255,255,.34)}
+  .chat-panel .chatbot-card{box-shadow:none;border-radius:0;margin:0;flex:1;min-height:0;overflow:auto}
+  /* Poignée de redimensionnement (coin bas-droit) */
+  .chat-resize{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;z-index:62;background:linear-gradient(135deg,transparent 45%,rgba(59,122,68,.35) 45%,rgba(59,122,68,.6));border-bottom-right-radius:18px}
+  /* Suggestions de suivi (texte faible, validables/effaçables) */
+  .chat-followups{display:flex;flex-wrap:wrap;gap:6px;padding:8px 4px 2px}
+  .chat-followup{background:transparent;border:1px dashed #b9cdb9;color:#7c8a7c;font-size:12px;padding:5px 10px;border-radius:14px;cursor:pointer;opacity:.72;transition:opacity .15s,background .15s,color .15s,border-style .15s;font-family:inherit}
+  .chat-followup:hover{opacity:1;background:#eef5ee;color:#2f7a3a;border-style:solid}
+  .chat-followup.dismiss{border-color:#e6c9c9;color:#b85c5c;opacity:.6;padding:5px 9px}
+  /* Vue historique (conversations archivées) */
+  .chat-hist-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 2px 10px;border-bottom:1px solid #eee;margin-bottom:8px;font-weight:800;color:#2f6437;font-size:13px}
+  .chat-hist-back{background:#eef5ee;border:1px solid #cfe0cf;color:#2f7a3a;border-radius:8px;padding:4px 10px;cursor:pointer;font-weight:700;font-size:12px}
+  .chat-hist-sep{font-size:11px;color:#9aa79a;text-align:center;margin:12px 0 4px;font-weight:700}
+  .chat-bubble.archived{opacity:.85}
+  /* Bouton voix : indicateur d'état muté (🔇 rouge) vs activé (🔊) */
+  #muteBtn{transition:background .15s,color .15s,box-shadow .15s}
+  #muteBtn.muted{background:#fbeceb;color:#c0392b;box-shadow:inset 0 0 0 1.5px #e6b3ae}`;
   document.head.appendChild(s);
 }
 
@@ -411,12 +427,18 @@ function setupChatLauncher() {
 
   const head = document.createElement('div');
   head.className = 'chat-panel-head';
-  head.innerHTML = `<span>🚜 Agri-Botics</span><button class="chat-close" onclick="toggleChatPanel()" aria-label="Fermer">✕</button>`;
+  head.innerHTML = `<span>🚜 Agri-Botics</span>
+    <div class="chat-head-actions">
+      <button class="chat-icon-btn" onclick="openChatHistory()" title="Historique" aria-label="Historique">🕘</button>
+      <button class="chat-close" onclick="toggleChatPanel()" aria-label="Fermer">✕</button>
+    </div>`;
   panel.appendChild(head);
   panel.appendChild(card);
   // Le panneau vit au niveau du <body> (position:fixed) et NON dans une page :
   // sinon il est masqué quand on quitte l'onglet Terrain (carte / conseils).
   document.body.appendChild(panel);
+  // Déplaçable (drag par l'en-tête) + redimensionnable (poignée bas-droit).
+  _enableChatDragResize(panel, head);
 
   const fab = document.createElement('button');
   fab.id = 'chatFab';
@@ -433,6 +455,80 @@ function toggleChatPanel() {
   if (!p) return;
   const open = p.classList.toggle('open');
   if (f) f.classList.toggle('active', open);
+}
+
+// Rend le panneau chatbot DÉPLAÇABLE (drag par l'en-tête) et REDIMENSIONNABLE
+// (poignée bas-droit). Au 1er geste, on "épingle" le panneau en left/top/width/
+// height (au lieu de right/bottom ancrés) pour que déplacement et resize soient
+// naturels. Compatible souris + tactile.
+function _enableChatDragResize(panel, head) {
+  let pinned = false;
+  function pin() {
+    if (pinned) return;
+    const r = panel.getBoundingClientRect();
+    panel.style.left = r.left + 'px'; panel.style.top = r.top + 'px';
+    panel.style.right = 'auto'; panel.style.bottom = 'auto';
+    panel.style.width = r.width + 'px'; panel.style.height = r.height + 'px';
+    pinned = true;
+  }
+  const clampX = (x) => Math.max(4, Math.min(window.innerWidth - 60, x));
+  const clampY = (y) => Math.max(4, Math.min(window.innerHeight - 60, y));
+
+  function startDrag(cx, cy, isTouch) {
+    pin();
+    const r = panel.getBoundingClientRect();
+    const ox = cx - r.left, oy = cy - r.top;
+    const move = (ev) => {
+      const pt = isTouch ? ev.touches[0] : ev;
+      if (!pt) return;
+      panel.style.left = clampX(pt.clientX - ox) + 'px';
+      panel.style.top = clampY(pt.clientY - oy) + 'px';
+      if (isTouch && ev.cancelable) ev.preventDefault();
+    };
+    const end = () => {
+      document.removeEventListener(isTouch ? 'touchmove' : 'mousemove', move);
+      document.removeEventListener(isTouch ? 'touchend' : 'mouseup', end);
+    };
+    document.addEventListener(isTouch ? 'touchmove' : 'mousemove', move, { passive: false });
+    document.addEventListener(isTouch ? 'touchend' : 'mouseup', end);
+  }
+
+  head.addEventListener('mousedown', (e) => {
+    if (e.target.closest('button')) return;   // boutons 🕘 / ✕ : pas de drag
+    startDrag(e.clientX, e.clientY, false);
+    e.preventDefault();
+  });
+  head.addEventListener('touchstart', (e) => {
+    if (e.target.closest('button')) return;
+    const t0 = e.touches[0];
+    if (t0) startDrag(t0.clientX, t0.clientY, true);
+  }, { passive: true });
+
+  // Poignée de redimensionnement (coin bas-droit).
+  const handle = document.createElement('div');
+  handle.className = 'chat-resize';
+  handle.title = 'Redimensionner';
+  panel.appendChild(handle);
+  function startResize(cx, cy, isTouch) {
+    pin();
+    const r = panel.getBoundingClientRect();
+    const w0 = r.width, h0 = r.height;
+    const move = (ev) => {
+      const pt = isTouch ? ev.touches[0] : ev;
+      if (!pt) return;
+      panel.style.width = Math.max(280, Math.min(window.innerWidth - 20, w0 + (pt.clientX - cx))) + 'px';
+      panel.style.height = Math.max(320, Math.min(window.innerHeight - 20, h0 + (pt.clientY - cy))) + 'px';
+      if (isTouch && ev.cancelable) ev.preventDefault();
+    };
+    const end = () => {
+      document.removeEventListener(isTouch ? 'touchmove' : 'mousemove', move);
+      document.removeEventListener(isTouch ? 'touchend' : 'mouseup', end);
+    };
+    document.addEventListener(isTouch ? 'touchmove' : 'mousemove', move, { passive: false });
+    document.addEventListener(isTouch ? 'touchend' : 'mouseup', end);
+  }
+  handle.addEventListener('mousedown', (e) => { startResize(e.clientX, e.clientY, false); e.preventDefault(); e.stopPropagation(); });
+  handle.addEventListener('touchstart', (e) => { const t0 = e.touches[0]; if (t0) startResize(t0.clientX, t0.clientY, true); e.stopPropagation(); }, { passive: true });
 }
 
 document.addEventListener('DOMContentLoaded', () => {

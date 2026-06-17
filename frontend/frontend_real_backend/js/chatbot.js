@@ -8,6 +8,36 @@
 (function () {
   window.CHATBOT_SPEAK = window.CHATBOT_SPEAK !== false;
 
+  // --- Déverrouillage audio (politique d'autoplay des navigateurs) ----------
+  // audio.play() programmatique est BLOQUÉ tant que l'utilisateur n'a pas
+  // interagi avec la page → c'est la cause n°1 du « je parle mais aucune voix ».
+  // On réutilise UN seul élément <audio> qu'on « déverrouille » au 1er geste
+  // (clic / touche / parole) en jouant un son muet ; les lectures TTS suivantes
+  // passent alors sans blocage, même déclenchées de façon asynchrone.
+  let _ttsEl = null;
+  let _audioUnlocked = false;
+  function _ttsAudioEl() {
+    if (!_ttsEl) { _ttsEl = new Audio(); _ttsEl.preload = "auto"; }
+    return _ttsEl;
+  }
+  function _unlockAudio() {
+    if (_audioUnlocked) return;
+    const el = _ttsAudioEl();
+    try {
+      el.muted = true;
+      el.src = "data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=";
+      const p = el.play();
+      if (p && p.then) {
+        p.then(() => { el.pause(); el.currentTime = 0; el.muted = false; _audioUnlocked = true; })
+         .catch(() => { el.muted = false; });
+      } else { el.muted = false; _audioUnlocked = true; }
+    } catch (_) { _audioUnlocked = true; }
+  }
+  if (typeof document !== "undefined") {
+    ["click", "keydown", "touchstart"].forEach((ev) =>
+      document.addEventListener(ev, _unlockAudio, { capture: true }));
+  }
+
   // Base de l'API dérivée de l'hôte de la page (cf. api.js) : l'interface
   // ouverte depuis http://<ip-pi>:5500 parle au backend http://<ip-pi>:8000.
   // Sans ça, le chatbot visait localhost:8000 = la machine du navigateur, d'où
@@ -199,7 +229,7 @@
     }).then((blob) => {
       window.stopBotVoice();                  // coupe toute lecture en cours
       const url = URL.createObjectURL(blob);
-      const audio = new Audio(url);
+      const audio = _ttsAudioEl();            // élément persistant DÉVERROUILLÉ
       window._ttsAudio = audio;
       const cleanup = () => {
         URL.revokeObjectURL(url);
@@ -209,8 +239,20 @@
       };
       audio.onended = cleanup;
       audio.onerror = cleanup;
+      audio.muted = false;
+      audio.src = url;
       setVoiceState("speaking");
-      return audio.play();
+      const p = audio.play();
+      // Si la lecture est REFUSÉE (autoplay non déverrouillé), on prévient
+      // l'utilisateur au lieu de rester muet — un geste (toucher) débloquera.
+      return (p && p.catch) ? p.catch((err) => {
+        setVoiceState("idle");
+        showToast((window.currentLang || "fr") === "fr"
+          ? "🔊 Touchez l'écran puis renvoyez pour entendre la voix"
+          : "🔊 المس الشاشة ثم أعد الإرسال لسماع الصوت");
+        done();
+        throw err;
+      }) : undefined;
     });
   }
 
@@ -275,32 +317,183 @@
     if (window._ttsAudio) { try { window._ttsAudio.pause(); } catch (_) {} window._ttsAudio = null; }
   };
 
+  // Met à jour l'icône + le libellé du bouton de coupure de voix selon l'état
+  // (🔊 = voix activée · 🔇 = voix coupée). Multilingue.
+  function _updateMuteBtn() {
+    const b = document.getElementById("muteBtn");
+    if (!b) return;
+    const on = window.CHATBOT_SPEAK;
+    const lang = window.currentLang || "fr";
+    b.textContent = on ? "🔊" : "🔇";
+    b.classList.toggle("muted", !on);
+    b.setAttribute("aria-pressed", String(!on));
+    const TT = on
+      ? { fr: "Voix activée — couper", ar: "الصوت مفعّل — كتم", da: "الصوت خدام — سكّت" }
+      : { fr: "Voix coupée — activer", ar: "الصوت مكتوم — تفعيل", da: "الصوت مسكوت — فعّل" };
+    b.title = TT[lang] || TT.fr;
+  }
+  window._updateMuteBtn = _updateMuteBtn;
+
+  // Repère le bouton de voix existant (🔇 dans la barre de saisie) et le
+  // convertit en BASCULE muet/activé avec indicateur d'état.
+  function _setupMuteButton() {
+    let b = document.getElementById("muteBtn");
+    if (!b) {
+      // Le bouton HTML existant (onclick stopBotVoice, emoji 🔇) → on l'adopte.
+      const candidates = Array.from(document.querySelectorAll(".chat-input-row .mic-btn"));
+      b = candidates.find((el) => el.id !== "micBtn" && /🔇|🔊/.test(el.textContent));
+      if (!b) return;
+      b.id = "muteBtn";
+    }
+    b.onclick = window.toggleVoiceReply;
+    _updateMuteBtn();
+  }
+  window._setupMuteButton = _setupMuteButton;
+
   window.toggleVoiceReply = function () {
     window.CHATBOT_SPEAK = !window.CHATBOT_SPEAK;
-    showToast(window.CHATBOT_SPEAK ? "Réponse vocale activée" : "Réponse vocale désactivée");
+    // Couper = stopper aussi toute lecture en cours (sinon la phrase finit).
+    if (!window.CHATBOT_SPEAK) window.stopBotVoice();
+    _updateMuteBtn();
+    const lang = window.currentLang || "fr";
+    const ON = { fr: "Réponse vocale activée", ar: "تم تفعيل الرد الصوتي", da: "تفعّل الرد الصوتي" };
+    const OFF = { fr: "Réponse vocale coupée", ar: "تم كتم الرد الصوتي", da: "تسكّت الرد الصوتي" };
+    showToast((window.CHATBOT_SPEAK ? ON : OFF)[lang] || (window.CHATBOT_SPEAK ? ON.fr : OFF.fr));
   };
 
   // -- Mémoire de conversation (envoyée au backend pour le suivi multi-tours) --
   window.chatHistory = window.chatHistory || [];
 
-  // Vide la conversation : supprime toutes les bulles, réinitialise l'historique
-  // multi-tours et restaure le message d'accueil dans la langue COURANTE.
-  // Appelé (1) au changement de langue — on ne mélange jamais deux langues dans
-  // un même fil — et (2) au lancement d'une nouvelle mission (plateforme remise à
-  // zéro). Coupe aussi toute lecture vocale en cours.
-  window.clearChat = function () {
-    try { window.stopBotVoice && window.stopBotVoice(); } catch (_) {}
-    window.chatHistory = [];
-    const box = document.getElementById("chatMessages");
-    if (!box) return;
-    box.innerHTML = "";
+  // -- Archive des conversations : au lieu de DÉTRUIRE le fil au vidage, on
+  //    l'archive (localStorage, plafonné) pour que l'utilisateur puisse relire
+  //    une ancienne réponse via le bouton 🕘 de l'en-tête du chat. -----------
+  const _ARCHIVE_KEY = "agribotics_chat_archive";
+  const _ARCHIVE_MAX = 15;
+  function _loadArchive() {
+    try { return JSON.parse(localStorage.getItem(_ARCHIVE_KEY) || "[]"); } catch (_) { return []; }
+  }
+  function _saveArchive(list) {
+    try { localStorage.setItem(_ARCHIVE_KEY, JSON.stringify(list.slice(-_ARCHIVE_MAX))); } catch (_) {}
+  }
+  function _archiveCurrent() {
+    const hist = window.chatHistory || [];
+    if (!hist.length) return;                       // rien à archiver
+    const list = _loadArchive();
+    list.push({ ts: Date.now(), lang: window.currentLang || "fr", messages: hist.slice() });
+    _saveArchive(list);
+  }
+
+  function _welcomeBubble(box) {
     const welcome = document.createElement("div");
     welcome.className = "chat-bubble bot";
     welcome.id = "chat-welcome";
     welcome.textContent = (typeof t === "function") ? t("chatWelcome")
       : "Bonjour ! Je peux expliquer les zones, les cultures et les actions à mener.";
     box.appendChild(welcome);
+  }
+
+  // Re-rend le fil COURANT (accueil + messages de window.chatHistory).
+  function _renderCurrent() {
+    _clearFollowups();
+    const box = document.getElementById("chatMessages");
+    if (!box) return;
+    box.innerHTML = "";
+    _welcomeBubble(box);
+    (window.chatHistory || []).forEach((m) => addMessage(m.content, m.role === "user" ? "user" : "bot"));
+    box.scrollTop = box.scrollHeight;
+  }
+
+  // Vide la conversation : ARCHIVE le fil courant (consultable), réinitialise
+  // l'historique multi-tours et restaure le message d'accueil dans la langue
+  // COURANTE. Appelé (1) au changement de langue — on ne mélange jamais deux
+  // langues — et (2) au lancement d'une nouvelle mission. Coupe la voix en cours.
+  window.clearChat = function () {
+    try { window.stopBotVoice && window.stopBotVoice(); } catch (_) {}
+    _archiveCurrent();                  // ← on garde une trace avant de vider
+    window.chatHistory = [];
+    _clearFollowups();
+    const box = document.getElementById("chatMessages");
+    if (!box) return;
+    box.innerHTML = "";
+    _welcomeBubble(box);
   };
+
+  // Ouvre la vue HISTORIQUE (conversations archivées, lecture seule).
+  window.openChatHistory = function () {
+    const box = document.getElementById("chatMessages");
+    if (!box) return;
+    const fr = (window.currentLang || "fr") === "fr";
+    const list = _loadArchive().slice().reverse();
+    _clearFollowups();
+    box.innerHTML = "";
+    const head = document.createElement("div");
+    head.className = "chat-hist-head";
+    const ttl = document.createElement("span");
+    ttl.textContent = fr ? "🕘 Conversations précédentes" : "🕘 المحادثات السابقة";
+    const back = document.createElement("button");
+    back.className = "chat-hist-back";
+    back.textContent = fr ? "← Retour" : "← رجوع";
+    back.onclick = _renderCurrent;
+    head.appendChild(ttl); head.appendChild(back);
+    box.appendChild(head);
+    if (!list.length) {
+      const e = document.createElement("div"); e.className = "chat-bubble bot";
+      e.textContent = fr ? "Aucune conversation archivée." : "لا توجد محادثات محفوظة.";
+      box.appendChild(e); return;
+    }
+    list.forEach((conv) => {
+      const sep = document.createElement("div");
+      sep.className = "chat-hist-sep";
+      sep.textContent = `${new Date(conv.ts).toLocaleString()} · ${String(conv.lang).toUpperCase()}`;
+      box.appendChild(sep);
+      (conv.messages || []).forEach((m) => {
+        const b = document.createElement("div");
+        b.className = `chat-bubble ${m.role === "user" ? "user" : "bot"} archived`;
+        b.textContent = m.content;
+        box.appendChild(b);
+      });
+    });
+    box.scrollTop = 0;
+  };
+
+  // -- Suggestions de SUIVI (texte faible) après chaque réponse : l'utilisateur
+  //    valide (clic → envoie) ou ignore (✕ → s'effacent). Effacées à chaque
+  //    nouveau message. Modèles selon la langue (aucun appel LLM → zéro latence).
+  function _clearFollowups() {
+    const old = document.getElementById("chatFollowups");
+    if (old) old.remove();
+  }
+  function _followupSuggestions() {
+    const S = {
+      fr: ["Pourquoi ?", "Comment faire concrètement ?", "Et pour une autre zone ?"],
+      ar: ["لماذا؟", "كيف أقوم بذلك عملياً؟", "وماذا عن منطقة أخرى؟"],
+      da: ["علاش؟", "كيفاش ندير هادشي؟", "وزون أخرى؟"],
+    };
+    return S[window.currentLang || "fr"] || S.fr;
+  }
+  function _showFollowups() {
+    _clearFollowups();
+    const box = document.getElementById("chatMessages");
+    if (!box) return;
+    const wrap = document.createElement("div");
+    wrap.id = "chatFollowups";
+    wrap.className = "chat-followups";
+    _followupSuggestions().forEach((q) => {
+      const chip = document.createElement("button");
+      chip.className = "chat-followup";
+      chip.textContent = q;
+      chip.onclick = () => { _clearFollowups(); window.sendChat(q); };
+      wrap.appendChild(chip);
+    });
+    const dismiss = document.createElement("button");
+    dismiss.className = "chat-followup dismiss";
+    dismiss.textContent = "✕";
+    dismiss.title = (window.currentLang || "fr") === "fr" ? "Masquer" : "إخفاء";
+    dismiss.onclick = _clearFollowups;
+    wrap.appendChild(dismiss);
+    box.appendChild(wrap);
+    box.scrollTop = box.scrollHeight;
+  }
 
   // -- État vocal : pilote l'indicateur visuel de la carte chatbot ----------
   function setVoiceState(state) {
@@ -322,6 +515,7 @@
     const input = document.getElementById("chatInput");
     const message = (forcedText != null ? forcedText : (input && input.value) || "").trim();
     if (!message) return;
+    _clearFollowups();                  // nouvelles questions → on retire les anciennes suggestions
     addMessage(message, "user");
     window.chatHistory.push({ role: "user", content: message });
     if (input && forcedText == null) input.value = "";
@@ -331,6 +525,7 @@
     addMessage(answer, "bot");
     window.chatHistory.push({ role: "bot", content: answer });
     if (window.chatHistory.length > 12) window.chatHistory = window.chatHistory.slice(-12);
+    _showFollowups();                   // propose des questions de suivi (texte faible)
 
     // Lit la réponse, puis enchaîne l'écoute si on est en mode conversation.
     window.speakBotAnswer(answer, () => {
@@ -440,6 +635,7 @@
   if ("speechSynthesis" in window) {
     speechSynthesis.onvoiceschanged = () => speechSynthesis.getVoices();
   }
-  if (document.readyState !== "loading") injectConversationButton();
-  else document.addEventListener("DOMContentLoaded", injectConversationButton);
+  function _initChatUI() { injectConversationButton(); _setupMuteButton(); }
+  if (document.readyState !== "loading") _initChatUI();
+  else document.addEventListener("DOMContentLoaded", _initChatUI);
 })();

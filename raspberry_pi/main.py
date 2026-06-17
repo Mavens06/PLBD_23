@@ -145,13 +145,14 @@ def _post_payload(payload: dict) -> bool:
         return False
 
 
-def _post_active(label: str) -> None:
-    """Signale au backend que le robot vient d'ARRIVER sur `label` (avant la
-    mesure) → l'interface l'anime en temps réel. Best-effort : un échec réseau
-    n'interrompt jamais la mission (la mesure, elle, reste bufferisée si besoin)."""
+def _post_active(label: str, status: str = "measuring") -> None:
+    """Signale au backend le point COURANT du robot (`label`) + son `status`
+    (`moving` au départ → l'UI glisse le robot pendant le trajet ; `measuring` à
+    l'arrivée). → l'interface l'anime en temps réel. Best-effort : un échec
+    réseau n'interrompt jamais la mission (la mesure reste bufferisée si besoin)."""
     try:
         requests.post(f"{_backend_url()}/api/mission/active",
-                      json={"point": label, "status": "measuring"},
+                      json={"point": label, "status": status},
                       timeout=3, headers=_auth_headers())
     except requests.RequestException:
         pass
@@ -229,8 +230,11 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
                 aborted = True
                 break
             print(f"[mission] point {p.label}", flush=True)
+            # Au DÉPART (avant le déplacement) : l'UI fait glisser le robot vers
+            # ce point PENDANT le trajet réel (trajet Manhattan, vitesse uniforme)
+            # — au lieu de sauter à l'arrivée. Synchro carte ↔ robot réel.
+            _post_active(p.label, status="moving")
             robot.move_to_point(p.x, p.y)        # déplacement réel/mock
-            _post_active(p.label)                # arrivée → l'UI fait glisser le robot ici
             probe.lower_probe()                  # descente de la sonde
             probe.stabilize()                    # contact sol + stabilisation
             rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur

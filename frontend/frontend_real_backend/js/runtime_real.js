@@ -31,12 +31,17 @@ async function pollBackendState(){
     APP_STATE.robot.status='Backend indisponible';
     showToast(t('backendUnavailable'));
   }
-  renderAll();
-  // Mission terminée (tous les points mesurés) : on stoppe le polling pour
-  // éviter des requêtes inutiles toutes les 1,5 s une fois la mission finie.
+  // Mission terminée (tous les points mesurés) : le robot réel revient à
+  // l'origine (ROBOT_RETURN_HOME=1) AVANT d'émettre les signaux de fin. On
+  // reflète ce retour sur la carte en faisant glisser le marqueur vers le
+  // Départ, puis on stoppe le polling (plus de requêtes inutiles).
   const done = APP_STATE.robot.totalPoints>0
     && APP_STATE.robot.measuredPoints>=APP_STATE.robot.totalPoints;
-  if(done && realPollTimer){ clearInterval(realPollTimer); realPollTimer=null; }
+  if(done){
+    APP_STATE.robot.activePoint = (typeof START_POINT!=='undefined') ? START_POINT.label : 'Départ';
+    if(realPollTimer){ clearInterval(realPollTimer); realPollTimer=null; }
+  }
+  renderAll();
 }
 
 async function stopRealMode(){

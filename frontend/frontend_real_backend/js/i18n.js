@@ -162,6 +162,16 @@
     if (/Simulation terminée/.test(s)) return t("simDone");
     if (/Mesure au point/.test(s)) return t("measuringAt", { point });
     if (/Backend indisponible/.test(s)) return window.currentLang === "fr" ? "Backend indisponible" : (window.currentLang === "ar" ? "الخادم غير متاح" : "السيرفر ما خدامش");
+    // Statuts bruts du backend (mode réel) traduits proprement dans les 3 langues.
+    const ROBOT_ST = {
+      idle:           { fr: "En attente",       ar: "في الانتظار",   da: "كيتسنى" },
+      requested:      { fr: "Démarrage…",       ar: "انطلاق…",       da: "كيبدا…" },
+      moving:         { fr: "En déplacement",   ar: "في الحركة",     da: "كيتحرك" },
+      measuring:      { fr: "Mesure en cours",  ar: "جاري القياس",   da: "كيقيس" },
+      done:           { fr: "Mission terminée", ar: "انتهت المهمة",  da: "سالات المهمة" },
+      emergency_stop: { fr: "Arrêt d’urgence",  ar: "توقف طارئ",     da: "وقفة طارئة" },
+    };
+    if (ROBOT_ST[s]) return ROBOT_ST[s][window.currentLang || "fr"] || ROBOT_ST[s].fr;
     return s;
   };
 
@@ -258,6 +268,7 @@
     // Nouvelle langue = nouveau fil : on vide la conversation pour ne jamais
     // mélanger les questions/réponses de deux langues dans le même chatbot.
     if (typeof clearChat === "function") clearChat();
+    if (typeof window._updateMuteBtn === "function") window._updateMuteBtn();
     if (typeof populateCropSelects === "function") populateCropSelects();
     if (typeof renderAll === "function") renderAll();
     if (typeof drawMap === "function") setTimeout(drawMap, 40);

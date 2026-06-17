@@ -76,10 +76,18 @@ function _robotImage() {
 // Position du robot en coordonnées PLAN (mètres) : on interpole de l'ancien
 // point vers le point actif sur une durée fixe avec accélération douce, plutôt
 // que de « sauter ». drawMap() dessine la position courante ; _robotRAF anime.
-const _robot = { x: null, y: null, fromX: 0, fromY: 0, toX: 0, toY: 0,
-                 t0: 0, dur: 900, animating: false, angle: 0, targetLabel: null };
+// Le robot suit un TRAJET MANHATTAN (en L), comme le robot réel : il avance le
+// long d'un axe puis de l'autre — jamais en diagonale. `path` = liste de points
+// de passage en coordonnées PLAN ; on parcourt cette polyligne à VITESSE
+// UNIFORME (et non sur une durée fixe), pour coller au déplacement réel.
+const _robot = { x: null, y: null, path: null, lens: null, total: 0,
+                 t0: 0, dur: 900, animating: false, angle: 0,
+                 heading: 'N', targetLabel: null };
 let _robotRAF = null;
-const _easeInOut = (u) => (u < 0.5 ? 2 * u * u : 1 - Math.pow(-2 * u + 2, 2) / 2);
+// Vitesse de la carte en mètres-PLAN par seconde. ≈ crawl réel ramené à
+// l'échelle (0.025 m/s physique ÷ WORLD_SCALE 0.075 ≈ 0.33) → la carte suit le
+// robot au lieu d'arriver en avance. Bornée par une durée mini/maxi par segment.
+const _ROBOT_PLAN_SPEED = 0.35;
 
 // Glisser-déposer d'un point de mesure sur la carte.
 let _drag = null, _suppressClick = false;
@@ -88,6 +96,26 @@ let _drag = null, _suppressClick = false;
 // drawMap). Démarre la boucle RAF si une nouvelle cible apparaît.
 function _startPoint() {
   return (typeof START_POINT !== 'undefined') ? START_POINT : { label: 'Départ', x: 0, y: 0 };
+}
+
+// Décompose (x0,y0)→(x1,y1) en trajet Manhattan — MIROIR de manhattan_legs()
+// (raspberry_pi/robot/adeept_controller.py) : l'axe aligné avec le cap courant
+// est parcouru en premier (cap N/S → Y d'abord, cap E/W → X d'abord).
+function _manhattanPath(x0, y0, x1, y1, heading) {
+  const pts = [{ x: x0, y: y0 }];
+  let h = (['N', 'E', 'S', 'W'].includes(heading)) ? heading : 'N';
+  let cx = x0, cy = y0;
+  const dx = x1 - x0, dy = y1 - y0;
+  const xAxis = { d: dx, pos: 'E', neg: 'W', ax: 'x' };
+  const yAxis = { d: dy, pos: 'N', neg: 'S', ax: 'y' };
+  const axes = (h === 'E' || h === 'W') ? [xAxis, yAxis] : [yAxis, xAxis];
+  for (const a of axes) {
+    if (Math.abs(a.d) < 1e-6) continue;
+    h = a.d > 0 ? a.pos : a.neg;
+    if (a.ax === 'x') cx = x1; else cy = y1;
+    pts.push({ x: cx, y: cy });
+  }
+  return { pts, heading: h };
 }
 
 function _syncRobotTarget() {
@@ -101,22 +129,43 @@ function _syncRobotTarget() {
     _robot.x = p.x; _robot.y = p.y; _robot.targetLabel = key;
     return;
   }
-  if (key !== _robot.targetLabel) {   // nouvelle cible → lancer le glissement
-    _robot.fromX = _robot.x; _robot.fromY = _robot.y;
-    _robot.toX = p.x; _robot.toY = p.y;
+  if (key !== _robot.targetLabel) {   // nouvelle cible → trajet Manhattan
+    const { pts, heading } = _manhattanPath(_robot.x, _robot.y, p.x, p.y, _robot.heading);
+    const lens = [];
+    let total = 0;
+    for (let i = 1; i < pts.length; i++) {
+      const l = Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+      lens.push(l); total += l;
+    }
+    _robot.path = pts; _robot.lens = lens; _robot.total = total;
+    _robot.heading = heading;
+    // Durée = longueur / vitesse uniforme (bornée pour rester lisible).
+    _robot.dur = Math.max(300, Math.min(12000, (total / _ROBOT_PLAN_SPEED) * 1000));
     _robot.t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-    _robot.animating = true;
+    _robot.animating = total > 1e-6;
     _robot.targetLabel = key;
-    if (!_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
+    if (_robot.animating && !_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
+    if (!_robot.animating) { _robot.x = p.x; _robot.y = p.y; }
   }
 }
 
 function _robotStep() {
   const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
   const u = Math.min(1, (now - _robot.t0) / _robot.dur);
-  const e = _easeInOut(u);
-  _robot.x = _robot.fromX + (_robot.toX - _robot.fromX) * e;
-  _robot.y = _robot.fromY + (_robot.toY - _robot.fromY) * e;
+  // Distance parcourue le long de la polyligne (vitesse uniforme = linéaire).
+  let d = u * _robot.total;
+  const pts = _robot.path, lens = _robot.lens;
+  let i = 0;
+  while (i < lens.length && d > lens[i]) { d -= lens[i]; i++; }
+  if (i >= lens.length) {             // arrivée
+    _robot.x = pts[pts.length - 1].x; _robot.y = pts[pts.length - 1].y;
+  } else {
+    const a = pts[i], b = pts[i + 1];
+    const f = lens[i] > 1e-6 ? d / lens[i] : 1;
+    _robot.x = a.x + (b.x - a.x) * f;
+    _robot.y = a.y + (b.y - a.y) * f;
+    _robot.segA = a; _robot.segB = b;   // segment courant → cap (flèche)
+  }
   drawMap();
   if (u < 1) {
     _robotRAF = requestAnimationFrame(_robotStep);
@@ -131,10 +180,12 @@ function _drawRobot(ctx, project, pxPerM, r) {
   const s = project(_robot.x, _robot.y);
   const size = Math.max(26, r * 2.0);
 
-  // cap : direction du déplacement courant (repère écran)
-  const a = project(_robot.fromX, _robot.fromY), b = project(_robot.toX, _robot.toY);
-  const dx = b.x - a.x, dy = b.y - a.y;
-  if (_robot.animating && (dx || dy)) _robot.angle = Math.atan2(dy, dx);
+  // cap : direction du segment Manhattan courant (repère écran)
+  if (_robot.animating && _robot.segA && _robot.segB) {
+    const a = project(_robot.segA.x, _robot.segA.y), b = project(_robot.segB.x, _robot.segB.y);
+    const dx = b.x - a.x, dy = b.y - a.y;
+    if (dx || dy) _robot.angle = Math.atan2(dy, dx);
+  }
 
   // halo pulsé pendant le déplacement
   if (_robot.animating) {
