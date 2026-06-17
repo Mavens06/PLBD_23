@@ -235,6 +235,9 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
             # — au lieu de sauter à l'arrivée. Synchro carte ↔ robot réel.
             _post_active(p.label, status="moving")
             robot.move_to_point(p.x, p.y)        # déplacement réel/mock
+            # ARRIVÉE réelle sur le point → l'UI termine l'approche du marqueur
+            # (qui suivait, plafonné, pour ne JAMAIS devancer le robot réel).
+            _post_active(p.label, status="measuring")
             probe.lower_probe()                  # descente de la sonde
             probe.stabilize()                    # contact sol + stabilisation
             rec = manager.collect(p.label, x=p.x, y=p.y)  # lecture capteur

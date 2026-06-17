@@ -82,7 +82,7 @@ function _robotImage() {
 // UNIFORME (et non sur une durée fixe), pour coller au déplacement réel.
 const _robot = { x: null, y: null, path: null, lens: null, total: 0,
                  t0: 0, dur: 900, animating: false, angle: 0,
-                 heading: 'N', targetLabel: null };
+                 heading: 'N', targetLabel: null, cap: 1 };
 let _robotRAF = null;
 // Vitesse de la carte en mètres-PLAN par seconde. ≈ crawl réel ramené à
 // l'échelle (0.025 m/s physique ÷ WORLD_SCALE 0.075 ≈ 0.33) → la carte suit le
@@ -118,8 +118,18 @@ function _manhattanPath(x0, y0, x1, y1, heading) {
   return { pts, heading: h };
 }
 
+// Plafond de progression tant que le robot RÉEL est en déplacement (status
+// "moving") : la carte suit le trajet mais s'arrête à ~85 % du chemin → elle ne
+// DEVANCE jamais l'arrivée réelle. Dès que le robot arrive (status "measuring"/
+// "done"), le plafond passe à 1 et le marqueur termine l'approche du point.
+const _ROBOT_MOVING_CAP = 0.85;
+
+function _now() { return (typeof performance !== 'undefined' ? performance.now() : Date.now()); }
+
 function _syncRobotTarget() {
   const label = APP_STATE.robot && APP_STATE.robot.activePoint;
+  const st = (APP_STATE.robot && APP_STATE.robot.status) || '';
+  const moving = st === 'moving';
   let p = label ? planPoint(label) : null;
   // Point actif inconnu du plan (HOME / Départ / pas encore en mission) → le
   // robot stationne au DÉPART (coin), d'où il glissera vers le 1er point mesuré.
@@ -141,17 +151,26 @@ function _syncRobotTarget() {
     _robot.heading = heading;
     // Durée = longueur / vitesse uniforme (bornée pour rester lisible).
     _robot.dur = Math.max(300, Math.min(12000, (total / _ROBOT_PLAN_SPEED) * 1000));
-    _robot.t0 = (typeof performance !== 'undefined' ? performance.now() : Date.now());
+    _robot.cap = moving ? _ROBOT_MOVING_CAP : 1;   // en mouvement → ne pas atteindre le point
+    _robot.t0 = _now();
     _robot.animating = total > 1e-6;
     _robot.targetLabel = key;
     if (_robot.animating && !_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
     if (!_robot.animating) { _robot.x = p.x; _robot.y = p.y; }
+  } else if (!moving && _robot.cap < 1 && _robot.path) {
+    // Même cible mais le robot RÉEL vient d'arriver → on termine l'approche.
+    // On réaligne t0 sur la progression au plafond pour enchaîner en douceur.
+    _robot.t0 = _now() - _robot.cap * _robot.dur;
+    _robot.cap = 1;
+    _robot.animating = true;
+    if (!_robotRAF) _robotRAF = requestAnimationFrame(_robotStep);
   }
 }
 
 function _robotStep() {
-  const now = (typeof performance !== 'undefined' ? performance.now() : Date.now());
-  const u = Math.min(1, (now - _robot.t0) / _robot.dur);
+  const now = _now();
+  const raw = (now - _robot.t0) / _robot.dur;        // progression temporelle brute
+  const u = Math.min(_robot.cap, raw);               // plafonnée tant que le robot bouge
   // Distance parcourue le long de la polyligne (vitesse uniforme = linéaire).
   let d = u * _robot.total;
   const pts = _robot.path, lens = _robot.lens;
@@ -167,7 +186,10 @@ function _robotStep() {
     _robot.segA = a; _robot.segB = b;   // segment courant → cap (flèche)
   }
   drawMap();
-  if (u < 1) {
+  // Continue tant qu'on n'a pas atteint le plafond courant (cap < 1 → on
+  // s'arrête à 85 % et on attend le signal d'arrivée pour finir ; cap = 1 → on
+  // va jusqu'au point). Le prochain poll relancera l'étape si le cap monte.
+  if (raw < _robot.cap) {
     _robotRAF = requestAnimationFrame(_robotStep);
   } else {
     _robot.animating = false; _robotRAF = null;
