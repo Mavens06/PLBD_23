@@ -283,6 +283,25 @@
   // -- Mémoire de conversation (envoyée au backend pour le suivi multi-tours) --
   window.chatHistory = window.chatHistory || [];
 
+  // Vide la conversation : supprime toutes les bulles, réinitialise l'historique
+  // multi-tours et restaure le message d'accueil dans la langue COURANTE.
+  // Appelé (1) au changement de langue — on ne mélange jamais deux langues dans
+  // un même fil — et (2) au lancement d'une nouvelle mission (plateforme remise à
+  // zéro). Coupe aussi toute lecture vocale en cours.
+  window.clearChat = function () {
+    try { window.stopBotVoice && window.stopBotVoice(); } catch (_) {}
+    window.chatHistory = [];
+    const box = document.getElementById("chatMessages");
+    if (!box) return;
+    box.innerHTML = "";
+    const welcome = document.createElement("div");
+    welcome.className = "chat-bubble bot";
+    welcome.id = "chat-welcome";
+    welcome.textContent = (typeof t === "function") ? t("chatWelcome")
+      : "Bonjour ! Je peux expliquer les zones, les cultures et les actions à mener.";
+    box.appendChild(welcome);
+  };
+
   // -- État vocal : pilote l'indicateur visuel de la carte chatbot ----------
   function setVoiceState(state) {
     const card = document.querySelector(".chatbot-card");

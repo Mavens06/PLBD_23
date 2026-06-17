@@ -40,6 +40,27 @@ from dotenv import load_dotenv
 # Chargement des variables d'environnement depuis le fichier .env à la racine.
 load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 
+# ---------------------------------------------------------------------------
+# Sélection du fournisseur LLM (chat + voix)
+# ---------------------------------------------------------------------------
+# LLM_PROVIDER = "gemini" (défaut) | "openai". Permet de COMPARER la qualité
+# conversationnelle et vocale en darija/arabe entre Google Gemini et OpenAI,
+# en changeant UNE variable .env (aucune modification de code, fidèle à la
+# philosophie « tout par .env » du projet). Le prompt système et les garde-fous
+# agronomiques sont communs aux deux fournisseurs.
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
+
+# Configuration OpenAI (cloud) — utilisée uniquement si LLM_PROVIDER=openai.
+# Clé : https://platform.openai.com/api-keys
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
+OPENAI_BASE_URL = os.getenv("OPENAI_BASE_URL", "https://api.openai.com/v1").rstrip("/")
+OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "60"))
+# TTS OpenAI : gpt-4o-mini-tts (steerable, accepte des instructions de style) ou
+# tts-1 / tts-1-hd. Voix : alloy, echo, fable, onyx, nova, shimmer, coral…
+OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts").strip()
+OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "alloy").strip()
+
 # Configuration Gemini / Google AI Studio (surchargeable via .env).
 # Obtenir une clé gratuite : https://aistudio.google.com/apikey
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
@@ -289,7 +310,13 @@ async def generate_expert_response(
     str
         Réponse concise et experte dans la langue demandée.
     """
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY manquante (LLM_PROVIDER=openai). Renseignez-la dans "
+                "le fichier .env (clé : https://platform.openai.com/api-keys)."
+            )
+    elif not GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY manquante. Renseignez-la dans le fichier .env "
             "(clé gratuite : https://aistudio.google.com/apikey)."
@@ -312,6 +339,11 @@ async def generate_expert_response(
         correction_context=correction_context,
         all_zones_context=all_zones_context,
     )
+
+    # Aiguillage fournisseur : le prompt système et les garde-fous sont communs ;
+    # seul l'appel HTTP diffère. OpenAI utilise le format messages[]/Bearer.
+    if LLM_PROVIDER == "openai":
+        return await _call_openai_chat(system_prompt, history, message)
 
     # Format de l'API Generative Language : le prompt système passe par
     # `system_instruction`, l'échange par `contents`. On reconstruit l'historique
@@ -426,6 +458,62 @@ async def _call_gemini(client: httpx.AsyncClient, model: str, payload: dict) -> 
 
 
 # ---------------------------------------------------------------------------
+# Fournisseur alternatif : OpenAI (chat)
+# ---------------------------------------------------------------------------
+
+async def _call_openai_chat(system_prompt: str, history: list, message: str) -> str:
+    """Appel chat OpenAI (format messages[]/Bearer) — équivalent de _call_gemini.
+
+    Réutilise le même prompt système et le même historique borné que la voie
+    Gemini : seul le format de transport diffère. Rôles OpenAI : system / user /
+    assistant. Lève RuntimeError sur erreur HTTP, réseau ou réponse vide.
+    """
+    messages = [{"role": "system", "content": system_prompt}]
+    for turn in (history or []):
+        if not isinstance(turn, dict):
+            continue
+        text = (turn.get("content") or turn.get("text") or "").strip()
+        if not text:
+            continue
+        role = turn.get("role", "user")
+        oai_role = "assistant" if role in ("bot", "model", "assistant") else "user"
+        messages.append({"role": oai_role, "content": text})
+    messages.append({"role": "user", "content": message})
+
+    payload = {
+        "model": OPENAI_MODEL,
+        "messages": messages,
+        "temperature": 0.4,
+        "max_tokens": 1100,
+    }
+    url = f"{OPENAI_BASE_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    async with httpx.AsyncClient(timeout=OPENAI_TIMEOUT) as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec de l'appel au LLM OpenAI (HTTP {err.response.status_code}, "
+                f"modèle={OPENAI_MODEL}). Détail : {body}"
+            ) from err
+        except httpx.HTTPError as err:
+            raise RuntimeError(
+                f"Échec de l'appel au LLM OpenAI ({url}, modèle={OPENAI_MODEL}). "
+                "Vérifiez votre connexion internet et la validité de OPENAI_API_KEY."
+            ) from err
+
+    data = response.json()
+    choices = data.get("choices") or []
+    text = ((choices[0].get("message") or {}).get("content") or "").strip() if choices else ""
+    if not text:
+        reason = choices[0].get("finish_reason", "") if choices else ""
+        raise RuntimeError(f"Réponse OpenAI vide (finish_reason={reason or 'n/a'}).")
+    return text
+
+
+# ---------------------------------------------------------------------------
 # Synthèse vocale (TTS) Gemini
 # ---------------------------------------------------------------------------
 
@@ -449,7 +537,13 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
     voix TTS locales du navigateur. Lève `RuntimeError` en cas d'échec (le
     frontend bascule alors sur la voix locale ou affiche un message).
     """
-    if not GEMINI_API_KEY:
+    if LLM_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY manquante (LLM_PROVIDER=openai). Renseignez-la dans "
+                "le fichier .env (clé : https://platform.openai.com/api-keys)."
+            )
+    elif not GEMINI_API_KEY:
         raise RuntimeError(
             "GEMINI_API_KEY manquante. Renseignez-la dans le fichier .env "
             "(clé gratuite : https://aistudio.google.com/apikey)."
@@ -463,6 +557,10 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
         clean = _digits_to_arabic(clean)
     if not clean:
         raise RuntimeError("Texte vide : rien à synthétiser.")
+
+    # Aiguillage fournisseur TTS (texte nettoyé commun aux deux voies).
+    if LLM_PROVIDER == "openai":
+        return await _call_openai_tts(clean, language)
 
     payload = {
         "contents": [{"parts": [{"text": clean}]}],
@@ -516,3 +614,53 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
     m = re.search(r"rate=(\d+)", mime)
     sample_rate = int(m.group(1)) if m else 24000
     return _pcm_to_wav(pcm, sample_rate)
+
+
+# Consigne de style transmise au modèle TTS OpenAI (gpt-4o-mini-tts est
+# « steerable ») pour orienter l'accent/la prononciation selon la langue —
+# clé pour un rendu darija/arabe authentique.
+_OPENAI_TTS_INSTRUCTIONS = {
+    "fr": "Parle en français, d'une voix calme et claire de conseiller agricole.",
+    "ar": "تحدث باللغة العربية الفصحى بنبرة هادئة وواضحة كمستشار فلاحي.",
+    "da": "تكلم بالدارجة المغربية بلهجة طبيعية وواضحة بحال مستشار فلاحي مغربي.",
+}
+
+
+async def _call_openai_tts(text: str, language: str) -> bytes:
+    """Génère l'audio (WAV) d'un texte via le TTS OpenAI — équivalent OpenAI de
+    la voie Gemini. `response_format=wav` renvoie directement un WAV lisible par
+    le navigateur (pas de ré-empaquetage PCM). Lève RuntimeError en cas d'échec
+    (le frontend bascule alors sur la voix locale)."""
+    payload = {
+        "model": OPENAI_TTS_MODEL,
+        "voice": OPENAI_TTS_VOICE,
+        "input": text,
+        "response_format": "wav",
+    }
+    # `instructions` n'est supporté que par les modèles « steerable » (gpt-4o*-tts).
+    instr = _OPENAI_TTS_INSTRUCTIONS.get(language)
+    if instr and "tts" in OPENAI_TTS_MODEL and OPENAI_TTS_MODEL.startswith("gpt-"):
+        payload["instructions"] = instr
+
+    url = f"{OPENAI_BASE_URL}/audio/speech"
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    async with httpx.AsyncClient(timeout=OPENAI_TIMEOUT) as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec TTS OpenAI (HTTP {err.response.status_code}, "
+                f"modèle={OPENAI_TTS_MODEL}). Détail : {body}"
+            ) from err
+        except httpx.HTTPError as err:
+            raise RuntimeError(
+                f"Échec TTS OpenAI ({url}, modèle={OPENAI_TTS_MODEL}). "
+                "Vérifiez votre connexion internet et la validité de OPENAI_API_KEY."
+            ) from err
+
+    audio = response.content
+    if not audio:
+        raise RuntimeError("Réponse TTS OpenAI vide (aucun audio).")
+    return audio

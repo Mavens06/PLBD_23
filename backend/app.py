@@ -22,14 +22,39 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 try:
-    from .chatbot_llm import generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_FALLBACK_MODEL
+    from .chatbot_llm import (
+        generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL,
+        GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
+    )
     from .state import APP_STATE, Measurement, MissionPoint
     from .weather_service import get_forecast
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
-    from chatbot_llm import generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL, GEMINI_FALLBACK_MODEL
+    from chatbot_llm import (
+        generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL,
+        GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
+    )
     from state import APP_STATE, Measurement, MissionPoint
     from weather_service import get_forecast
+
+
+def _llm_config() -> dict:
+    """Config LLM ACTIVE (selon LLM_PROVIDER) pour les routes de supervision."""
+    if LLM_PROVIDER == "openai":
+        return {
+            "provider": "openai",
+            "model": OPENAI_MODEL,
+            "fallback_model": None,
+            "endpoint": OPENAI_BASE_URL,
+            "configured": bool(os.getenv("OPENAI_API_KEY", "").strip()),
+        }
+    return {
+        "provider": "gemini (google ai studio)",
+        "model": GEMINI_MODEL,
+        "fallback_model": GEMINI_FALLBACK_MODEL or None,
+        "endpoint": GEMINI_BASE_URL,
+        "configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
+    }
 
 # Le moteur d'inférence ML (ou fallback rules) est dans ml_model/.
 # Comme backend/ et ml_model/ sont des packages frères à la racine du projet,
@@ -145,12 +170,13 @@ def _first_not_none(*values):
 @app.get("/")
 def read_root():
     """Vérifie que le serveur est en cours d'exécution."""
+    cfg = _llm_config()
     return {
         "message": "Agribotics backend is running",
-        "llm_provider": "gemini (google ai studio)",
-        "llm_model": GEMINI_MODEL,
-        "llm_fallback_model": GEMINI_FALLBACK_MODEL or None,
-        "llm_endpoint": GEMINI_BASE_URL,
+        "llm_provider": cfg["provider"],
+        "llm_model": cfg["model"],
+        "llm_fallback_model": cfg["fallback_model"],
+        "llm_endpoint": cfg["endpoint"],
     }
 
 
@@ -198,12 +224,7 @@ def api_status():
         "total_points": APP_STATE.total_points,
         "last_measurement": latest.as_dict() if latest else None,
         "last_recommendation": last_recommendation,
-        "llm": {
-            "provider": "gemini (google ai studio)",
-            "model": GEMINI_MODEL,
-            "fallback_model": GEMINI_FALLBACK_MODEL or None,
-            "configured": bool(os.getenv("GEMINI_API_KEY", "").strip()),
-        },
+        "llm": _llm_config(),
     }
 
 

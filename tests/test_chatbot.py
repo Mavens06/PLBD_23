@@ -134,6 +134,57 @@ class GenerateResponseTest(unittest.IsolatedAsyncioTestCase):
                 await llm.generate_expert_response("salut", "fr")
 
 
+class OpenAIProviderTest(unittest.IsolatedAsyncioTestCase):
+    """Aiguillage vers OpenAI quand LLM_PROVIDER=openai (sans appel réseau)."""
+
+    async def test_openai_missing_key_raises(self) -> None:
+        with mock.patch.object(llm, "LLM_PROVIDER", "openai"), \
+             mock.patch.object(llm, "OPENAI_API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                await llm.generate_expert_response("bonjour", "fr")
+
+    async def test_chat_routes_to_openai_with_shared_prompt_and_bounds(self) -> None:
+        captured = {}
+
+        async def fake_openai(system_prompt, history, message):
+            captured["system_prompt"] = system_prompt
+            captured["history"] = history
+            captured["message"] = message
+            return "OK-openai"
+
+        long_msg = "y" * 5000
+        history = [{"role": "bot" if i % 2 else "user", "content": f"t{i}"} for i in range(20)]
+        with mock.patch.object(llm, "LLM_PROVIDER", "openai"), \
+             mock.patch.object(llm, "OPENAI_API_KEY", "k"), \
+             mock.patch.object(llm, "_call_openai_chat", fake_openai):
+            out = await llm.generate_expert_response(long_msg, "fr", history=history)
+
+        self.assertEqual(out, "OK-openai")
+        # Prompt système commun (mêmes garde-fous agronomiques que Gemini).
+        self.assertIn("N/P/K", captured["system_prompt"])
+        # Mêmes garde-fous d'entrée : message borné, historique borné.
+        self.assertEqual(len(captured["message"]), llm._MAX_MESSAGE_CHARS)
+        self.assertLessEqual(len(captured["history"]), llm._MAX_HISTORY_TURNS)
+
+    async def test_tts_routes_to_openai(self) -> None:
+        captured = {}
+
+        async def fake_openai_tts(text, language):
+            captured["text"] = text
+            captured["language"] = language
+            return b"RIFFopenai"
+
+        with mock.patch.object(llm, "LLM_PROVIDER", "openai"), \
+             mock.patch.object(llm, "OPENAI_API_KEY", "k"), \
+             mock.patch.object(llm, "_call_openai_tts", fake_openai_tts):
+            out = await llm.synthesize_speech("**pH** 6.5", "ar")
+
+        self.assertEqual(out, b"RIFFopenai")
+        # Le nettoyage Markdown + chiffres arabes s'applique AVANT l'aiguillage.
+        self.assertNotIn("*", captured["text"])
+        self.assertIn("٦", captured["text"])   # 6 → chiffre arabe
+
+
 class ChatRouteTest(unittest.TestCase):
     def setUp(self) -> None:
         self.client = TestClient(app)

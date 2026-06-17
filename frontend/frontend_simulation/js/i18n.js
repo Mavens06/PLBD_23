@@ -252,6 +252,9 @@
     const screen = document.getElementById("lang-screen");
     if (screen) screen.style.display = "none";
     applyLanguage();
+    // Nouvelle langue = nouveau fil : on vide la conversation pour ne jamais
+    // mélanger les questions/réponses de deux langues dans le même chatbot.
+    if (typeof clearChat === "function") clearChat();
     if (typeof populateCropSelects === "function") populateCropSelects();
     if (typeof renderAll === "function") renderAll();
     if (typeof drawMap === "function") setTimeout(drawMap, 40);

@@ -2,6 +2,14 @@ APP_STATE.runtimeMode='real';
 let realPollTimer=null;
 
 async function startRealMode(){
+  // Nouvelle mission = plateforme remise à zéro côté affichage : on efface les
+  // anciennes mesures/zones (le backend les vide aussi via set_plan) et on vide
+  // la conversation du chatbot, pour repartir d'un état propre.
+  APP_STATE.fieldData = emptyField();
+  APP_STATE.robot.measuredPoints = 0;
+  APP_STATE.robot.progress = 0;
+  APP_STATE.robot.activePoint = 'Départ';
+  if (typeof clearChat === 'function') clearChat();
   APP_STATE.robot.status='Connexion backend...';
   renderAll();
   try{

@@ -13,6 +13,8 @@ function resetSimulation(){
 
 function startSimulationMission(){
   resetSimulation();
+  // Nouvelle mission = plateforme remise à zéro : on vide aussi la conversation.
+  if (typeof clearChat === 'function') clearChat();
   APP_STATE.robot.status='Simulation en cours';
   showToast(t('simStarted'));
   simTimer=setInterval(simulationStep,1800);
