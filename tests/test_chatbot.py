@@ -174,7 +174,7 @@ class OpenAIProviderTest(unittest.IsolatedAsyncioTestCase):
             captured["language"] = language
             return b"RIFFopenai"
 
-        with mock.patch.object(llm, "LLM_PROVIDER", "openai"), \
+        with mock.patch.object(llm, "TTS_PROVIDER", "openai"), \
              mock.patch.object(llm, "OPENAI_API_KEY", "k"), \
              mock.patch.object(llm, "_call_openai_tts", fake_openai_tts):
             out = await llm.synthesize_speech("**pH** 6.5", "ar")

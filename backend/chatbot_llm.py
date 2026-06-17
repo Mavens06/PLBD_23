@@ -50,7 +50,13 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 # agronomiques sont communs aux deux fournisseurs.
 LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
 
-# Configuration OpenAI (cloud) — utilisée uniquement si LLM_PROVIDER=openai.
+# Fournisseur de la VOIX (TTS), DÉCOUPLÉ du chat → permet l'hybride
+# « texte Gemini (rapide, gratuit) + voix OpenAI (plus naturelle) ». Par défaut,
+# suit LLM_PROVIDER si non défini.
+TTS_PROVIDER = os.getenv("TTS_PROVIDER", "").strip().lower() or LLM_PROVIDER
+
+# Configuration OpenAI (cloud) — utilisée si LLM_PROVIDER=openai (chat) et/ou
+# TTS_PROVIDER=openai (voix).
 # Clé : https://platform.openai.com/api-keys
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "").strip()
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini").strip()
@@ -541,10 +547,10 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
     voix TTS locales du navigateur. Lève `RuntimeError` en cas d'échec (le
     frontend bascule alors sur la voix locale ou affiche un message).
     """
-    if LLM_PROVIDER == "openai":
+    if TTS_PROVIDER == "openai":
         if not OPENAI_API_KEY:
             raise RuntimeError(
-                "OPENAI_API_KEY manquante (LLM_PROVIDER=openai). Renseignez-la dans "
+                "OPENAI_API_KEY manquante (TTS_PROVIDER=openai). Renseignez-la dans "
                 "le fichier .env (clé : https://platform.openai.com/api-keys)."
             )
     elif not GEMINI_API_KEY:
@@ -563,7 +569,7 @@ async def synthesize_speech(text: str, language: str = "ar") -> bytes:
         raise RuntimeError("Texte vide : rien à synthétiser.")
 
     # Aiguillage fournisseur TTS (texte nettoyé commun aux deux voies).
-    if LLM_PROVIDER == "openai":
+    if TTS_PROVIDER == "openai":
         return await _call_openai_tts(clean, language)
 
     payload = {

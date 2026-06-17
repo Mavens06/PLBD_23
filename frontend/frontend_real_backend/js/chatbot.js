@@ -16,6 +16,7 @@
   // passent alors sans blocage, même déclenchées de façon asynchrone.
   let _ttsEl = null;
   let _audioUnlocked = false;
+  let _ttsGen = 0;   // n° de lecture courant : incrémenté à chaque stop → annule un pipeline en cours
   function _ttsAudioEl() {
     if (!_ttsEl) { _ttsEl = new Audio(); _ttsEl.preload = "auto"; }
     return _ttsEl;
@@ -215,49 +216,91 @@
     );
   }
 
-  // Lecture via Gemini TTS (cloud) : vraie voix naturelle (arabe notamment),
-  // indépendante des voix locales du navigateur. Retourne une promesse rejetée
-  // si l'appel échoue → le caller bascule alors sur la voix locale.
-  function speakViaCloudTTS(text, done) {
-    const base = CHAT_API_BASE;
-    setVoiceState("thinking");                 // feedback visuel pendant le chargement audio
-    const ttsHeaders = { "Content-Type": "application/json" };
-    if (window.AGRIBOTICS_API_KEY) ttsHeaders["X-API-Key"] = window.AGRIBOTICS_API_KEY;
-    return fetch(`${base}/tts`, {
-      method: "POST",
-      headers: ttsHeaders,
+  // Récupère l'audio WAV d'un texte via /api/tts (promesse de Blob).
+  function _ttsFetchBlob(text) {
+    const headers = { "Content-Type": "application/json" };
+    if (window.AGRIBOTICS_API_KEY) headers["X-API-Key"] = window.AGRIBOTICS_API_KEY;
+    return fetch(`${CHAT_API_BASE}/tts`, {
+      method: "POST", headers,
       body: JSON.stringify({ text, language: window.currentLang || "ar" }),
-    }).then((r) => {
-      if (!r.ok) throw new Error("tts http " + r.status);
-      return r.blob();
-    }).then((blob) => {
-      window.stopBotVoice();                  // coupe toute lecture en cours
-      const url = URL.createObjectURL(blob);
-      const audio = _ttsAudioEl();            // élément persistant DÉVERROUILLÉ
-      window._ttsAudio = audio;
-      const cleanup = () => {
-        URL.revokeObjectURL(url);
-        if (window._ttsAudio === audio) window._ttsAudio = null;
-        setVoiceState("idle");
-        done();
-      };
-      audio.onended = cleanup;
-      audio.onerror = cleanup;
-      audio.muted = false;
-      audio.src = url;
-      setVoiceState("speaking");
-      const p = audio.play();
-      // Si la lecture est REFUSÉE (autoplay non déverrouillé), on prévient
-      // l'utilisateur au lieu de rester muet — un geste (toucher) débloquera.
-      return (p && p.catch) ? p.catch((err) => {
-        setVoiceState("idle");
-        showToast((window.currentLang || "fr") === "fr"
-          ? "🔊 Touchez l'écran puis renvoyez pour entendre la voix"
-          : "🔊 المس الشاشة ثم أعد الإرسال لسماع الصوت");
-        done();
-        throw err;
-      }) : undefined;
-    });
+    }).then((r) => { if (!r.ok) throw new Error("tts http " + r.status); return r.blob(); });
+  }
+
+  // Découpe la réponse en morceaux (phrases regroupées, ~90 car. min) pour
+  // générer/jouer la voix AU FUR ET À MESURE : la lecture démarre dès la 1re
+  // phrase au lieu d'attendre l'audio de toute la réponse → supprime le blanc
+  // texte→voix sur les réponses longues (arabe/darija surtout).
+  function _splitForTTS(text) {
+    const parts = String(text || "")
+      .split(/(?<=[.!?؟…\n])\s+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length <= 1) return [String(text || "")];
+    const chunks = [];
+    // 1er morceau = 1re phrase SEULE (la plus courte possible) → audio prêt le
+    // plus vite → la voix démarre presque tout de suite après le texte.
+    chunks.push(parts[0]);
+    // Le reste est regroupé en morceaux ~120 car. (équilibre fluidité / nb d'appels).
+    const MIN = 120;
+    let cur = "";
+    for (let k = 1; k < parts.length; k++) {
+      cur = cur ? cur + " " + parts[k] : parts[k];
+      if (cur.length >= MIN) { chunks.push(cur); cur = ""; }
+    }
+    if (cur) chunks.push(cur);
+    return chunks;
+  }
+
+  // Lecture cloud EN PIPELINE : l'audio du morceau suivant est préchargé pendant
+  // que le morceau courant se joue → voix quasi immédiate après le texte. Repli
+  // sur la voix locale si le tout premier morceau échoue (réseau/quota).
+  function speakViaCloudTTSChunked(text, done) {
+    const chunks = _splitForTTS(text);
+    window.stopBotVoice();                  // coupe toute lecture (et incrémente _ttsGen)
+    const myGen = ++_ttsGen;                // identifie CE pipeline
+    setVoiceState("thinking");
+    let i = 0;
+    let next = _ttsFetchBlob(chunks[0]);    // précharge le 1er morceau
+    let firstPlayed = false;
+
+    const playNext = () => {
+      if (myGen !== _ttsGen) return;        // une autre lecture a pris la main → abandon
+      if (i >= chunks.length) { setVoiceState("idle"); done(); return; }
+      const pending = next;
+      i += 1;
+      next = (i < chunks.length) ? _ttsFetchBlob(chunks[i]) : null;  // précharge le suivant
+      pending.then((blob) => {
+        if (myGen !== _ttsGen) return;
+        const url = URL.createObjectURL(blob);
+        const audio = _ttsAudioEl();
+        window._ttsAudio = audio;
+        audio.onended = () => { URL.revokeObjectURL(url); playNext(); };
+        audio.onerror = () => { URL.revokeObjectURL(url); playNext(); };
+        audio.muted = false;
+        audio.src = url;
+        setVoiceState("speaking");
+        const p = audio.play();
+        if (p && p.then) {
+          // firstPlayed est passé à true SEULEMENT si la lecture réussit (et non
+          // avant) : sinon un blocage autoplay passait inaperçu (silence total).
+          p.then(() => { firstPlayed = true; })
+           .catch(() => {
+             if (myGen !== _ttsGen) return;
+             setVoiceState("idle");
+             showToast((window.currentLang || "fr") === "fr"
+               ? "🔊 Touchez l'écran puis renvoyez pour entendre la voix"
+               : "🔊 المس الشاشة ثم أعد الإرسال لسماع الصوت");
+             done();
+           });
+        } else {
+          firstPlayed = true;
+        }
+      }).catch(() => {
+        if (i === 1 && !firstPlayed) speakLocal(text, done);  // échec du 1er → repli local
+        else playNext();                                      // sinon on saute ce morceau
+      });
+    };
+    playNext();
   }
 
   // Lecture via la synthèse vocale locale du navigateur (gratuite, hors-ligne).
@@ -306,17 +349,17 @@
     const needsArabic = lang === "ar" || lang === "da";
 
     // Arabe / darija : la synthèse vocale LOCALE du navigateur n'a souvent PAS de
-    // voix arabe (surtout Chrome). On privilégie donc TOUJOURS la vraie voix
-    // Gemini (cloud) dès qu'un backend est joignable, et on retombe proprement
-    // sur la voix locale si l'appel échoue (quota, réseau, backend absent).
+    // voix arabe (surtout Chrome). On privilégie donc la vraie voix cloud, EN
+    // PIPELINE (1re phrase jouée dès qu'elle est prête), avec repli local interne.
     if (needsArabic) {
-      speakViaCloudTTS(text, done).catch(() => speakLocal(text, done));
+      speakViaCloudTTSChunked(text, done);
       return;
     }
     speakLocal(text, done);
   };
 
   window.stopBotVoice = function () {
+    _ttsGen++;   // invalide tout pipeline TTS par morceaux en cours
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     if (window._ttsAudio) { try { window._ttsAudio.pause(); } catch (_) {} window._ttsAudio = null; }
   };
