@@ -73,12 +73,64 @@
     return (APP_STATE && APP_STATE.fieldData && APP_STATE.fieldData[zone]) || null;
   }
 
+  // Échappe le HTML avant toute mise en forme (anti-injection : le texte du LLM
+  // n'introduit jamais de balise brute).
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"]/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  }
+
+  // Rendu MARKDOWN LÉGER et SÛR des réponses du bot : gras `**…**`, titres `#`,
+  // listes à puces (- • *) et numérotées (1.), paragraphes. On échappe le HTML
+  // EN PREMIER, puis on n'injecte que des balises connues (strong/p/ul/ol/li).
+  function renderRich(text) {
+    let src = escapeHtml(text).replace(/\r\n/g, "\n");
+    // Énumérations EN LIGNE (le LLM n'insère pas toujours un saut de ligne entre
+    // les items) : « … : 1. ceci 2. cela 3) autre » → un item par ligne. Limité
+    // à 1-2 chiffres suivis de .|) puis espace, pour NE PAS couper les décimales
+    // (6.5), années (2024) ou heures. Idem pour les puces « • » en ligne.
+    src = src.replace(/(\S)[ \t]+(\d{1,2}[.)][ \t]+)/g, "$1\n$2");
+    src = src.replace(/(\S)[ \t]+(•[ \t]+)/g, "$1\n$2");
+    const lines = src.split("\n");
+    const inline = (s) => s
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/__([^_]+)__/g, "<strong>$1</strong>");
+    let html = "";
+    let list = null;                                  // 'ul' | 'ol' | null
+    const closeList = () => { if (list) { html += `</${list}>`; list = null; } };
+    for (const raw of lines) {
+      const line = raw.trim();
+      if (!line) { closeList(); continue; }
+      const bullet = line.match(/^[-•*]\s+(.*)$/);
+      const numbered = line.match(/^\d+[.)]\s+(.*)$/);
+      const heading = line.match(/^#{1,4}\s+(.*)$/);
+      if (bullet) {
+        if (list !== "ul") { closeList(); html += "<ul>"; list = "ul"; }
+        html += `<li>${inline(bullet[1])}</li>`;
+      } else if (numbered) {
+        if (list !== "ol") { closeList(); html += "<ol>"; list = "ol"; }
+        html += `<li>${inline(numbered[1])}</li>`;
+      } else if (heading) {
+        closeList();
+        html += `<p><strong>${inline(heading[1])}</strong></p>`;
+      } else {
+        closeList();
+        html += `<p>${inline(line)}</p>`;
+      }
+    }
+    closeList();
+    return html || escapeHtml(text);
+  }
+
   function addMessage(text, who) {
     const box = document.getElementById("chatMessages");
     if (!box) return;
     const b = document.createElement("div");
     b.className = `chat-bubble ${who || "bot"}`;
-    b.textContent = text;
+    // Bulles du bot : markdown léger mis en forme. Bulles utilisateur : texte
+    // brut (rien à formater, et zéro surface d'injection).
+    if ((who || "bot") === "bot") b.innerHTML = renderRich(text);
+    else b.textContent = text;
     box.appendChild(b);
     box.scrollTop = box.scrollHeight;
   }
@@ -495,8 +547,10 @@
       box.appendChild(sep);
       (conv.messages || []).forEach((m) => {
         const b = document.createElement("div");
-        b.className = `chat-bubble ${m.role === "user" ? "user" : "bot"} archived`;
-        b.textContent = m.content;
+        const isUser = m.role === "user";
+        b.className = `chat-bubble ${isUser ? "user" : "bot"} archived`;
+        if (isUser) b.textContent = m.content;
+        else b.innerHTML = renderRich(m.content);
         box.appendChild(b);
       });
     });

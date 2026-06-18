@@ -116,6 +116,14 @@ header h1 { font-family:'Playfair Display',serif; font-size:22px; }
 }
 .chat-bubble.bot { background:var(--green-pale); color:var(--text); align-self:flex-start; border-bottom-left-radius:4px; }
 .chat-bubble.user { background:var(--green); color:white; align-self:flex-end; border-bottom-right-radius:4px; }
+/* Mise en forme markdown légère des réponses du bot (gras, listes, paragraphes). */
+.chat-bubble p { margin:0 0 7px; }
+.chat-bubble p:last-child { margin-bottom:0; }
+.chat-bubble ul, .chat-bubble ol { margin:5px 0 7px; padding-inline-start:20px; }
+.chat-bubble ul:last-child, .chat-bubble ol:last-child { margin-bottom:0; }
+.chat-bubble li { margin:3px 0; }
+.chat-bubble li::marker { color:var(--green); }
+.chat-bubble strong { font-weight:700; }
 .chat-input-row { display:flex; gap:8px; }
 .chat-input {
   flex:1; border:1px solid var(--border); border-radius:12px;

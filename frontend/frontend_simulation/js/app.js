@@ -257,7 +257,7 @@ function _injectPlanStyles() {
   .plan-hd-title{font-weight:800;display:flex;align-items:center;gap:8px;font-size:15px}
   .plan-hd-badge{background:#e8f3e8;color:#2f7a3a;border-radius:20px;padding:3px 11px;font-size:12px;font-weight:700;white-space:nowrap}
   .plan-sub{font-size:11.5px;color:#7c887c;margin:5px 0 13px}
-  .plan-row{display:grid;grid-template-columns:30px 1fr 86px 86px 32px;gap:8px;align-items:center;margin-bottom:8px}
+  .plan-row{display:grid;grid-template-columns:30px 1fr 86px 86px 32px 32px;gap:8px;align-items:center;margin-bottom:8px}
   .plan-idx{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff;background:linear-gradient(135deg,#52a85d,#3b7a44);box-shadow:0 2px 5px rgba(59,122,68,.35)}
   .plan-field{position:relative}
   .plan-field .unit{position:absolute;right:9px;top:50%;transform:translateY(-50%);font-size:10px;color:#9aa79a;pointer-events:none}
@@ -266,6 +266,9 @@ function _injectPlanStyles() {
   .plan-in:focus{outline:none;border-color:#4a9c55;box-shadow:0 0 0 3px rgba(74,156,85,.16)}
   .plan-del{border:none;background:#fbeceb;color:#c0392b;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:13px;transition:background .15s,transform .1s}
   .plan-del:hover{background:#f3d4d2}.plan-del:active{transform:scale(.92)}
+  .plan-ins{border:none;background:#e7f3e9;color:#2f7a3c;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:15px;line-height:1;transition:background .15s,transform .1s}
+  .plan-ins:hover{background:#d4ebd8}.plan-ins:active{transform:scale(.92)}
+  .plan-label{font-weight:700;color:#3b7a44;background:#f3f8f3;text-align:center;cursor:default}
   .plan-actions{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
   .plan-actions>button{flex:1;min-width:140px}
   .plan-presets{display:flex;align-items:center;gap:8px;margin:0 0 13px;flex-wrap:wrap}
@@ -296,9 +299,10 @@ function renderPlanEditor() {
   const rows = APP_STATE.plan.map((p, i) => `
     <div class="plan-row">
       <span class="plan-idx">${i + 1}</span>
-      <input class="plan-in" value="${p.label}" data-i="${i}" data-k="label" aria-label="${t('planCol')}"/>
+      <input class="plan-in plan-label" value="${p.label}" readonly tabindex="-1" aria-label="${t('planCol')}"/>
       <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.x}" data-i="${i}" data-k="x"/><span class="unit">m</span></span>
       <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.y}" data-i="${i}" data-k="y"/><span class="unit">m</span></span>
+      <button class="plan-ins" onclick="insertPlanRowAfter(${i})" title="${t('planInsert')}">＋</button>
       <button class="plan-del" onclick="removePlanRow(${i})" title="${t('planRemove')}">✕</button>
     </div>`).join('');
   host.innerHTML = `
@@ -320,10 +324,19 @@ function renderPlanEditor() {
     </div>`;
   host.querySelectorAll('.plan-in').forEach((inp) => {
     inp.onchange = () => {
-      const i = +inp.dataset.i, k = inp.dataset.k;
-      APP_STATE.plan[i][k] = (k === 'label') ? inp.value : Number(inp.value);
+      const k = inp.dataset.k;
+      if (!k) return;                       // libellé en lecture seule (auto-numéroté)
+      APP_STATE.plan[+inp.dataset.i][k] = Number(inp.value);
     };
   });
+}
+
+// Renumérote tous les points dans l'ordre courant : P1, P2, … Pn. Appelée après
+// tout ajout / insertion / suppression pour que la numérotation suive l'ordre
+// réel du parcours (labels = clés côté backend/mesures).
+function _renumberPlan() {
+  APP_STATE.plan.forEach((p, i) => { p.label = 'P' + (i + 1); });
+  APP_STATE.missionRoute = planLabels();
 }
 
 function addPlanRow() {
@@ -333,13 +346,49 @@ function addPlanRow() {
   }
   // Décale le nouveau point de l'espacement min depuis le dernier (jamais superposé).
   const last = APP_STATE.plan[APP_STATE.plan.length - 1] || { x: 0, y: 0 };
-  APP_STATE.plan.push({ label: _nextPlanLabel(), x: Math.round((last.x + PRESET_SPACING_M) * 10) / 10, y: last.y });
+  APP_STATE.plan.push({ label: '', x: Math.round((last.x + PRESET_SPACING_M) * 10) / 10, y: last.y });
+  _renumberPlan();
+  renderPlanEditor();
+}
+
+// Insère un NOUVEAU point juste APRÈS la ligne i (donc « au milieu » de la liste)
+// puis renumérote tout. Position par défaut : milieu du segment i→i+1 ; si ce
+// milieu tomberait trop près d'un voisin (points déjà à l'espacement minimal),
+// on l'écarte perpendiculairement de MIN_SPACING_M pour rester valide. Le dernier
+// point (pas de suivant) se décale comme un ajout simple. L'utilisateur ajuste
+// ensuite les coordonnées ; la validation finale a lieu à « Appliquer ».
+function insertPlanRowAfter(i) {
+  if (APP_STATE.plan.length >= MAX_PLAN_POINTS) {
+    showToast(t('planMax', { n: MAX_PLAN_POINTS }));
+    return;
+  }
+  const a = APP_STATE.plan[i] || { x: 0, y: 0 };
+  const b = APP_STATE.plan[i + 1];
+  let nx, ny;
+  if (b) {
+    nx = (a.x + b.x) / 2; ny = (a.y + b.y) / 2;
+    const tooClose = (px, py) =>
+      Math.hypot(px - a.x, py - a.y) < MIN_SPACING_M ||
+      Math.hypot(px - b.x, py - b.y) < MIN_SPACING_M;
+    if (tooClose(nx, ny)) {
+      const dx = b.x - a.x, dy = b.y - a.y, len = Math.hypot(dx, dy) || 1;
+      nx += (-dy / len) * MIN_SPACING_M;       // écart perpendiculaire au segment
+      ny += (dx / len) * MIN_SPACING_M;
+    }
+  } else {
+    nx = a.x + PRESET_SPACING_M; ny = a.y;     // insertion après le dernier point
+  }
+  APP_STATE.plan.splice(i + 1, 0, {
+    label: '', x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10,
+  });
+  _renumberPlan();
   renderPlanEditor();
 }
 
 function removePlanRow(i) {
   if (APP_STATE.plan.length <= 1) { showToast(t('planMin')); return; }
   APP_STATE.plan.splice(i, 1);
+  _renumberPlan();
   renderPlanEditor();
 }
 
