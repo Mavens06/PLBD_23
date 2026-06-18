@@ -447,6 +447,45 @@ def stop_mission():
     return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
 
 
+@app.post("/api/mission/pause", dependencies=[Depends(require_api_key)])
+def pause_mission():
+    """
+    PAUSE MOMENTANÉE. Passe la commande à `paused` : le robot (mode --watch)
+    le détecte entre deux points, s'immobilise SUR PLACE et ATTEND (il ne revient
+    pas au départ). La progression et les mesures déjà prises sont CONSERVÉES.
+    `/api/mission/resume` fait reprendre la mission là où elle s'était arrêtée.
+    """
+    if APP_STATE.command in ("requested", "running", "paused"):
+        APP_STATE.command = "paused"
+        if APP_STATE.robot.status not in ("done",):
+            APP_STATE.robot.status = "paused"
+    return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
+
+
+@app.post("/api/mission/resume", dependencies=[Depends(require_api_key)])
+def resume_mission():
+    """Reprise après une pause : la mission continue depuis le point en attente."""
+    if APP_STATE.command == "paused":
+        APP_STATE.command = "running"   # le robot, en pause dans run_mission, reprend
+        if APP_STATE.robot.status == "paused":
+            APP_STATE.robot.status = "moving"
+    return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
+
+
+@app.post("/api/mission/suspend", dependencies=[Depends(require_api_key)])
+def suspend_mission():
+    """
+    ARRÊT « SUSPENSION » : stoppe la mission ET remet l'état robot à l'INITIAL
+    (en attente, progression 0, aucun point actif), comme si aucune mission
+    n'avait démarré. Le robot s'arrête entre deux points et reste PHYSIQUEMENT
+    là où il est (il ne revient PAS au point de départ — le retour à l'origine
+    n'a lieu qu'en fin de mission réussie). Le prochain « Démarrer » repart
+    d'une plateforme propre. Diffère de la pause (qui, elle, conserve tout).
+    """
+    APP_STATE.reset()   # command=idle (→ le robot abandonne) + état/mesures vierges
+    return {"ok": True, "command": APP_STATE.command, "robot_status": APP_STATE.robot.status}
+
+
 @app.post("/api/mission/active", dependencies=[Depends(require_api_key)])
 def set_active_point(payload: ActivePointIn):
     """

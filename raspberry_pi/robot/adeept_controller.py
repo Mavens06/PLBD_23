@@ -137,6 +137,11 @@ class AdeeptRobotController(RobotController):
         self._reverse_speed = _envf("REVERSE_SPEED_MPS", self._speed_mps)
         # Échelle plan→physique (démo sur surface réduite). 1.0 = grandeur réelle.
         self._world_scale = max(0.01, _envf("ROBOT_WORLD_SCALE", 1.0))
+        # Emprise PHYSIQUE maximale du parcours : côté du carré (m) que le robot
+        # ne doit JAMAIS dépasser, quelle que soit la taille du plan édité à la
+        # main. Défaut 0.9 m → ≤ 0.81 m² (marge de sécurité sous le 1 m²).
+        # fit_to_field() abaisse au besoin _world_scale pour tenir dans ce carré.
+        self._max_field_m = max(0.1, _envf("ROBOT_MAX_FIELD_M", 0.9))
 
         # --- Arrêt net & alignement (corrections de déplacement) -------------
         # Les moteurs DC tournent en ROUE LIBRE à throttle=0 : à l'arrivée sur
@@ -292,6 +297,30 @@ class AdeeptRobotController(RobotController):
         self._pivot_throttle = abs(_envf("PIVOT_THROTTLE", 0.15))
         self._pivot_invert = os.getenv("PIVOT_INVERT", "0").strip().lower() \
             in ("1", "true", "yes")
+        # Compensation de TRANSLATION pendant le pivot, PAR SENS. Un pivot idéal
+        # est une rotation PURE (centre fixe) ; en pratique l'asymétrie des
+        # moteurs (forces avant/arrière inégales) fait « glisser » le robot dans
+        # un sens. Ce trim est une composante COMMUNE ajoutée aux deux roues :
+        # elle décale le robot pour annuler la dérive SANS changer la vitesse de
+        # rotation (le différentiel gauche−droite reste intact). Signe : valeur
+        # POSITIVE = pousse vers l'ARRIÈRE (sur ce câblage avant = throttle
+        # négatif) → corrige un robot qui AVANCE pendant le pivot ; négative =
+        # corrige un robot qui RECULE. Réglé par sens car la dérive diffère
+        # entre pivot droite et gauche. 0 = pivot brut (comportement d'origine).
+        self._pivot_trim_right = max(-0.5, min(0.5, _envf("PIVOT_TRIM_RIGHT", 0.0)))
+        self._pivot_trim_left = max(-0.5, min(0.5, _envf("PIVOT_TRIM_LEFT", 0.0)))
+        # Recul de compensation APRÈS une rotation, PAR SENS : la rotation fait
+        # « avancer » le robot d'un petit résidu (le trim de pivot ne l'annule
+        # pas toujours entièrement). On RACCOURCIT d'autant la ligne droite qui
+        # suit la rotation (et, à défaut de segment suffisant, on recule du
+        # reliquat). Mis à l'échelle selon l'angle (90° → ×1, demi-tour → ×2).
+        # En mètres PHYSIQUES (le résidu est une distance réelle au sol) : déduit
+        # directement de la distance physique du segment, PAS de l'échelle plan.
+        self._post_turn_right_backup_m = max(0.0, _envf("POST_TURN_RIGHT_BACKUP_M", 0.0))
+        self._post_turn_left_backup_m = max(0.0, _envf("POST_TURN_LEFT_BACKUP_M", 0.0))
+        self._pending_turn_backup_m = 0.0   # rempli par _turn_to selon le sens
+        # Forcer les demi-tours À GAUCHE (activé temporairement au retour home).
+        self._prefer_left_turns = False
         # Marge d'arrêt anticipé (inertie) — séparée par sens car la friction
         # n'est pas symétrique sur ce châssis (validé au sol).
         default_margin = _envf("GYRO_STOP_MARGIN_DEG", 8.0)
@@ -759,12 +788,15 @@ class AdeeptRobotController(RobotController):
                             self._steer_right if clockwise else self._steer_left)
             time.sleep(0.1)
             t = self._pivot_throttle * (-1.0 if self._pivot_invert else 1.0)
+            # Trim de translation (composante COMMUNE, par sens) : annule la
+            # dérive du pivot sans toucher au différentiel (donc à la rotation).
+            trim = self._pivot_trim_right if clockwise else self._pivot_trim_left
             # avant = throttle négatif sur ce câblage → pivot horaire (droite)
             # = roue gauche en avant (-t), roue droite en arrière (+t)
             if clockwise:
-                self._throttle_lr(-t, t)
+                self._throttle_lr(-t + trim, t + trim)
             else:
-                self._throttle_lr(t, -t)
+                self._throttle_lr(t + trim, -t + trim)
         else:
             self._set_angle(self._steer_ch,
                             self._steer_right if clockwise else self._steer_left)
@@ -811,8 +843,22 @@ class AdeeptRobotController(RobotController):
             return
         name = {1: "rotation droite", 2: "demi-tour", 3: "rotation gauche"}[delta]
         _log(f"{name} → {target}")
+        # Sens de rotation : droite (delta 1) / demi-tour (delta 2, HORAIRE par
+        # défaut) / gauche (delta 3). Le DEMI-TOUR peut être forcé À GAUCHE
+        # (counter-clockwise) via `_prefer_left_turns` — utilisé au RETOUR HOME
+        # pour éviter le résidu d'avance des rotations droites (un 180° a deux
+        # sens équivalents, contrairement à un quart de tour imposé par la
+        # géométrie).
+        clockwise = delta in (1, 2)
+        if delta == 2 and self._prefer_left_turns:
+            clockwise = False
+        # Recul de compensation post-rotation, selon le sens RÉEL (après l'éventuel
+        # passage à gauche) et l'angle (demi-tour = 2× un quart de tour). Consommé
+        # par move_to_point sur la ligne droite qui suit.
+        per_quarter = self._post_turn_right_backup_m if clockwise \
+            else self._post_turn_left_backup_m
+        self._pending_turn_backup_m = per_quarter * (2.0 if delta == 2 else 1.0)
         if self._gyro is not None:
-            clockwise = delta in (1, 2)
             # Angle à tourner (NE PAS écraser `target`, qui reste la chaîne de
             # cap "N/E/S/W" affectée à self._heading en fin de fonction — sinon
             # un float fuite dans le cap et HEADINGS.index() plante au virage
@@ -825,7 +871,8 @@ class AdeeptRobotController(RobotController):
         elif delta == 1:
             self._turn_arc(self._steer_right, self._turn_90_s)
         elif delta == 2:
-            self._turn_arc(self._steer_right, self._turn_90_s * 2)
+            self._turn_arc(self._steer_right if clockwise else self._steer_left,
+                           self._turn_90_s * 2)
         else:
             self._turn_arc(self._steer_left, self._turn_90_s)
         self._heading = target
@@ -861,6 +908,35 @@ class AdeeptRobotController(RobotController):
                 pass
         _log("STOP")
 
+    def fit_to_field(self, points) -> None:
+        """Borne l'emprise PHYSIQUE du parcours à un carré (`ROBOT_MAX_FIELD_M`).
+
+        Calcule la boîte englobante des points du plan (en mètres-plan), origine
+        (0,0) incluse car le robot y démarre et peut y revenir, puis abaisse au
+        besoin l'échelle plan→physique pour que le plus grand côté ne dépasse
+        pas `ROBOT_MAX_FIELD_M`. **N'augmente jamais** l'échelle configurée : un
+        plan qui tient déjà conserve `ROBOT_WORLD_SCALE`. Garantit « jamais
+        au-delà du carré » quel que soit le plan édité à la main. Sans effet sur
+        l'UI ni les mesures (seule la distance parcourue au sol est réduite)."""
+        if not points:
+            return
+        xs = [0.0] + [float(getattr(p, "x", 0.0)) for p in points]
+        ys = [0.0] + [float(getattr(p, "y", 0.0)) for p in points]
+        span = max(max(xs) - min(xs), max(ys) - min(ys))
+        if span <= 0:
+            return
+        fit = self._max_field_m / span
+        if fit < self._world_scale:
+            _log(f"emprise plan {span:.2f} m × échelle {self._world_scale:.4f} "
+                 f"dépasse {self._max_field_m} m → échelle bornée à {fit:.4f}")
+            self._world_scale = fit
+
+    def prefer_left_turns(self, enable: bool = True) -> None:
+        """Force les DEMI-TOURS à se faire par la GAUCHE (counter-clockwise).
+        Activé temporairement pour le retour à l'origine (les rotations droites
+        gardent un léger résidu d'avance ; passer à gauche l'évite)."""
+        self._prefer_left_turns = bool(enable)
+
     def move_to_point(self, x: float, y: float) -> None:
         legs, final_heading = manhattan_legs(self._x, self._y, x, y, self._heading)
         if not legs:
@@ -876,11 +952,16 @@ class AdeeptRobotController(RobotController):
         arc_backup = self._turn_mode != "pivot" and self._turn_backup_m > 0
         arc_advance = 0.0 if (in_place_turn or arc_backup) else self._turn_advance_m
         pending_arc_advance = 0.0
+        pending_turn_backup = 0.0     # résidu d'avance de la rotation, par sens
         just_turned = False
         for kind, value in legs:
             if kind == "turn":
                 self._turn_to(str(value))
                 pending_arc_advance = arc_advance
+                # Recul de compensation calculé par _turn_to selon le sens/angle :
+                # on raccourcit d'autant la ligne droite qui suit (cumul si
+                # plusieurs rotations s'enchaînent avant un segment).
+                pending_turn_backup += self._pending_turn_backup_m
                 just_turned = True
             else:
                 dist_plan = float(value)
@@ -897,12 +978,28 @@ class AdeeptRobotController(RobotController):
                     dist_phys -= comp
                     pending_arc_advance = 0.0
                     _log(f"compensation virage : -{comp:.2f} m (l'arc a déjà avancé)")
+                # Recul de compensation post-rotation : on raccourcit ce segment
+                # du résidu d'avance de la rotation (distance physique). Le
+                # reliquat éventuel (segment plus court que le résidu) est gardé
+                # et reculé en fin de déplacement.
+                if pending_turn_backup > 0:
+                    comp = min(pending_turn_backup, dist_phys)
+                    dist_phys -= comp
+                    pending_turn_backup -= comp
+                    _log(f"compensation post-rotation : -{comp:.2f} m sur le segment")
                 duration = dist_phys / self._speed_mps if self._speed_mps > 0 else 0.0
                 _log(f"ligne droite {dist_plan:.2f} m plan → {dist_phys:.2f} m réel "
                      f"≈ {duration:.1f}s")
                 if duration > 0:
                     self._drive_straight(self._drive_throttle, duration)
                 time.sleep(0.2)
+        # Politique « avance comme avant » : on ne RECULE JAMAIS après une
+        # rotation (le recul perturbait le déplacement). Un éventuel reliquat
+        # (segment suivant trop court ou absent) reste simplement non compensé —
+        # négligeable en pratique, et préférable à une marche arrière.
+        if pending_turn_backup > 0:
+            _log(f"compensation post-rotation : reliquat {pending_turn_backup:.2f} m "
+                 f"non appliqué (pas de recul)")
         self._x, self._y = x, y
         self._heading = final_heading
         self.stop()

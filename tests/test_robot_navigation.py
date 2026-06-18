@@ -10,7 +10,11 @@ from __future__ import annotations
 
 import unittest
 
-from raspberry_pi.robot.adeept_controller import manhattan_legs
+from collections import namedtuple
+
+from raspberry_pi.robot.adeept_controller import AdeeptRobotController, manhattan_legs
+
+_Pt = namedtuple("_Pt", "x y")
 
 
 class TestManhattanLegs(unittest.TestCase):
@@ -57,6 +61,44 @@ class TestManhattanLegs(unittest.TestCase):
         for kind, value in legs:
             if kind == "drive":
                 self.assertGreater(value, 0)
+
+
+class TestFitToField(unittest.TestCase):
+    """Garde-fou d'emprise : le parcours physique ne dépasse jamais le carré.
+
+    fit_to_field ne touche que deux attributs → on isole l'objet via __new__
+    pour ne pas dépendre du PCA9685 / I2C (absent en CI)."""
+
+    def _ctrl(self, world_scale, max_field_m):
+        c = AdeeptRobotController.__new__(AdeeptRobotController)
+        c._world_scale = world_scale
+        c._max_field_m = max_field_m
+        return c
+
+    def test_large_plan_is_scaled_down_to_fit(self):
+        # Plan de 6 m d'envergure, échelle 1.0 → 6 m physiques : on borne à 0.9.
+        c = self._ctrl(world_scale=1.0, max_field_m=0.9)
+        c.fit_to_field([_Pt(0, 0), _Pt(6, 4)])
+        self.assertAlmostEqual(c._world_scale, 0.9 / 6.0)
+
+    def test_small_plan_keeps_configured_scale(self):
+        # Plan qui tient déjà (1 m × échelle 0.5 = 0.5 m) : on n'augmente jamais.
+        c = self._ctrl(world_scale=0.5, max_field_m=0.9)
+        c.fit_to_field([_Pt(0, 0), _Pt(1, 1)])
+        self.assertEqual(c._world_scale, 0.5)
+
+    def test_origin_included_in_bounding_box(self):
+        # Points loin de l'origine : l'envergure inclut (0,0) (départ + retour).
+        c = self._ctrl(world_scale=1.0, max_field_m=0.9)
+        c.fit_to_field([_Pt(8, 8), _Pt(10, 9)])
+        self.assertAlmostEqual(c._world_scale, 0.9 / 10.0)
+
+    def test_empty_or_degenerate_plan_is_noop(self):
+        c = self._ctrl(world_scale=0.3, max_field_m=0.9)
+        c.fit_to_field([])
+        self.assertEqual(c._world_scale, 0.3)
+        c.fit_to_field([_Pt(0, 0)])   # un seul point sur l'origine : envergure 0
+        self.assertEqual(c._world_scale, 0.3)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,8 @@ async function startRealMode(){
   APP_STATE.robot.progress = 0;
   APP_STATE.robot.activePoint = 'Départ';
   if (typeof clearChat === 'function') clearChat();
+  _realPaused=false;
+  if (typeof updatePauseBtn === 'function') updatePauseBtn();
   APP_STATE.robot.status='Connexion backend...';
   renderAll();
   try{
@@ -27,6 +29,10 @@ async function pollBackendState(){
   try{
     await syncFromBackend();
     APP_STATE.robot.status=APP_STATE.robot.status||'Mission réelle';
+    // Refléter l'état de pause du backend sur le bouton (robuste au rechargement).
+    const wasPaused=_realPaused;
+    _realPaused=(APP_STATE.robot.status==='paused');
+    if(wasPaused!==_realPaused) updatePauseBtn();
   }catch(e){
     APP_STATE.robot.status='Backend indisponible';
     showToast(t('backendUnavailable'));
@@ -44,12 +50,45 @@ async function pollBackendState(){
   renderAll();
 }
 
+// Pause MOMENTANÉE / reprise. Le robot s'immobilise sur place (pas de retour au
+// départ) et conserve sa progression ; la reprise continue là où il s'était
+// arrêté. Le bouton bascule son libellé Pause ↔ Reprendre. Le polling reste
+// actif pendant la pause pour refléter le statut en direct.
+let _realPaused=false;
+async function togglePauseReal(){
+  if(!_realPaused){
+    try{ await postBackend('/mission/pause',{}); }catch(_){}
+    _realPaused=true;
+    APP_STATE.robot.status='paused';
+  }else{
+    try{ await postBackend('/mission/resume',{}); }catch(_){}
+    _realPaused=false;
+    APP_STATE.robot.status='moving';
+  }
+  updatePauseBtn();
+  renderAll();
+}
+
+// Met à jour le libellé du bouton pause selon l'état (i18n, RTL inclus).
+function updatePauseBtn(){
+  const b=document.getElementById('btnPauseReal');
+  if(b && typeof t==='function') b.textContent=t(_realPaused?'resumeBtn':'pauseBtn');
+}
+
+// ARRÊT = SUSPENSION : stoppe la mission ET remet l'interface + le robot à leur
+// ÉTAT INITIAL (en attente, progression 0), comme si aucune mission n'avait
+// démarré — mais le robot reste PHYSIQUEMENT où il est (pas de retour au point
+// de départ). Le prochain « Démarrer » repart d'une plateforme propre.
 async function stopRealMode(){
-  if(realPollTimer) clearInterval(realPollTimer);
-  realPollTimer=null;
-  // Bouton d'arrêt = ARRÊT D'URGENCE : le robot (mode --watch) stoppe entre deux
-  // points (cf. /api/mission/stop → command=idle, robot_status=emergency_stop).
-  try{ await postBackend('/mission/stop',{}); }catch(_){}
-  APP_STATE.robot.status="Arrêt d'urgence";
+  if(realPollTimer){ clearInterval(realPollTimer); realPollTimer=null; }
+  _realPaused=false;
+  try{ await postBackend('/mission/suspend',{}); }catch(_){}
+  // Remise à zéro de l'affichage (miroir du backend reset()).
+  APP_STATE.fieldData = emptyField();
+  APP_STATE.robot.measuredPoints = 0;
+  APP_STATE.robot.progress = 0;
+  APP_STATE.robot.activePoint = 'Départ';
+  APP_STATE.robot.status = 'idle';
+  updatePauseBtn();
   renderAll();
 }

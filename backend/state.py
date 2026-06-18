@@ -106,7 +106,7 @@ class Measurement:
 class AppState:
     robot: RobotState = field(default_factory=RobotState)
     plan: List[MissionPoint] = field(default_factory=default_plan)
-    command: str = "idle"              # idle | requested | running | done
+    command: str = "idle"              # idle | requested | running | paused | done
     measurements_by_zone: Dict[str, Measurement] = field(default_factory=dict)
     history: List[Measurement] = field(default_factory=list)
     # Les routes sync de FastAPI s'exécutent dans un threadpool : les mutations

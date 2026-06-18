@@ -169,8 +169,32 @@ def _fetch_command() -> Optional[str]:
     return None
 
 
+# Rythme de sondage du backend pendant une PAUSE (le robot est immobile et
+# attend la reprise / l'abandon). Plus court que le poll du watch_loop pour une
+# reprise réactive.
+PAUSE_POLL_S = 1.0
+
+
+def _control_decision(cmd: Optional[str]) -> str:
+    """
+    Traduit la commande backend en décision d'exécution pour run_mission :
+      • 'abort' : arrêt / suspension demandé (command idle/abort) ;
+      • 'pause' : pause momentanée (command paused) ;
+      • 'run'   : mission active (requested/running/done) ;
+      • 'unknown' : backend injoignable (command None) — on NE décide rien
+        (on ne s'arrête pas sur un hoquet réseau, on ne reprend pas une pause).
+    """
+    if cmd in ("idle", "abort"):
+        return "abort"
+    if cmd == "paused":
+        return "pause"
+    if cmd is None:
+        return "unknown"
+    return "run"
+
+
 def run_mission(points: List[PlanPoint], reset: bool = True,
-                should_abort=None) -> List[MeasurementRecord]:
+                should_abort=None, control=None) -> List[MeasurementRecord]:
     """
     Exécute la mission sur la liste de points et renvoie les records.
 
@@ -179,10 +203,20 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
     Le robot est TOUJOURS arrêté en fin de mission (finally), y compris sur
     erreur — c'est la garantie d'arrêt minimale côté robot.
 
-    `should_abort` (optionnel) : callable renvoyant True si un arrêt d'urgence
-    a été demandé. Vérifié AVANT chaque point → le robot stoppe proprement et
-    n'entame pas le déplacement suivant.
+    Contrôle d'exécution (vérifié AVANT chaque point, jamais en plein
+    déplacement → arrêt propre, pas de perte de repère) :
+      • `control` (optionnel) : callable renvoyant la commande backend courante
+        (str ou None). Permet ARRÊT/SUSPENSION (idle), PAUSE momentanée (paused,
+        le robot s'immobilise sur place et attend la reprise) et reprise.
+      • `should_abort` (rétro-compat) : callable booléen d'arrêt simple, utilisé
+        seulement si `control` est absent (pas de pause possible dans ce cas).
     """
+    def _decision() -> str:
+        if control is not None:
+            return _control_decision(control())
+        if should_abort is not None and should_abort():
+            return "abort"
+        return "run"
     mode = os.getenv("APP_MODE", "mock").lower()
     sensor_mode = resolve_sensor_mode()
     print(f"[mission] APP_MODE={mode} | SENSOR_MODE={sensor_mode} | "
@@ -196,6 +230,11 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
             print("[mission] backend non joignable — on continue en local", flush=True)
 
     robot = build_robot()
+    # Garde-fou d'emprise : borne le parcours physique à un carré (ROBOT_MAX_FIELD_M,
+    # défaut 0.9 m → ≤ 0.81 m²) en abaissant l'échelle si le plan édité est trop
+    # grand. No-op sur le mock. Inclut l'origine (départ + éventuel retour).
+    if hasattr(robot, "fit_to_field"):
+        robot.fit_to_field(points)
     # Le bras/sonde réutilise le PCA9685 déjà ouvert par le robot (même bus I2C).
     probe = build_probe(pca=getattr(robot, "_pca", None))
     sensor = build_sensor()
@@ -225,10 +264,32 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
 
     try:
         for p in points:
-            if should_abort is not None and should_abort():
-                print("[mission] ⛔ arrêt d'urgence demandé — mission interrompue.", flush=True)
+            decision = _decision()
+            if decision == "abort":
+                print("[mission] ⛔ arrêt demandé — mission interrompue.", flush=True)
                 aborted = True
                 break
+            if decision == "pause":
+                # PAUSE momentanée : on immobilise le robot SUR PLACE (pas de
+                # retour au départ) et on attend ici la reprise (/resume) ou
+                # l'abandon (/suspend). Le repère de position est conservé.
+                robot.stop()
+                print("[mission] ⏸ pause — robot immobile, en attente de reprise…",
+                      flush=True)
+                while True:
+                    time.sleep(PAUSE_POLL_S)
+                    d = _decision()
+                    if d == "abort":
+                        aborted = True
+                        break
+                    if d == "run":          # reprise EXPLICITE uniquement
+                        print("[mission] ▶ reprise de la mission.", flush=True)
+                        break
+                    # 'pause' ou 'unknown' (backend injoignable) → rester en pause
+                if aborted:
+                    print("[mission] ⛔ arrêt pendant la pause — mission interrompue.",
+                          flush=True)
+                    break
             print(f"[mission] point {p.label}", flush=True)
             # Au DÉPART (avant le déplacement) : l'UI fait glisser le robot vers
             # ce point PENDANT le trajet réel (trajet Manhattan, vitesse uniforme)
@@ -262,8 +323,16 @@ def run_mission(points: List[PlanPoint], reset: bool = True,
         # le robot doit rester immobile là où il a été stoppé).
         if not aborted and records and \
                 os.getenv("ROBOT_RETURN_HOME", "0").strip().lower() in ("1", "true", "yes"):
-            print("[mission] retour à l'origine (0, 0)", flush=True)
-            robot.move_to_point(0.0, 0.0)
+            print("[mission] retour à l'origine (0, 0) — demi-tours par la gauche", flush=True)
+            # Passage à gauche pour le retour : les demi-tours se font en CCW
+            # (les rotations droites gardent un léger résidu d'avance).
+            if hasattr(robot, "prefer_left_turns"):
+                robot.prefer_left_turns(True)
+            try:
+                robot.move_to_point(0.0, 0.0)
+            finally:
+                if hasattr(robot, "prefer_left_turns"):
+                    robot.prefer_left_turns(False)
         if not aborted and records and hasattr(robot, "mission_complete"):
             robot.mission_complete()   # bip + clignotement de fin (robot réel)
     finally:
@@ -302,16 +371,14 @@ def watch_loop(poll_s: float = 1.5) -> int:
             print("[watch] ordre reçu — exécution de la mission", flush=True)
             plan = resolve_plan(None)
             # reset=False : /api/mission/start a déjà réinitialisé l'état.
-            # should_abort : si la commande repasse à idle (bouton arrêt
-            # d'urgence /api/mission/stop ou /end), on stoppe entre deux points.
+            # control=_fetch_command : la commande backend pilote l'exécution —
+            # idle/abort (stop/suspend) → arrêt entre deux points ; paused →
+            # pause sur place + attente de reprise ; running/requested → roule.
             # Une erreur de mission (ex. obstacle persistant → RuntimeError) ne
             # doit JAMAIS tuer le daemon : le robot est déjà stoppé par le
             # finally de run_mission, on journalise et on retourne en attente.
             try:
-                run_mission(
-                    plan, reset=False,
-                    should_abort=lambda: _fetch_command() in ("idle", "abort"),
-                )
+                run_mission(plan, reset=False, control=_fetch_command)
             except Exception as err:
                 print(f"[watch] ⚠ mission interrompue : {err} — retour en attente",
                       flush=True)
