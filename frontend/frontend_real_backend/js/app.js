@@ -224,6 +224,13 @@ const MIN_SPACING_M = 1.7;
 const MAX_PLAN_POINTS = 8;
 // Espacement des plans prédéfinis (~27 cm physiques à l'échelle 0.15).
 const PRESET_SPACING_M = 1.8;
+// Étendue MAX de la parcelle (mètres « terrain ») : les coordonnées x/y des
+// points sont bornées à [0, FIELD_MAX_M] dans l'éditeur.
+const FIELD_MAX_M = 3.6;
+// Borne une coordonnée saisie/calculée dans [0, FIELD_MAX_M], arrondie à 0.1 m.
+function _clampCoord(v) {
+  return Math.max(0, Math.min(FIELD_MAX_M, Math.round((Number(v) || 0) * 10) / 10));
+}
 
 // Génère un plan en SERPENTIN par colonnes (montée/descente), sens validé sur
 // le robot — déplacement continu sans saut diagonal. Le 1er point est DÉCALÉ
@@ -300,8 +307,8 @@ function renderPlanEditor() {
     <div class="plan-row">
       <span class="plan-idx">${i + 1}</span>
       <input class="plan-in plan-label" value="${p.label}" readonly tabindex="-1" aria-label="${t('planCol')}"/>
-      <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.x}" data-i="${i}" data-k="x"/><span class="unit">m</span></span>
-      <span class="plan-field"><input class="plan-in" type="number" step="0.1" value="${p.y}" data-i="${i}" data-k="y"/><span class="unit">m</span></span>
+      <span class="plan-field"><input class="plan-in" type="number" step="0.1" min="0" max="${FIELD_MAX_M}" value="${p.x}" data-i="${i}" data-k="x"/><span class="unit">m</span></span>
+      <span class="plan-field"><input class="plan-in" type="number" step="0.1" min="0" max="${FIELD_MAX_M}" value="${p.y}" data-i="${i}" data-k="y"/><span class="unit">m</span></span>
       <button class="plan-ins" onclick="insertPlanRowAfter(${i})" title="${t('planInsert')}">＋</button>
       <button class="plan-del" onclick="removePlanRow(${i})" title="${t('planRemove')}">✕</button>
     </div>`).join('');
@@ -326,7 +333,9 @@ function renderPlanEditor() {
     inp.onchange = () => {
       const k = inp.dataset.k;
       if (!k) return;                       // libellé en lecture seule (auto-numéroté)
-      APP_STATE.plan[+inp.dataset.i][k] = Number(inp.value);
+      const v = _clampCoord(inp.value);     // borne la coordonnée à [0, 3.6]
+      APP_STATE.plan[+inp.dataset.i][k] = v;
+      inp.value = v;                        // reflète la valeur bornée dans le champ
     };
   });
 }
@@ -346,7 +355,7 @@ function addPlanRow() {
   }
   // Décale le nouveau point de l'espacement min depuis le dernier (jamais superposé).
   const last = APP_STATE.plan[APP_STATE.plan.length - 1] || { x: 0, y: 0 };
-  APP_STATE.plan.push({ label: '', x: Math.round((last.x + PRESET_SPACING_M) * 10) / 10, y: last.y });
+  APP_STATE.plan.push({ label: '', x: _clampCoord(last.x + PRESET_SPACING_M), y: _clampCoord(last.y) });
   _renumberPlan();
   renderPlanEditor();
 }
@@ -379,7 +388,7 @@ function insertPlanRowAfter(i) {
     nx = a.x + PRESET_SPACING_M; ny = a.y;     // insertion après le dernier point
   }
   APP_STATE.plan.splice(i + 1, 0, {
-    label: '', x: Math.round(nx * 10) / 10, y: Math.round(ny * 10) / 10,
+    label: '', x: _clampCoord(nx), y: _clampCoord(ny),
   });
   _renumberPlan();
   renderPlanEditor();

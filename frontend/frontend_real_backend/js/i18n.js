@@ -33,7 +33,7 @@
       demoLocal:"démo locale", startSimulation:"▶ Démarrer simulation", nextStep:"+ Étape suivante", reset:"↺ Réinitialiser",
       startMission:"▶ Démarrer mission", syncBtn:"↻ Synchroniser", stopBtn:"■ Arrêter",
       pauseBtn:"⏸ Pause", resumeBtn:"▶ Reprendre",
-      runtimeNote:"Cette version fonctionne sans robot ni backend. Elle simule le déplacement du robot, les mesures et la coloration progressive des zones.",
+      runtimeNote:"Cette version est reliée au robot réel : elle affiche les mesures envoyées par le robot via le backend et les recommandations du modèle ML — aucune simulation.",
       humidity:"Humidité", soilPh:"pH du sol", ph:"pH", temperature:"Température", waiting:"En attente", fieldAverage:"moyenne parcelle",
       quickMap:"🎯 Lecture rapide de la carte", capturedValues:"Valeurs captées", lowHumidity:"Humidité faible", outPh:"pH hors plage", limitValue:"Valeur limite", correctValue:"Valeur correcte",
       blue:"Bleu", red:"Rouge", yellow:"Jaune", green:"Vert",
@@ -71,7 +71,7 @@
       demoLocal:"محاكاة محلية", startSimulation:"▶ بدء المحاكاة", nextStep:"+ الخطوة التالية", reset:"↺ إعادة التهيئة",
       startMission:"▶ بدء المهمة", syncBtn:"↻ مزامنة", stopBtn:"■ إيقاف",
       pauseBtn:"⏸ إيقاف مؤقت", resumeBtn:"▶ استئناف",
-      runtimeNote:"هذه النسخة تعمل بدون روبوت أو خادم. تحاكي حركة الروبوت والقياسات وتلوين المناطق تدريجياً.",
+      runtimeNote:"هذه النسخة موصولة بالروبوت الحقيقي: تعرض القياسات التي يرسلها الروبوت عبر الخادم وتوصيات نموذج التعلّم الآلي — بدون محاكاة.",
       humidity:"الرطوبة", soilPh:"pH التربة", ph:"pH", temperature:"درجة الحرارة", waiting:"في الانتظار", fieldAverage:"متوسط الحقل",
       quickMap:"🎯 قراءة سريعة للخريطة", capturedValues:"القيم المقاسة", lowHumidity:"رطوبة منخفضة", outPh:"pH خارج المجال", limitValue:"قيمة حدية", correctValue:"قيمة مناسبة",
       blue:"أزرق", red:"أحمر", yellow:"أصفر", green:"أخضر",
@@ -109,7 +109,7 @@
       demoLocal:"ديمو محلي", startSimulation:"▶ بدا المحاكاة", nextStep:"+ الخطوة الجاية", reset:"↺ عاود من اللول",
       startMission:"▶ بدا المهمة", syncBtn:"↻ مزامنة", stopBtn:"■ وقّف",
       pauseBtn:"⏸ وقفة", resumeBtn:"▶ كمّل",
-      runtimeNote:"هاد النسخة كتخدم بلا روبو وبلا backend. كتحاكي الحركة والقياسات وتلوين الزونات.",
+      runtimeNote:"هاد النسخة موصولة بالروبو الحقيقي: كتبيّن القياسات اللي كيصيفط الروبو عبر الـbackend وتوصيات الموديل ديال ML — بلا محاكاة.",
       humidity:"الرطوبة", soilPh:"pH ديال التراب", ph:"pH", temperature:"الحرارة", waiting:"كيتسنى", fieldAverage:"معدل الحقل",
       quickMap:"🎯 قراءة سريعة للخريطة", capturedValues:"القيم لي تقاسو", lowHumidity:"الرطوبة ناقصة", outPh:"pH خارج المجال", limitValue:"قيمة خاصها مراقبة", correctValue:"قيمة مزيانة",
       blue:"زرق", red:"حمر", yellow:"صفر", green:"خضر",
@@ -160,7 +160,8 @@
     if (!status) return t("waiting");
     const s = String(status);
     const point = (s.match(/[ABC][123]/) || [""])[0];
-    if (/Simulation prête|En attente/.test(s)) return t("simReady");
+    // Version RÉELLE : au repos = « En attente » (pas de vocabulaire « simulation »).
+    if (/Simulation prête|En attente|Mission prête/.test(s)) return t("missionReady");
     if (/Simulation en cours/.test(s)) return t("simRunning");
     if (/Simulation terminée/.test(s)) return t("simDone");
     if (/Mesure au point/.test(s)) return t("measuringAt", { point });
@@ -226,7 +227,6 @@
 
     setText(".mission-title", t("missionTitle"));
     setAll(".mission-stat-label", [t("activePoint"), t("progress"), t("measurements"), t("globalCrop")]);
-    setText(".runtime-note", t("runtimeNote"));
     // Boutons mission (mode réel) relabellisés par ID. Le bouton pause garde un
     // libellé dépendant de l'état (Pause ↔ Reprendre) via updatePauseBtn().
     setText("#btnStartReal", t("startMission"));
