@@ -76,6 +76,41 @@ curl http://localhost:8000/api/status    # mission, mode, dernière mesure + rec
 
 ---
 
+## Chatbot vocal multilingue (FR / AR / Darija)
+
+Le chatbot reformule en langage naturel les résultats déjà calculés localement
+(ML + règles) — il **n'invente aucune mesure ni recommandation**. Trois briques
+cloud, toutes **découplées** et configurables via `.env` (provider `gemini` par
+défaut, ou `openai`) :
+
+| Brique | Route | Rôle |
+|---|---|---|
+| Chat | `POST /api/chat` | Question → réponse experte contextualisée |
+| Voix (TTS) | `POST /api/tts` | Réponse → audio (vraie voix arabe) |
+| **Micro (STT)** | `POST /api/stt` | **Parole → texte (transcription)** |
+
+### Reconnaissance vocale (STT)
+
+La reconnaissance vocale **intégrée au navigateur** (Web Speech API) déchiffre
+mal l'arabe et quasiment pas la darija. La parole est donc enregistrée côté
+navigateur (`MediaRecorder`, arrêt automatique au silence) puis transcrite par
+un service **cloud** bien plus fiable (**OpenAI Whisper / `gpt-4o-transcribe`**,
+ou Gemini), via la route `POST /api/stt`. **Repli automatique** sur la
+reconnaissance locale si le cloud échoue ou le micro est refusé.
+
+```bash
+# .env — provider de la transcription (vide = suit LLM_PROVIDER)
+STT_PROVIDER=openai            # Whisper, recommandé en arabe/darija
+OPENAI_STT_MODEL=gpt-4o-transcribe
+```
+
+> ⚠️ **Le micro (`getUserMedia`) exige un contexte sécurisé (HTTPS ou
+> `localhost`)** : en accès LAN direct (`http://<ip>:5500`) la capture est
+> bloquée par le navigateur — passer par un tunnel HTTPS. La darija (`da`) est
+> transcrite en lettres arabes (mappée sur `ar`).
+
+---
+
 ## Matériel robot (Adeept PiCar-Pro)
 
 Pilotage réel via **PCA9685** (`adafruit_motor`) : 2 moteurs DC + 1 servo de
