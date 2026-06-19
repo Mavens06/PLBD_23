@@ -120,6 +120,10 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `GEMINI_FALLBACK_MODEL` | `gemini-2.5-flash-lite` | Modèle de repli si le principal renvoie 429 (quota) ; vide = désactivé |
 | `GEMINI_TTS_MODEL` | `gemini-2.5-flash-preview-tts` | Modèle TTS Gemini pour la route `/api/tts` (vraie voix arabe) |
 | `GEMINI_TTS_VOICE` | `Kore` | Voix prédéfinie Gemini (parle la langue du texte) |
+| `TTS_PROVIDER` | _(suit `LLM_PROVIDER`)_ | Fournisseur VOIX découplé du chat (`gemini`/`openai`) — hybride possible |
+| `STT_PROVIDER` | _(suit `LLM_PROVIDER`)_ | Fournisseur TRANSCRIPTION micro→texte (`gemini`/`openai`) — `openai` (Whisper) recommandé en arabe/darija |
+| `OPENAI_STT_MODEL` | `gpt-4o-transcribe` | Modèle STT OpenAI pour `/api/stt` (ou `whisper-1`) |
+| `GEMINI_STT_MODEL` | `gemini-2.5-flash` | Modèle STT Gemini pour `/api/stt` (n'accepte pas le webm de Chrome) |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Endpoint Generative Language API |
 | `GEMINI_TIMEOUT` | `60` | Timeout HTTP de l'appel Gemini (s) |
 | `RS485_PORT` | `/dev/ttyUSB0` | Port série du capteur (ou `/dev/ttyAMA0`) |
@@ -160,7 +164,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 PLBD/
 ├── backend/                            # API FastAPI 100 % locale
 │   ├── app.py                          # Routes : /health, /api/status, chat, tts, mission, measurements, recommendation
-│   ├── chatbot_llm.py                  # Client Gemini async (httpx) : chat conversationnel + TTS
+│   ├── chatbot_llm.py                  # Client LLM async (httpx) : chat + TTS (voix) + STT (micro→texte), providers Gemini/OpenAI
 │   ├── state.py                        # APP_STATE singleton (RobotState + Measurement + history)
 │   ├── persistence.py                  # Persistance SQLite (plan de mission + mesures)
 │   ├── weather_service.py              # Bulletin Open-Meteo + consigne d'irrigation
@@ -269,6 +273,7 @@ UI :
 | GET | `/api/weather` | Bulletin 3 j (Open-Meteo, sans clé) + consigne d'irrigation (pluie → reportée/réduite) |
 | POST | `/api/chat` | Question agriculteur → réponse LLM contextualisée |
 | POST | `/api/tts` | Texte → audio WAV (TTS Gemini cloud) ; vraie voix arabe, repli voix locale si échec |
+| POST | `/api/stt` | Audio micro (multipart) → texte (STT cloud Whisper/Gemini) ; bien meilleur que le navigateur en arabe/darija, repli reconnaissance locale si échec |
 | GET | `/api/mission` | État robot + progression + `plan` + `command` |
 | GET | `/api/mission/plan` | Plan de mission courant (liste de points `{label, x, y}`) — lu par le robot |
 | POST | `/api/mission/plan` | Définit le plan de mission depuis l'interface (N points x/y) |

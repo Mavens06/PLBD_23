@@ -16,14 +16,17 @@ L'inférence ML/règles reste 100% locale. Seule la couche conversationnelle
 import os
 from typing import Optional
 
-from fastapi import Depends, FastAPI, HTTPException, Response, Security
+from fastapi import (
+    Depends, FastAPI, File, Form, HTTPException, Response, Security, UploadFile,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 try:
     from .chatbot_llm import (
-        generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL,
+        generate_expert_response, synthesize_speech, transcribe_speech,
+        GEMINI_MODEL, GEMINI_BASE_URL,
         GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
     )
     from .state import APP_STATE, Measurement, MissionPoint
@@ -31,7 +34,8 @@ try:
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
     from chatbot_llm import (
-        generate_expert_response, synthesize_speech, GEMINI_MODEL, GEMINI_BASE_URL,
+        generate_expert_response, synthesize_speech, transcribe_speech,
+        GEMINI_MODEL, GEMINI_BASE_URL,
         GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
     )
     from state import APP_STATE, Measurement, MissionPoint
@@ -366,6 +370,30 @@ async def tts(request: TTSRequest):
     except RuntimeError as err:
         raise HTTPException(status_code=503, detail=str(err))
     return Response(content=audio, media_type="audio/wav")
+
+
+@app.post("/api/stt", dependencies=[Depends(require_api_key)])
+async def stt(audio: UploadFile = File(...), language: str = Form("fr")):
+    """
+    Transcription vocale (micro → texte) via un service STT **cloud** (OpenAI
+    Whisper/gpt-4o-transcribe ou Gemini, selon STT_PROVIDER). Bien plus fiable
+    que la reconnaissance intégrée du navigateur, surtout en arabe/darija.
+    Reçoit l'enregistrement audio en multipart (`audio`) + la langue (`language`).
+    En cas d'échec (quota, réseau), renvoie 503 → le frontend retombe sur la
+    reconnaissance vocale locale du navigateur.
+    """
+    if language not in ("fr", "ar", "da"):
+        raise HTTPException(
+            status_code=400, detail="Langue non supportée. Utilisez 'fr', 'ar', ou 'da'.",
+        )
+    data = await audio.read()
+    if not data:
+        raise HTTPException(status_code=400, detail="Audio vide.")
+    try:
+        text = await transcribe_speech(data, language, audio.content_type or "")
+    except RuntimeError as err:
+        raise HTTPException(status_code=503, detail=str(err))
+    return {"text": text}
 
 
 # ---------------------------------------------------------------------------

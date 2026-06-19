@@ -238,5 +238,86 @@ class TtsRouteTest(unittest.TestCase):
         self.assertTrue(r.content.startswith(b"RIFF"))
 
 
+class TranscribeSpeechTest(unittest.IsolatedAsyncioTestCase):
+    """Transcription vocale (STT) — aiguillage fournisseur + garde-fous, sans réseau."""
+
+    def test_language_hint_maps_darija_to_arabic(self) -> None:
+        self.assertEqual(llm._stt_language_hint("fr"), "fr")
+        self.assertEqual(llm._stt_language_hint("ar"), "ar")
+        self.assertEqual(llm._stt_language_hint("da"), "ar")   # pas de code propre
+        self.assertEqual(llm._stt_language_hint("xx"), "fr")   # défaut
+
+    def test_ext_from_mime(self) -> None:
+        self.assertEqual(llm._ext_from_mime("audio/webm;codecs=opus"), "webm")
+        self.assertEqual(llm._ext_from_mime("audio/ogg"), "ogg")
+        self.assertEqual(llm._ext_from_mime("audio/mp4"), "mp4")
+        self.assertEqual(llm._ext_from_mime("audio/wav"), "wav")
+        self.assertEqual(llm._ext_from_mime(""), "webm")       # défaut
+
+    async def test_empty_audio_raises(self) -> None:
+        with self.assertRaises(RuntimeError):
+            await llm.transcribe_speech(b"", "fr")
+
+    async def test_routes_to_openai_when_provider_openai(self) -> None:
+        captured = {}
+
+        async def fake_openai_stt(audio, language, mime):
+            captured["audio"] = audio
+            captured["language"] = language
+            return "transcription openai"
+
+        with mock.patch.object(llm, "STT_PROVIDER", "openai"), \
+             mock.patch.object(llm, "OPENAI_API_KEY", "k"), \
+             mock.patch.object(llm, "_call_openai_stt", fake_openai_stt):
+            out = await llm.transcribe_speech(b"audiobytes", "da", "audio/webm")
+
+        self.assertEqual(out, "transcription openai")
+        self.assertEqual(captured["audio"], b"audiobytes")
+
+    async def test_openai_missing_key_raises(self) -> None:
+        with mock.patch.object(llm, "STT_PROVIDER", "openai"), \
+             mock.patch.object(llm, "OPENAI_API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                await llm.transcribe_speech(b"x", "fr")
+
+    async def test_gemini_missing_key_raises(self) -> None:
+        with mock.patch.object(llm, "STT_PROVIDER", "gemini"), \
+             mock.patch.object(llm, "GEMINI_API_KEY", ""):
+            with self.assertRaises(RuntimeError):
+                await llm.transcribe_speech(b"x", "fr")
+
+
+class SttRouteTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.client = TestClient(app)
+
+    def test_unsupported_language_returns_400(self) -> None:
+        files = {"audio": ("speech.webm", b"data", "audio/webm")}
+        r = self.client.post("/api/stt", files=files, data={"language": "en"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_empty_audio_returns_400(self) -> None:
+        files = {"audio": ("speech.webm", b"", "audio/webm")}
+        r = self.client.post("/api/stt", files=files, data={"language": "fr"})
+        self.assertEqual(r.status_code, 400)
+
+    def test_failure_returns_503(self) -> None:
+        async def fake_stt(data, language, mime):
+            raise RuntimeError("STT indisponible")
+        with mock.patch("backend.app.transcribe_speech", fake_stt):
+            files = {"audio": ("speech.webm", b"audiobytes", "audio/webm")}
+            r = self.client.post("/api/stt", files=files, data={"language": "ar"})
+        self.assertEqual(r.status_code, 503)
+
+    def test_success_returns_text(self) -> None:
+        async def fake_stt(data, language, mime):
+            return "شنو نزرع"
+        with mock.patch("backend.app.transcribe_speech", fake_stt):
+            files = {"audio": ("speech.webm", b"audiobytes", "audio/webm")}
+            r = self.client.post("/api/stt", files=files, data={"language": "da"})
+        self.assertEqual(r.status_code, 200)
+        self.assertEqual(r.json()["text"], "شنو نزرع")
+
+
 if __name__ == "__main__":
     unittest.main()

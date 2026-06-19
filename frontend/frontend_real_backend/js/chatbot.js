@@ -646,8 +646,126 @@
   let recognizing = false;
   let gotResult = false;
   let recognizer = null;
+  let _sttStop = null;        // arrêt anticipé d'un enregistrement cloud en cours
 
+  // La reconnaissance vocale INTÉGRÉE au navigateur (Web Speech API) est faible
+  // en arabe et quasi inexistante en darija. Quand le backend est joignable, on
+  // privilégie une transcription CLOUD (route /api/stt → OpenAI Whisper /
+  // gpt-4o-transcribe) bien plus fiable, avec repli automatique sur le navigateur.
+  function _cloudSTTEnabled() {
+    return (window.CHATBOT_USE_BACKEND === true || APP_STATE?.runtimeMode === "real")
+      && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.MediaRecorder);
+  }
+
+  // Enregistre le micro jusqu'à un court silence (ou une durée max), via une
+  // détection d'énergie audio (AnalyserNode). Résout { blob, spoke }.
+  function _recordUntilSilence(opts) {
+    const { maxMs = 12000, silenceMs = 1400, startGraceMs = 4000 } = opts || {};
+    return navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+      const pick = ["audio/webm", "audio/ogg", "audio/mp4"].find(
+        (m) => window.MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(m));
+      const type = pick || "audio/webm";
+      const rec = new MediaRecorder(stream, pick ? { mimeType: pick } : undefined);
+      const chunks = [];
+      rec.ondataavailable = (e) => { if (e.data && e.data.size) chunks.push(e.data); };
+      let ac, analyser, buf;
+      try {
+        ac = new (window.AudioContext || window.webkitAudioContext)();
+        const node = ac.createMediaStreamSource(stream);
+        analyser = ac.createAnalyser(); analyser.fftSize = 1024;
+        node.connect(analyser);
+        buf = new Uint8Array(analyser.fftSize);
+      } catch (_) { /* pas d'analyse possible : on s'appuiera sur maxMs */ }
+
+      return new Promise((resolve) => {
+        let stopped = false, spoke = false, timer = null;
+        const t0 = Date.now();
+        let lastLoud = t0;
+        const cleanup = () => {
+          if (timer) { clearInterval(timer); clearTimeout(timer); }
+          try { if (ac) ac.close(); } catch (_) {}
+          stream.getTracks().forEach((tr) => tr.stop());
+        };
+        const finish = () => {
+          if (stopped) return; stopped = true; _sttStop = null;
+          try { rec.stop(); } catch (_) { cleanup(); resolve({ blob: new Blob(chunks, { type }), spoke }); }
+        };
+        rec.onstop = () => { cleanup(); resolve({ blob: new Blob(chunks, { type }), spoke }); };
+        rec.onerror = () => finish();
+        _sttStop = finish;                 // permet un arrêt manuel (re-clic micro)
+        if (analyser) {
+          timer = setInterval(() => {
+            if (stopped) return;
+            analyser.getByteTimeDomainData(buf);
+            let peak = 0;
+            for (let i = 0; i < buf.length; i++) { const d = Math.abs(buf[i] - 128); if (d > peak) peak = d; }
+            const now = Date.now();
+            if (peak > 9) { lastLoud = now; spoke = true; }
+            if (now - t0 > maxMs) return finish();                     // durée max atteinte
+            if (spoke && now - lastLoud > silenceMs) return finish();  // silence après parole
+            if (!spoke && now - t0 > startGraceMs) return finish();    // rien dit → on abandonne
+          }, 100);
+        } else {
+          timer = setTimeout(finish, maxMs);
+        }
+        rec.start();
+      });
+    });
+  }
+
+  // Envoie l'enregistrement à /api/stt et renvoie le texte transcrit.
+  function _cloudTranscribe(blob) {
+    const fd = new FormData();
+    const ext = blob.type.includes("ogg") ? "ogg" : blob.type.includes("mp4") ? "mp4" : "webm";
+    fd.append("audio", blob, "speech." + ext);
+    fd.append("language", window.currentLang || "fr");
+    const headers = {};
+    if (window.AGRIBOTICS_API_KEY) headers["X-API-Key"] = window.AGRIBOTICS_API_KEY;
+    return fetch(`${CHAT_API_BASE}/stt`, { method: "POST", headers, body: fd })
+      .then((r) => { if (!r.ok) throw new Error("stt http " + r.status); return r.json(); })
+      .then((d) => (d.text || "").trim());
+  }
+
+  // Écoute via le cloud (Whisper). Repli sur la Web Speech API du navigateur si
+  // le micro est refusé ou la transcription échoue.
+  function _listenCloud() {
+    if (recognizing) return;
+    recognizing = true; gotResult = false;
+    setVoiceState("listening");
+    _recordUntilSilence().then((res) => {
+      if (!res || !res.spoke) {
+        recognizing = false;
+        if (CONV_MODE) setTimeout(() => { if (CONV_MODE && !recognizing) startListening(); }, 300);
+        else setVoiceState("idle");
+        return;
+      }
+      setVoiceState("thinking");
+      _cloudTranscribe(res.blob).then((txt) => {
+        recognizing = false;
+        if (txt) { gotResult = true; window.sendChat(txt); }     // → réponse + voix + ré-écoute
+        else if (CONV_MODE) setTimeout(() => { if (CONV_MODE && !recognizing) startListening(); }, 300);
+        else setVoiceState("idle");
+      }).catch(() => {
+        recognizing = false;
+        showToast((window.currentLang || "fr") === "fr"
+          ? "Transcription indisponible — micro local" : "تعذّر التفريغ — الميكروفون المحلي");
+        _listenWebSpeech();                                       // repli navigateur
+      });
+    }).catch(() => {                                              // micro refusé / indisponible
+      recognizing = false;
+      _listenWebSpeech();
+    });
+  }
+
+  // Aiguillage : cloud si dispo (bien meilleur en arabe/darija), sinon navigateur.
   function startListening() {
+    if (recognizing) return;
+    if (_cloudSTTEnabled()) { _listenCloud(); return; }
+    _listenWebSpeech();
+  }
+
+  // Reconnaissance vocale INTÉGRÉE au navigateur (repli, ou si pas de backend).
+  function _listenWebSpeech() {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       showToast((window.currentLang || "fr") === "fr" ? "Micro non supporté" : "الميكروفون غير مدعوم");
@@ -684,6 +802,7 @@
   function stopConversation() {
     CONV_MODE = false;
     recognizing = false;
+    try { if (_sttStop) _sttStop(); } catch (_) {}
     try { if (recognizer) recognizer.abort(); } catch (_) {}
     if ("speechSynthesis" in window) speechSynthesis.cancel();
     setVoiceState("idle");
@@ -704,6 +823,11 @@
 
   // Bouton micro classique (un seul tour, sans boucle).
   window.toggleMic = function () {
+    // Un 2e appui PENDANT un enregistrement cloud le valide/stoppe immédiatement.
+    if (_sttStop) { try { _sttStop(); } catch (_) {} return; }
+    // Cloud (Whisper) si dispo : enregistre jusqu'au silence puis transcrit.
+    if (_cloudSTTEnabled()) { _listenCloud(); return; }
+    // Repli : reconnaissance vocale du navigateur (un seul tour).
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) {
       showToast((window.currentLang || "fr") === "fr" ? "Micro non supporté" : "الميكروفون غير مدعوم");

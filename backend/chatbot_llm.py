@@ -55,6 +55,13 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini").strip().lower()
 # suit LLM_PROVIDER si non défini.
 TTS_PROVIDER = os.getenv("TTS_PROVIDER", "").strip().lower() or LLM_PROVIDER
 
+# Fournisseur de la TRANSCRIPTION (STT, micro → texte), lui aussi DÉCOUPLÉ du
+# chat. La reconnaissance vocale intégrée au navigateur (Web Speech API) est
+# faible en arabe et quasi inexistante en darija ; on déporte donc la
+# transcription vers le cloud (OpenAI Whisper / gpt-4o-transcribe, ou Gemini).
+# Par défaut, suit LLM_PROVIDER si non défini.
+STT_PROVIDER = os.getenv("STT_PROVIDER", "").strip().lower() or LLM_PROVIDER
+
 # Configuration OpenAI (cloud) — utilisée si LLM_PROVIDER=openai (chat) et/ou
 # TTS_PROVIDER=openai (voix).
 # Clé : https://platform.openai.com/api-keys
@@ -66,6 +73,8 @@ OPENAI_TIMEOUT = float(os.getenv("OPENAI_TIMEOUT", "60"))
 # tts-1 / tts-1-hd. Voix : alloy, echo, fable, onyx, nova, shimmer, coral…
 OPENAI_TTS_MODEL = os.getenv("OPENAI_TTS_MODEL", "gpt-4o-mini-tts").strip()
 OPENAI_TTS_VOICE = os.getenv("OPENAI_TTS_VOICE", "alloy").strip()
+# STT OpenAI : gpt-4o-transcribe (le plus précis, multilingue) ou whisper-1.
+OPENAI_STT_MODEL = os.getenv("OPENAI_STT_MODEL", "gpt-4o-transcribe").strip()
 
 # Configuration Gemini / Google AI Studio (surchargeable via .env).
 # Obtenir une clé gratuite : https://aistudio.google.com/apikey
@@ -85,6 +94,12 @@ GEMINI_FALLBACK_MODEL = os.getenv("GEMINI_FALLBACK_MODEL", "gemini-2.5-flash-lit
 # voix : https://ai.google.dev/gemini-api/docs/speech-generation
 GEMINI_TTS_MODEL = os.getenv("GEMINI_TTS_MODEL", "gemini-2.5-flash-preview-tts").strip()
 GEMINI_TTS_VOICE = os.getenv("GEMINI_TTS_VOICE", "Kore").strip()
+
+# Transcription (STT) Gemini : un modèle multimodal accepte l'audio en entrée.
+# Par défaut, le même que le chat. NB : Gemini accepte wav/mp3/ogg/flac/aac
+# mais PAS webm — la voie Gemini ne convient donc qu'avec un enregistrement ogg
+# (Firefox). Pour une compatibilité large (webm de Chrome), préférer STT_PROVIDER=openai.
+GEMINI_STT_MODEL = os.getenv("GEMINI_STT_MODEL", GEMINI_MODEL).strip()
 
 # Noms d'affichage des langues utilisés dans le prompt système pour indiquer
 # au LLM dans quelle langue répondre.
@@ -674,3 +689,133 @@ async def _call_openai_tts(text: str, language: str) -> bytes:
     if not audio:
         raise RuntimeError("Réponse TTS OpenAI vide (aucun audio).")
     return audio
+
+
+# ---------------------------------------------------------------------------
+# Transcription vocale (STT) — micro → texte
+# ---------------------------------------------------------------------------
+
+def _stt_language_hint(language: str) -> str:
+    """Code de langue ISO-639-1 transmis au moteur STT. La darija (`da`) n'a pas
+    de code propre : on l'assimile à l'arabe (`ar`), que Whisper transcrit en
+    lettres arabes."""
+    return {"fr": "fr", "ar": "ar", "da": "ar"}.get(language, "fr")
+
+
+def _ext_from_mime(mime: str) -> str:
+    """Déduit une extension de fichier du type MIME de l'enregistrement (les
+    moteurs STT s'appuient sur l'extension/le type pour décoder le conteneur)."""
+    m = (mime or "").lower()
+    if "ogg" in m:
+        return "ogg"
+    if "mp4" in m or "m4a" in m or "aac" in m:
+        return "mp4"
+    if "mpeg" in m or "mp3" in m:
+        return "mp3"
+    if "wav" in m:
+        return "wav"
+    return "webm"
+
+
+async def transcribe_speech(audio: bytes, language: str = "fr", mime: str = "") -> str:
+    """Transcrit un enregistrement audio (micro) en texte via un service STT cloud.
+
+    Beaucoup plus fiable que la reconnaissance vocale intégrée du navigateur
+    (Web Speech API), surtout en arabe et en darija. Aiguillage par `STT_PROVIDER`
+    (`openai` → Whisper/gpt-4o-transcribe, `gemini` → modèle multimodal). Lève
+    `RuntimeError` en cas d'échec → le frontend retombe sur la reconnaissance
+    locale du navigateur."""
+    if not audio:
+        raise RuntimeError("Audio vide : rien à transcrire.")
+
+    if STT_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise RuntimeError(
+                "OPENAI_API_KEY manquante (STT_PROVIDER=openai). Renseignez-la dans "
+                "le fichier .env (clé : https://platform.openai.com/api-keys)."
+            )
+        return await _call_openai_stt(audio, language, mime)
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError(
+            "GEMINI_API_KEY manquante. Renseignez-la dans le fichier .env "
+            "(clé gratuite : https://aistudio.google.com/apikey)."
+        )
+    return await _call_gemini_stt(audio, language, mime)
+
+
+async def _call_openai_stt(audio: bytes, language: str, mime: str) -> str:
+    """Transcription via l'endpoint /audio/transcriptions d'OpenAI (multipart)."""
+    filename = "speech." + _ext_from_mime(mime)
+    files = {"file": (filename, audio, mime or "audio/webm")}
+    data = {"model": OPENAI_STT_MODEL, "language": _stt_language_hint(language)}
+    url = f"{OPENAI_BASE_URL}/audio/transcriptions"
+    headers = {"Authorization": f"Bearer {OPENAI_API_KEY}"}
+    async with httpx.AsyncClient(timeout=OPENAI_TIMEOUT) as client:
+        try:
+            response = await client.post(url, headers=headers, data=data, files=files)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec STT OpenAI (HTTP {err.response.status_code}, "
+                f"modèle={OPENAI_STT_MODEL}). Détail : {body}"
+            ) from err
+        except httpx.HTTPError as err:
+            raise RuntimeError(
+                f"Échec STT OpenAI ({url}, modèle={OPENAI_STT_MODEL}). "
+                "Vérifiez votre connexion internet et la validité de OPENAI_API_KEY."
+            ) from err
+
+    payload = response.json()
+    text = (payload.get("text") or "").strip()
+    if not text:
+        raise RuntimeError("Réponse STT OpenAI vide (aucune transcription).")
+    return text
+
+
+async def _call_gemini_stt(audio: bytes, language: str, mime: str) -> str:
+    """Transcription via un modèle multimodal Gemini (audio inline en entrée)."""
+    lang_label = _LANG_LABELS.get(language, _LANG_LABELS["fr"])
+    prompt = (
+        f"Transcris fidèlement cet audio en texte, en {lang_label}. "
+        "Ne renvoie QUE la transcription, sans aucun commentaire ni ponctuation ajoutée."
+    )
+    payload = {
+        "contents": [{
+            "parts": [
+                {"text": prompt},
+                {"inline_data": {"mime_type": mime or "audio/ogg",
+                                 "data": base64.b64encode(audio).decode("ascii")}},
+            ]
+        }],
+        "generationConfig": {
+            "temperature": 0,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    url = f"{GEMINI_BASE_URL}/models/{GEMINI_STT_MODEL}:generateContent"
+    async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
+        try:
+            response = await client.post(url, params={"key": GEMINI_API_KEY}, json=payload)
+            response.raise_for_status()
+        except httpx.HTTPStatusError as err:
+            body = (err.response.text or "")[:300]
+            raise RuntimeError(
+                f"Échec STT Gemini (HTTP {err.response.status_code}, "
+                f"modèle={GEMINI_STT_MODEL}). Détail : {body}"
+            ) from err
+        except httpx.HTTPError as err:
+            raise RuntimeError(
+                f"Échec STT Gemini ({url}, modèle={GEMINI_STT_MODEL}). "
+                "Vérifiez votre connexion internet et la validité de GEMINI_API_KEY."
+            ) from err
+
+    data = response.json()
+    candidates = data.get("candidates") or []
+    parts = (candidates[0].get("content") or {}).get("parts") if candidates else []
+    text = "".join(p.get("text", "") for p in (parts or [])).strip()
+    if not text:
+        reason = candidates[0].get("finishReason", "") if candidates else ""
+        raise RuntimeError(f"Réponse STT Gemini vide (finishReason={reason or 'n/a'}).")
+    return text

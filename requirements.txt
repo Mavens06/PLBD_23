@@ -14,6 +14,8 @@ requests>=2.31.0
 fastapi>=0.115.0
 uvicorn[standard]>=0.29.0
 pydantic>=2.0.0
+# Requis par la route /api/stt (upload multipart de l'audio micro → transcription).
+python-multipart>=0.0.9
 
 # --- LLM Chatbot (Gemini via Google AI Studio) ---
 # Le chatbot appelle l'API Gemini (cloud) en REST via httpx. Aucune lib SDK
