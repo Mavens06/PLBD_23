@@ -330,6 +330,7 @@
         audio.onerror = () => { URL.revokeObjectURL(url); playNext(); };
         audio.muted = false;
         audio.src = url;
+        audio.playbackRate = 1.12;   // lecture légèrement accélérée (voix cloud)
         setVoiceState("speaking");
         const p = audio.play();
         if (p && p.then) {
@@ -379,7 +380,7 @@
       speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = browserSpeechLang();
-      utter.rate = lang === "fr" ? 0.95 : 0.9;
+      utter.rate = lang === "fr" ? 1.05 : 1.0;   // légèrement accéléré
       utter.pitch = 1;
       utter.volume = 1;
       if (voice) utter.voice = voice;
@@ -564,13 +565,57 @@
     const old = document.getElementById("chatFollowups");
     if (old) old.remove();
   }
+  // Dernière question posée par l'agriculteur (pour enchaîner logiquement).
+  function _lastUserMessage() {
+    const h = window.chatHistory || [];
+    for (let i = h.length - 1; i >= 0; i--) {
+      if (h[i] && h[i].role === "user") return h[i].content || "";
+    }
+    return "";
+  }
+  // Thème de la dernière question → permet des suivis qui s'enchaînent (eau,
+  // sol/acidité-salinité, choix de culture, robot), sinon générique.
+  function _followupTopic(msg) {
+    const s = String(msg || "").toLowerCase();
+    if (/eau|arro|irrig|sécher|sèch|pluie|ماء|سقي|ري|سقا|الما|مطر/.test(s)) return "water";
+    if (/acid|\bph\b|salin|salé|\bsel\b|conductiv|\bec\b|corrig|amend|chaux|soufre|amélior|fertil|حمو|ملوح|ملح|تحسين|تصحيح|سماد|جير/.test(s)) return "soil";
+    if (/cultur|semer|semis|planter|récolt|conv|adapt|زرع|محصول|غرس|نزرع|يناسب|مناسب/.test(s)) return "crop";
+    if (/robot|mission|position|où est|فين|روبو|روبوت|الروبو/.test(s)) return "robot";
+    return "default";
+  }
+  // Suggestions de SUIVI orientées « comprendre mon sol » et « comment faire »,
+  // choisies selon le thème de la dernière question pour former une suite logique.
   function _followupSuggestions() {
-    const S = {
-      fr: ["Pourquoi ?", "Comment faire concrètement ?", "Et pour une autre zone ?"],
-      ar: ["لماذا؟", "كيف أقوم بذلك عملياً؟", "وماذا عن منطقة أخرى؟"],
-      da: ["علاش؟", "كيفاش ندير هادشي؟", "وزون أخرى؟"],
+    const lang = window.currentLang || "fr";
+    const topic = _followupTopic(_lastUserMessage());
+    const BANK = {
+      water: {
+        fr: ["À quelle fréquence arroser ?", "Comment savoir si j'arrose trop ?", "Et si la pluie est annoncée ?"],
+        ar: ["كم مرة أسقي؟", "كيف أعرف أنني أُفرط في الري؟", "وإذا كان المطر متوقعاً؟"],
+        da: ["شحال من مرة نسقي؟", "كيفاش نعرف بللي كنزيد فالما؟", "وإلا جا المطر؟"],
+      },
+      soil: {
+        fr: ["Comment corriger mon sol concrètement ?", "Combien de temps avant de voir l'effet ?", "Quelle culture supporte ce sol ?"],
+        ar: ["كيف أُصحّح تربتي عملياً؟", "كم من الوقت حتى تظهر النتيجة؟", "أي محصول يتحمّل هذه التربة؟"],
+        da: ["كيفاش نصلح الأرض ديالي بالضبط؟", "شحال من وقت باش يبان الأثر؟", "أش من زرع يتحمّل هاد الأرض؟"],
+      },
+      crop: {
+        fr: ["Pourquoi cette culture convient à mon sol ?", "Comment préparer le sol pour la semer ?", "Quelle autre culture est possible ?"],
+        ar: ["لماذا يناسب هذا المحصول تربتي؟", "كيف أُهيّئ التربة لزراعته؟", "ما المحصول الآخر الممكن؟"],
+        da: ["علاش هاد الزرع يناسب الأرض ديالي؟", "كيفاش نوجّد الأرض باش نزرعو؟", "أش من زرع آخر ممكن؟"],
+      },
+      robot: {
+        fr: ["Quelles zones sont déjà mesurées ?", "Quelle zone a le meilleur sol ?", "Que faire après les mesures ?"],
+        ar: ["ما المناطق التي تم قياسها؟", "أي منطقة تربتها الأفضل؟", "ماذا أفعل بعد القياسات؟"],
+        da: ["شنو هي الزونات لي تقاسات؟", "أش من زون عندو أحسن أرض؟", "أش ندير من بعد القياسات؟"],
+      },
+      default: {
+        fr: ["En quoi est-ce important pour ma récolte ?", "Par quoi commencer concrètement ?", "Quels résultats espérer, et en combien de temps ?"],
+        ar: ["لماذا هذا مهمّ لمحصولي؟", "بماذا أبدأ عملياً؟", "ما النتائج المتوقَّعة وفي كم من الوقت؟"],
+        da: ["علاش هادشي مهمّ للمحصول ديالي؟", "بأش نبدا بالضبط؟", "أش من نتيجة نتسنّى وفشحال من وقت؟"],
+      },
     };
-    return S[window.currentLang || "fr"] || S.fr;
+    return (BANK[topic] && (BANK[topic][lang] || BANK[topic].fr)) || BANK.default.fr;
   }
   function _showFollowups() {
     _clearFollowups();

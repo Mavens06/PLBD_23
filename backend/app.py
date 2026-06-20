@@ -14,6 +14,7 @@ L'inférence ML/règles reste 100% locale. Seule la couche conversationnelle
 """
 
 import os
+import time
 from typing import Optional
 
 from fastapi import (
@@ -286,6 +287,54 @@ def _build_correction_context(selected_crop: Optional[str], sensor_data: Optiona
     return diagnosis_to_prompt(diagnose(m, selected_crop))
 
 
+def _weather_to_prompt(fc: Optional[dict]) -> Optional[str]:
+    """Sérialise le bulletin météo (get_forecast) pour le prompt du chatbot, ou
+    None si indisponible. Le LLM s'appuie dessus pour les questions
+    d'irrigation/pluie sans jamais inventer de prévision."""
+    if not fc or not fc.get("available"):
+        return None
+    parts = []
+    for d in (fc.get("days") or []):
+        seg = d.get("date") or "?"
+        rain = d.get("rain_mm")
+        tmin, tmax = d.get("tmin"), d.get("tmax")
+        if rain is not None:
+            seg += f" : {rain} mm de pluie"
+        if tmin is not None and tmax is not None:
+            seg += f", {tmin}–{tmax} °C"
+        parts.append(seg)
+    irr = (fc.get("irrigation") or {}).get("message", "")
+    rain3 = fc.get("rain_3d_mm")
+    return (
+        "Bulletin météo des 3 prochains jours (prévision Open-Meteo, fiable) : "
+        + " ; ".join(parts) + ". "
+        + (f"Pluie cumulée sur 3 jours : {rain3} mm. " if rain3 is not None else "")
+        + (f"Consigne d'irrigation dérivée : {irr} " if irr else "")
+    )
+
+
+# Cache mémoire du contexte météo : la prévision quotidienne ne bouge pas d'une
+# minute à l'autre → inutile d'appeler Open-Meteo à CHAQUE message de chat
+# (latence + politesse réseau). TTL court si indisponible pour réessayer vite.
+_WEATHER_CACHE = {"ts": 0.0, "ctx": None, "ttl": 0.0, "set": False}
+
+
+async def _build_weather_context() -> Optional[str]:
+    """Contexte météo pour le prompt chat, mis en cache (30 min si dispo, 2 min
+    sinon). Ne lève jamais (get_forecast renvoie {available:false} en cas KO)."""
+    now = time.time()
+    c = _WEATHER_CACHE
+    if c["set"] and now - c["ts"] < c["ttl"]:
+        return c["ctx"]
+    fc = await get_forecast()
+    avail = bool(fc.get("available"))
+    c["ctx"] = _weather_to_prompt(fc) if avail else None
+    c["ttl"] = 1800.0 if avail else 120.0
+    c["ts"] = now
+    c["set"] = True
+    return c["ctx"]
+
+
 @app.post("/api/chat", dependencies=[Depends(require_api_key)])
 async def chat(request: ChatRequest):
     """
@@ -330,6 +379,10 @@ async def chat(request: ChatRequest):
     # Contexte multi-zones : toutes les mesures connues du backend (autoritatif).
     all_zones_context = _build_all_zones_context()
 
+    # Bulletin météo (Open-Meteo, mis en cache) : permet au chatbot de répondre
+    # aux questions d'irrigation/pluie sur des prévisions réelles, pas inventées.
+    weather_context = await _build_weather_context()
+
     try:
         answer = await generate_expert_response(
             message=request.message,
@@ -341,6 +394,7 @@ async def chat(request: ChatRequest):
             robot_state=request.robot_state,
             correction_context=correction_context,
             all_zones_context=all_zones_context,
+            weather_context=weather_context,
             history=request.history,
         )
     except RuntimeError as err:

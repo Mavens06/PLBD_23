@@ -25,8 +25,9 @@ python-multipart>=0.0.9
 httpx>=0.27.0
 
 # --- Communication série (capteur 4-en-1 RS485 sur Raspberry Pi) ---
-# pyserial est utilisé par minimalmodbus. minimalmodbus est nécessaire
-# uniquement sur le robot réel ; le mock sensor n'en a pas besoin.
+# pyserial : utilisé par minimalmodbus (capteur RS485) ET par le driver de sonde
+# ESP32 (raspberry_pi/robot/esp32_probe.py, NEMA piloté en USB série).
+# minimalmodbus n'est nécessaire que sur le robot réel ; le mock n'en a pas besoin.
 pyserial>=3.5
 minimalmodbus>=2.1.0 ; platform_machine == "armv7l" or platform_machine == "aarch64"
 

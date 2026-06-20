@@ -449,13 +449,16 @@ function _injectChatStyles() {
   .chat-fab:hover{transform:scale(1.06)} .chat-fab.active{transform:scale(.9)}
   .chat-fab::after{content:'';position:absolute;top:7px;right:8px;width:11px;height:11px;border-radius:50%;background:#ffd23f;box-shadow:0 0 0 2px #fff;animation:fabPulse 2s infinite}
   @keyframes fabPulse{0%,100%{transform:scale(1);opacity:1}50%{transform:scale(1.25);opacity:.7}}
-  .chat-panel{position:fixed;right:18px;bottom:84px;width:min(440px,94vw);height:min(640px,80vh);background:#fff;border-radius:18px;box-shadow:0 16px 44px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;z-index:61;transform:translateY(16px) scale(.96);opacity:0;pointer-events:none;transition:transform .2s,opacity .2s}
+  .chat-panel{position:fixed;right:18px;bottom:84px;width:min(520px,96vw);height:min(680px,84vh);background:#fff;border-radius:18px;box-shadow:0 16px 44px rgba(0,0,0,.28);display:flex;flex-direction:column;overflow:hidden;z-index:61;transform:translateY(16px) scale(.96);opacity:0;pointer-events:none;transition:transform .2s,opacity .2s}
   .chat-panel.open{transform:none;opacity:1;pointer-events:auto}
   .chat-panel-head{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 14px;background:linear-gradient(135deg,#3b7a44,#2f6437);color:#fff;font-weight:800;font-size:14px;cursor:move;user-select:none}
   .chat-head-actions{display:flex;gap:6px;align-items:center}
   .chat-close,.chat-icon-btn{background:rgba(255,255,255,.2);border:none;color:#fff;width:28px;height:28px;border-radius:8px;cursor:pointer;font-weight:700;font-size:14px}
   .chat-close:hover,.chat-icon-btn:hover{background:rgba(255,255,255,.34)}
-  .chat-panel .chatbot-card{box-shadow:none;border-radius:0;margin:0;flex:1;min-height:0;overflow:auto}
+  .chat-panel .chatbot-card{box-shadow:none;border-radius:0;margin:0;flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column}
+  /* Dans le panneau flottant (haut), la zone des messages occupe toute la place
+     disponible au lieu d'être bridée à 340px → bien plus de texte visible. */
+  .chat-panel .chat-messages{max-height:none;flex:1 1 auto;min-height:0}
   /* Poignée de redimensionnement (coin bas-droit) */
   .chat-resize{position:absolute;right:0;bottom:0;width:20px;height:20px;cursor:nwse-resize;z-index:62;background:linear-gradient(135deg,transparent 45%,rgba(59,122,68,.35) 45%,rgba(59,122,68,.6));border-bottom-right-radius:18px}
   /* Suggestions de suivi (texte faible, validables/effaçables) */

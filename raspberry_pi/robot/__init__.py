@@ -53,11 +53,29 @@ def _parse_arm_home(raw: str) -> list[tuple[int, float]]:
 
 def build_probe(pca=None) -> ProbeController:
     """
-    Renvoie la sonde. Si `PROBE_SERVO_CHANNEL` est défini ET qu'on est en
-    hardware, pilote le BRAS du PiCar-Pro (séquence validée : épaule canal 2,
-    haut 90° / bas 150°, autres servos en posture home) ; sinon descente
-    simulée. `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot.
+    Renvoie la sonde, par ordre de priorité (hardware uniquement) :
+      1. `PROBE_SERIAL_PORT` défini → sonde NEMA pilotée par un ESP32 en USB
+         série (Esp32ProbeController : protocole DOWN/UP + accusé OK).
+      2. `PROBE_SERVO_CHANNEL` défini → BRAS du PiCar-Pro (servo : épaule
+         canal 2, haut 90° / bas 150°, autres servos en posture home).
+      3. sinon → descente simulée.
+    `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot (cas servo).
     """
+    # 1. Sonde NEMA via ESP32 (USB série) — prioritaire si configurée.
+    serial_port = os.getenv("PROBE_SERIAL_PORT")
+    if _is_hardware() and serial_port is not None and serial_port.strip() != "":
+        try:
+            from .esp32_probe import Esp32ProbeController
+            return Esp32ProbeController(
+                port=serial_port.strip(),
+                baud=int(os.getenv("PROBE_SERIAL_BAUD", "115200")),
+                ack_timeout=float(os.getenv("PROBE_SERIAL_TIMEOUT", "15")),
+                stabilize_s=float(os.getenv("PROBE_STABILIZE_S", "3.0")),
+            )
+        except Exception as err:  # pragma: no cover - dépend du matériel
+            print(f"[probe] ⚠ ESP32 sonde indisponible ({err}) — repli servo/simulé.", flush=True)
+
+    # 2. Sonde servo du PiCar-Pro.
     channel = os.getenv("PROBE_SERVO_CHANNEL")
     if _is_hardware() and channel is not None and channel.strip() != "":
         try:

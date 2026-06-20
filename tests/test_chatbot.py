@@ -198,12 +198,26 @@ class ChatRouteTest(unittest.TestCase):
         self.assertEqual(r.status_code, 400)
 
     def test_success_path_uses_llm(self) -> None:
+        captured = {}
+
         async def fake_generate(**kwargs):
+            captured.update(kwargs)
             return "Réponse experte."
-        with mock.patch("backend.app.generate_expert_response", fake_generate):
-            r = self.client.post("/api/chat", json={"message": "Quelle culture ?", "language": "fr"})
+
+        async def fake_forecast(*a, **k):
+            return {"available": True, "days": [{"date": "2026-06-20", "rain_mm": 6, "tmin": 14, "tmax": 28}],
+                    "rain_3d_mm": 6.0, "irrigation": {"message": "dose réduite."}}
+
+        import backend.app as bapp
+        bapp._WEATHER_CACHE.update(ts=0.0, ctx=None, ttl=0.0, set=False)  # cache neutre
+        with mock.patch("backend.app.generate_expert_response", fake_generate), \
+             mock.patch("backend.app.get_forecast", fake_forecast):
+            r = self.client.post("/api/chat", json={"message": "Dois-je arroser ?", "language": "fr"})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()["response"], "Réponse experte.")
+        # La météo est bien transmise au LLM (contexte d'irrigation).
+        self.assertIn("weather_context", captured)
+        self.assertIn("pluie", (captured["weather_context"] or "").lower())
 
     def test_llm_failure_returns_503(self) -> None:
         async def fake_generate(**kwargs):
@@ -285,6 +299,56 @@ class TranscribeSpeechTest(unittest.IsolatedAsyncioTestCase):
              mock.patch.object(llm, "GEMINI_API_KEY", ""):
             with self.assertRaises(RuntimeError):
                 await llm.transcribe_speech(b"x", "fr")
+
+
+class WeatherContextTest(unittest.TestCase):
+    """Le bulletin météo est correctement sérialisé et injecté dans le prompt."""
+
+    def test_weather_to_prompt_unavailable_is_none(self) -> None:
+        import backend.app as bapp
+        self.assertIsNone(bapp._weather_to_prompt(None))
+        self.assertIsNone(bapp._weather_to_prompt({"available": False}))
+
+    def test_weather_to_prompt_includes_rain_and_irrigation(self) -> None:
+        import backend.app as bapp
+        ctx = bapp._weather_to_prompt({
+            "available": True,
+            "days": [{"date": "2026-06-20", "rain_mm": 8, "tmin": 15, "tmax": 30}],
+            "rain_3d_mm": 8.0,
+            "irrigation": {"message": "dose réduite de moitié."},
+        })
+        self.assertIn("pluie", ctx.lower())
+        self.assertIn("8", ctx)
+        self.assertIn("irrigation", ctx.lower())
+
+    def test_prompt_injects_weather_block_and_rule(self) -> None:
+        p = llm._build_system_prompt(
+            "fr", None, None, None, None, None,
+            weather_context="Bulletin météo : pluie attendue demain.",
+        )
+        self.assertIn("pluie attendue demain", p)
+        self.assertIn("MÉTÉO", p)            # règle (8) présente
+        self.assertIn("n'invente JAMAIS de prévision", p)
+
+    def test_generate_passes_weather_to_prompt(self) -> None:
+        import asyncio
+        captured = {}
+
+        async def fake_call(client, model, payload):
+            captured["sys"] = payload["system_instruction"]["parts"][0]["text"]
+            return "OK"
+
+        async def run():
+            with mock.patch.object(llm, "GEMINI_API_KEY", "k"), \
+                 mock.patch.object(llm, "_call_gemini", fake_call):
+                return await llm.generate_expert_response(
+                    "Dois-je arroser ?", "fr",
+                    weather_context="Bulletin météo : 12 mm de pluie sous 3 jours.",
+                )
+
+        out = asyncio.run(run())
+        self.assertEqual(out, "OK")
+        self.assertIn("12 mm de pluie", captured["sys"])
 
 
 class SttRouteTest(unittest.TestCase):

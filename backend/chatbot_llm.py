@@ -194,6 +194,7 @@ def _build_system_prompt(
     robot_state: Optional[dict],
     correction_context: Optional[str] = None,
     all_zones_context: Optional[str] = None,
+    weather_context: Optional[str] = None,
 ) -> str:
     """Compose un prompt système robuste, ancré sur les données réelles."""
     lang_label = _LANG_LABELS.get(language, _LANG_LABELS["fr"])
@@ -215,6 +216,10 @@ def _build_system_prompt(
     # Diagnostic de correction du sol déjà calculé (déterministe). Le LLM doit
     # s'appuyer dessus sans inventer d'autre conseil agronomique.
     correction_block = (correction_context + " ") if correction_context else ""
+
+    # Bulletin météo déjà calculé (Open-Meteo, déterministe) : le LLM s'en sert
+    # pour les questions d'irrigation/pluie sans jamais inventer de prévision.
+    weather_block = (weather_context + " ") if weather_context else ""
 
     zone_context = f"Zone analysée : {selected_zone}. " if selected_zone else ""
     crop_context = f"Culture cible choisie par l'agriculteur : {selected_crop}. " if selected_crop else ""
@@ -250,6 +255,7 @@ def _build_system_prompt(
         + crop_context
         + robot_context
         + correction_block
+        + weather_block
         + "Tu es un assistant agricole CONVERSATIONNEL : tu comprends n'importe quel "
         "message et tu peux répondre à toute question liée au champ, au sol, aux "
         "cultures, à l'irrigation, aux amendements, aux pratiques agricoles et au robot, "
@@ -281,6 +287,12 @@ def _build_system_prompt(
         "(7) Ta réponse est LUE À VOIX HAUTE et affichée en texte brut : n'utilise "
         "AUCUNE mise en forme Markdown (pas d'astérisques *, pas de #, pas de gras, pas "
         "de tirets de liste). Écris en phrases simples ; pour énumérer, écris « 1) … 2) … ». "
+        "(8) Pour les questions de MÉTÉO et d'IRRIGATION (faut-il arroser, va-t-il "
+        "pleuvoir, quand arroser), appuie-toi STRICTEMENT sur le bulletin météo "
+        "ci-dessus s'il est fourni : n'invente JAMAIS de prévision. Dis simplement si "
+        "de la pluie est attendue (ou non) et adapte le conseil d'arrosage en "
+        "conséquence (reporter ou réduire l'irrigation si de la pluie est prévue). Si "
+        "aucun bulletin n'est fourni, indique que tu n'as pas la météo à jour. "
         + (
             "Réponds en darija marocaine authentique (parlée, الدارجة) : utilise un "
             "vocabulaire et des tournures dialectales (ex. « كاين »، « خاصك »، « دير »، "
@@ -302,6 +314,7 @@ async def generate_expert_response(
     robot_state: Optional[dict] = None,
     correction_context: Optional[str] = None,
     all_zones_context: Optional[str] = None,
+    weather_context: Optional[str] = None,
     history: Optional[list] = None,
 ) -> str:
     """
@@ -363,6 +376,7 @@ async def generate_expert_response(
         robot_state=robot_state,
         correction_context=correction_context,
         all_zones_context=all_zones_context,
+        weather_context=weather_context,
     )
 
     # Aiguillage fournisseur : le prompt système et les garde-fous sont communs ;

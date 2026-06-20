@@ -155,6 +155,8 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `SIGNALS_ENABLED` / `LED_PINS` / `BUZZER_PIN` | `1` / `25,11` / `18` | LEDs + buzzer (bips mission, clignotement par point, alerte obstacle) — no-op si absents |
 | `PROBE_SERVO_CHANNEL` | _(vide)_ | Canal de l'ÉPAULE du bras-sonde (validé : `2`) ; vide = descente simulée |
 | `PROBE_ANGLE_UP/DOWN` / `PROBE_ARM_HOME` | `90/150` / `1:90,3:140,4:80` | Angles épaule haut/bas + posture home des autres servos du bras |
+| `PROBE_SERIAL_PORT` | _(vide)_ | Si défini (+ hardware) : sonde NEMA pilotée par un **ESP32 en USB série** (prioritaire sur le servo). Préférer un chemin stable `/dev/serial/by-id/...` |
+| `PROBE_SERIAL_BAUD` / `PROBE_SERIAL_TIMEOUT` | `115200` / `15` | Débit série ESP32 + attente max de l'accusé `OK` (s) = borne de la course de la sonde |
 
 ---
 
@@ -196,6 +198,7 @@ PLBD/
 │   │   ├── base.py                     # Interfaces RobotController / ProbeController
 │   │   ├── mock_controller.py          # Implémentations simulées (PC / repli)
 │   │   ├── adeept_controller.py        # Pilotage réel PiCar-Pro (PCA9685 : moteurs + servo)
+│   │   ├── esp32_probe.py              # Sonde NEMA pilotée par un ESP32 en USB série (DOWN/UP + accusé OK)
 │   │   └── __init__.py                 # build_robot() / build_probe() selon APP_MODE
 │   ├── offline_buffer.py               # File hors-ligne des mesures (résilience réseau)
 │   └── sensors/
@@ -260,6 +263,7 @@ UI :
   - recommandations de culture limitées aux 10 cultures cibles
   - langue forcée selon `language` (`fr` / `ar` / `da`)
   - **diagnostic de correction injecté** (`correction_context`) : pour tout ce qui touche CE sol, le LLM s'appuie strictement sur `rules.correction.diagnose()` (4 variables) — il n'invente aucun chiffre
+  - **bulletin météo injecté** (`weather_context`) : pour les questions d'irrigation/pluie, le LLM s'appuie strictement sur `weather_service.get_forecast()` (Open-Meteo, déterministe) — il n'invente jamais de prévision. Le contexte est construit par `_build_weather_context()` dans `app.py` (cache mémoire : 30 min si dispo, 2 min sinon, pour ne pas appeler Open-Meteo à chaque message)
   - garde-fous d'entrée : message borné (2000 car.), historique borné (8 tours), modèle de repli automatique sur quota 429.
 - **`__init__.py`** — Marque `backend/` comme package Python.
 
@@ -407,7 +411,7 @@ Deux versions strictement parallèles :
 
 - **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Résilience réseau** : un push raté n'est jamais perdu — la mesure est mise en file sur le disque (`offline_buffer.OfflineBuffer`) et retransmise au début de la mission suivante. **Pilotage temps réel** : en `--watch`, le callback `control` lit `command` du backend AVANT chaque point (`_control_decision`) → `idle/abort` (stop/suspend) stoppe entre deux points, `paused` immobilise le robot sur place et l'endort dans une boucle d'attente (reprise sur `running`/`requested`, jamais sur un hoquet réseau `None`), `running/requested` poursuit ; le robot est toujours arrêté en fin de mission (`finally`).
 - **`offline_buffer.py`** — File d'attente disque (JSON Lines) des mesures non transmises au backend. `enqueue()` persiste immédiatement, `flush(push_fn)` retransmet (s'arrête au premier échec pour ne pas marteler le réseau), tolère un fichier corrompu. Garantit **zéro perte de mesure** au champ.
-- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro, calqué sur le code mission **validé sur le robot** (`Code_PLBD_23_mission.py`) : PCA9685 `adafruit_motor`, 2 moteurs DC + servo de direction (centre 85°, braquages à fond 0°/180°), **throttles signés** (avant = `-0.15`, virages = `+0.18` — ne pas « corriger » sans réessai), **virages en arc** (braquage à fond + avance `TURN_90_S`), navigation **Manhattan par cap N/E/S/W** (`manhattan_legs()`, fonction pure testée). **`ROBOT_WORLD_SCALE`** rejoue le plan (mètres UI) sur une surface réduite (démo 1 m²) sans toucher UI/backend/mesures. Bras-sonde 4 servos (épaule canal 2 descend, posture home `1:90,3:140,4:80`). **Ultrason anti-obstacle** (trigger 23 / écho 24, seuil 12 cm) vérifié toutes les ~0.4 s pendant les lignes droites : pause + LED + bip puis reprise auto quand la voie se dégage, `RuntimeError` propre au timeout (le daemon `--watch` survit). **LEDs/buzzer** (`signals.py`, GPIO 25/11 + 18) : bips mission, clignotement par point — no-op silencieux si gpiozero/broches absents. `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
+- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro, calqué sur le code mission **validé sur le robot** (`Code_PLBD_23_mission.py`) : PCA9685 `adafruit_motor`, 2 moteurs DC + servo de direction (centre 85°, braquages à fond 0°/180°), **throttles signés** (avant = `-0.15`, virages = `+0.18` — ne pas « corriger » sans réessai), **virages en arc** (braquage à fond + avance `TURN_90_S`), navigation **Manhattan par cap N/E/S/W** (`manhattan_legs()`, fonction pure testée). **`ROBOT_WORLD_SCALE`** rejoue le plan (mètres UI) sur une surface réduite (démo 1 m²) sans toucher UI/backend/mesures. Bras-sonde 4 servos (épaule canal 2 descend, posture home `1:90,3:140,4:80`) — **ou** sonde NEMA pilotée par un ESP32 en USB série (`esp32_probe.py`, `PROBE_SERIAL_PORT`). **Ultrason anti-obstacle** (trigger 23 / écho 24, seuil 12 cm) vérifié toutes les ~0.4 s pendant les lignes droites : pause + LED + bip puis reprise auto quand la voie se dégage, `RuntimeError` propre au timeout (le daemon `--watch` survit). **LEDs/buzzer** (`signals.py`, GPIO 25/11 + 18) : bips mission, clignotement par point — no-op silencieux si gpiozero/broches absents. `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
 - **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
 - **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
 
@@ -432,7 +436,7 @@ Reste à faire, surtout sur le robot réel (non testable sur PC) :
 
 - **Calibration robot** : `adeept_controller.py` pilote réellement moteurs + servo, mais `DRIVE_THROTTLE_SCALE`, `ROBOT_SPEED_MPS` et les angles de braquage doivent être **calibrés sur le robot**, et le sens des moteurs vérifié (`hardware_test.py`).
 - **Navigation précise** : le robot visite les points dans l'ordre du plan, déplacement en **dead-reckoning temporisé** (pas d'encodeurs). Pour plus de précision : brancher le suiveur de ligne / des encodeurs sur `move_to_point` (interface inchangée).
-- **Sonde motorisée** : `AdeeptProbeController` (servo) est prêt, activé dès que `PROBE_SERVO_CHANNEL` est défini ; en attendant, descente simulée.
+- **Sonde motorisée** : deux drivers disponibles, sélectionnés par `build_probe()` (priorité au série) : (1) `Esp32ProbeController` — sonde **NEMA pilotée par un ESP32 en USB série** (`PROBE_SERIAL_PORT`, protocole `DOWN`/`UP` + accusé `OK` bloquant ; firmware `deploy/esp32_probe/esp32_probe.ino`) ; (2) `AdeeptProbeController` (servo, `PROBE_SERVO_CHANNEL`). Sans aucune des deux : descente simulée.
 - **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 
