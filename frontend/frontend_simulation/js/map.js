@@ -572,9 +572,16 @@ function drawMap() {
   };
   canvas.onpointerup = () => {
     if (!_drag) return;
-    if (_drag.moved && typeof renderPlanEditor === 'function') {
-      _suppressClick = true;        // empêche la sélection juste après un glisser
-      renderPlanEditor();           // reflète les nouvelles coordonnées dans l'éditeur
+    if (_drag.moved) {
+      // Cale le point déplacé sur la grille de valeurs AUTORISÉES (0/1.8/2.4/3.6).
+      if (typeof _snapCoord === 'function') {
+        APP_STATE.plan[_drag.i].x = _snapCoord(APP_STATE.plan[_drag.i].x);
+        APP_STATE.plan[_drag.i].y = _snapCoord(APP_STATE.plan[_drag.i].y);
+      }
+      if (typeof renderPlanEditor === 'function') {
+        _suppressClick = true;      // empêche la sélection juste après un glisser
+        renderPlanEditor();         // reflète les nouvelles coordonnées dans l'éditeur
+      }
     }
     _drag = null;
     drawMap();

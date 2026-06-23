@@ -227,9 +227,21 @@ const PRESET_SPACING_M = 1.8;
 // Étendue MAX de la parcelle (mètres « terrain ») : les coordonnées x/y des
 // points sont bornées à [0, FIELD_MAX_M] dans l'éditeur.
 const FIELD_MAX_M = 3.6;
-// Borne une coordonnée saisie/calculée dans [0, FIELD_MAX_M], arrondie à 0.1 m.
+// Valeurs de coordonnées AUTORISÉES (mètres « terrain »). L'éditeur n'expose que
+// ces positions discrètes (menus déroulants) : la grille de mesure est calée sur
+// un quadrillage fixe et la carte s'adapte dynamiquement aux points choisis.
+// Grille uniforme à 1,8 m (≈ 27 cm physiques) ≥ MIN_SPACING_M : espacement au-dessus
+// de l'empreinte du virage en arc → déplacement fiable du robot, max 3,6 m.
+const ALLOWED_COORDS = [0, 1.8, 3.6];
+// Ramène une coordonnée quelconque à la valeur AUTORISÉE la plus proche.
+function _snapCoord(v) {
+  const n = Number(v) || 0;
+  return ALLOWED_COORDS.reduce((best, c) =>
+    Math.abs(c - n) < Math.abs(best - n) ? c : best, ALLOWED_COORDS[0]);
+}
+// Conservé pour compat : borne dans [0, FIELD_MAX_M] PUIS cale sur la grille.
 function _clampCoord(v) {
-  return Math.max(0, Math.min(FIELD_MAX_M, Math.round((Number(v) || 0) * 10) / 10));
+  return _snapCoord(Math.max(0, Math.min(FIELD_MAX_M, Number(v) || 0)));
 }
 
 // Génère un plan en SERPENTIN par colonnes (montée/descente), sens validé sur
@@ -237,15 +249,17 @@ function _clampCoord(v) {
 // d'un pas du coin de départ (0,0) : le robot ROULE jusqu'à lui avant de
 // mesurer (pas de mesure « à l'arrêt » sur la position de parking).
 function _serpentinePlan(n) {
-  const S = PRESET_SPACING_M;
-  const cols = [
-    [{ x: 0, y: S }, { x: 0, y: 2 * S }, { x: 0, y: 3 * S }],              // colonne 1 ↑
-    [{ x: S, y: 3 * S }, { x: S, y: 2 * S }, { x: S, y: S }],              // colonne 2 ↓
-    [{ x: 2 * S, y: S }, { x: 2 * S, y: 2 * S }, { x: 2 * S, y: 3 * S }],  // colonne 3 ↑
-  ];
+  // Grille calée sur les valeurs AUTORISÉES bien espacées (0, 1.8, 3.6 m) —
+  // toutes à ≥ MIN_SPACING_M l'une de l'autre. Parcours en serpentin par colonne.
+  const G = [0, PRESET_SPACING_M, 2 * PRESET_SPACING_M];   // 0, 1.8, 3.6
   const seq = [];
-  cols.forEach((c) => c.forEach((p) => { if (seq.length < n) seq.push(p); }));
-  return seq.map((p, i) => ({ label: 'P' + (i + 1), x: p.x, y: p.y }));
+  G.forEach((x, ci) => {
+    const ys = ci % 2 === 0 ? G : [...G].reverse();        // alterne ↑ / ↓
+    ys.forEach((y) => seq.push({ x, y }));
+  });
+  // On ne mesure pas sur le coin de parking (0,0) : le robot y démarre.
+  const pts = seq.filter((p) => !(p.x === 0 && p.y === 0));
+  return pts.slice(0, n).map((p, i) => ({ label: 'P' + (i + 1), x: p.x, y: p.y }));
 }
 
 function applyPreset(n) {
@@ -271,6 +285,7 @@ function _injectPlanStyles() {
   .plan-in{width:100%;padding:8px 9px;border:1px solid #dde5dd;border-radius:10px;font:inherit;font-size:13px;background:#fff;transition:border-color .15s,box-shadow .15s}
   .plan-field .plan-in{padding-right:22px}
   .plan-in:focus{outline:none;border-color:#4a9c55;box-shadow:0 0 0 3px rgba(74,156,85,.16)}
+  .plan-sel{cursor:pointer;background:#fff;padding-right:24px}
   .plan-del{border:none;background:#fbeceb;color:#c0392b;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:13px;transition:background .15s,transform .1s}
   .plan-del:hover{background:#f3d4d2}.plan-del:active{transform:scale(.92)}
   .plan-ins{border:none;background:#e7f3e9;color:#2f7a3c;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:15px;line-height:1;transition:background .15s,transform .1s}
@@ -303,12 +318,16 @@ function renderPlanEditor() {
     host.className = 'plan-editor';
     (card.parentNode || card).insertBefore(host, card);
   }
+  // Garantit que le modèle reste sur la grille autorisée (plan importé/périmé inclus).
+  APP_STATE.plan.forEach((p) => { p.x = _snapCoord(p.x); p.y = _snapCoord(p.y); });
+  const coordOpts = (sel) => ALLOWED_COORDS.map((v) =>
+    `<option value="${v}"${_snapCoord(sel) === v ? ' selected' : ''}>${v} m</option>`).join('');
   const rows = APP_STATE.plan.map((p, i) => `
     <div class="plan-row">
       <span class="plan-idx">${i + 1}</span>
       <input class="plan-in plan-label" value="${p.label}" readonly tabindex="-1" aria-label="${t('planCol')}"/>
-      <span class="plan-field"><input class="plan-in" type="number" step="0.1" min="0" max="${FIELD_MAX_M}" value="${p.x}" data-i="${i}" data-k="x"/><span class="unit">m</span></span>
-      <span class="plan-field"><input class="plan-in" type="number" step="0.1" min="0" max="${FIELD_MAX_M}" value="${p.y}" data-i="${i}" data-k="y"/><span class="unit">m</span></span>
+      <span class="plan-field"><select class="plan-in plan-sel" data-i="${i}" data-k="x">${coordOpts(p.x)}</select></span>
+      <span class="plan-field"><select class="plan-in plan-sel" data-i="${i}" data-k="y">${coordOpts(p.y)}</select></span>
       <button class="plan-ins" onclick="insertPlanRowAfter(${i})" title="${t('planInsert')}">＋</button>
       <button class="plan-del" onclick="removePlanRow(${i})" title="${t('planRemove')}">✕</button>
     </div>`).join('');
@@ -317,7 +336,7 @@ function renderPlanEditor() {
       <span class="plan-hd-title">🛰️ ${t('missionPlanTitle')}</span>
       <span class="plan-hd-badge">${APP_STATE.plan.length} ${t('planPoints')}</span>
     </div>
-    <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })}</div>
+    <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })} · ${t('planAllowedNote', { vals: ALLOWED_COORDS.join(' / ') })}</div>
     <div class="plan-presets">
       <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
       <button class="plan-preset-btn" onclick="applyPreset(3)">3</button>
@@ -333,9 +352,9 @@ function renderPlanEditor() {
     inp.onchange = () => {
       const k = inp.dataset.k;
       if (!k) return;                       // libellé en lecture seule (auto-numéroté)
-      const v = _clampCoord(inp.value);     // borne la coordonnée à [0, 3.6]
+      const v = _snapCoord(inp.value);      // cale sur une valeur autorisée
       APP_STATE.plan[+inp.dataset.i][k] = v;
-      inp.value = v;                        // reflète la valeur bornée dans le champ
+      inp.value = v;                        // reflète la valeur calée dans le champ
     };
   });
 }
