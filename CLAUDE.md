@@ -155,8 +155,14 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `SIGNALS_ENABLED` / `LED_PINS` / `BUZZER_PIN` | `1` / `25,11` / `18` | LEDs + buzzer (bips mission, clignotement par point, alerte obstacle) — no-op si absents |
 | `PROBE_SERVO_CHANNEL` | _(vide)_ | Canal de l'ÉPAULE du bras-sonde (validé : `2`) ; vide = descente simulée |
 | `PROBE_ANGLE_UP/DOWN` / `PROBE_ARM_HOME` | `90/150` / `1:90,3:140,4:80` | Angles épaule haut/bas + posture home des autres servos du bras |
-| `PROBE_SERIAL_PORT` | _(vide)_ | Si défini (+ hardware) : sonde NEMA pilotée par un **ESP32 en USB série** (prioritaire sur le servo). Préférer un chemin stable `/dev/serial/by-id/...` |
+| `PROBE_SERIAL_PORT` | _(vide)_ | Si défini (+ hardware) : sonde NEMA pilotée par un **ESP32 en USB série**. Préférer un chemin stable `/dev/serial/by-id/...` |
 | `PROBE_SERIAL_BAUD` / `PROBE_SERIAL_TIMEOUT` | `115200` / `15` | Débit série ESP32 + attente max de l'accusé `OK` (s) = borne de la course de la sonde |
+| `PROBE_NEMA_GPIO` | `0` | `1` (+ hardware) : sonde NEMA pilotée **DIRECTEMENT par les GPIO de la Pi** (driver A4988/DRV8825 STEP/DIR, sans ESP32). **Priorité la plus haute** dans `build_probe()`. Mouvement temporisé avec rampe accél./décél. |
+| `PROBE_NEMA_STEP_PIN` / `PROBE_NEMA_DIR_PIN` | `26` / `27` | Broches BCM STEP/DIR (phys. 37 / 13). Masse commune Pi↔driver↔alim, RESET+SLEEP au 3,3 V Pi, EN à GND |
+| `PROBE_NEMA_RPM` / `PROBE_NEMA_START_RPM` / `PROBE_NEMA_ACCEL_S` | `150` / `50` / `1.2` | Vitesse de croisière, vitesse de démarrage (sous le couple de décrochage) et durée des rampes (s). La rampe évite le décrochage du pas-à-pas |
+| `PROBE_NEMA_DOWN_S` / `PROBE_NEMA_UP_S` | `9` / `=DOWN_S` | Durées (s) de descente / remontée complètes (calibrées au champ) |
+| `PROBE_NEMA_DOWN_DIR` / `PROBE_NEMA_UP_DIR` | `L` / `H` | Sens validés sur le robot : DESCENTE = `L` (LOW), REMONTÉE = `H` (HIGH) |
+| `PROBE_NEMA_STEPS_PER_REV` | `200` | Pas par tour du moteur (NEMA 17 = 200) |
 
 ---
 
@@ -199,6 +205,7 @@ PLBD/
 │   │   ├── mock_controller.py          # Implémentations simulées (PC / repli)
 │   │   ├── adeept_controller.py        # Pilotage réel PiCar-Pro (PCA9685 : moteurs + servo)
 │   │   ├── esp32_probe.py              # Sonde NEMA pilotée par un ESP32 en USB série (DOWN/UP + accusé OK)
+│   │   ├── nema_probe.py               # Sonde NEMA pilotée DIRECTEMENT par les GPIO de la Pi (STEP/DIR + rampe)
 │   │   └── __init__.py                 # build_robot() / build_probe() selon APP_MODE
 │   ├── offline_buffer.py               # File hors-ligne des mesures (résilience réseau)
 │   └── sensors/
@@ -436,7 +443,7 @@ Reste à faire, surtout sur le robot réel (non testable sur PC) :
 
 - **Calibration robot** : `adeept_controller.py` pilote réellement moteurs + servo, mais `DRIVE_THROTTLE_SCALE`, `ROBOT_SPEED_MPS` et les angles de braquage doivent être **calibrés sur le robot**, et le sens des moteurs vérifié (`hardware_test.py`).
 - **Navigation précise** : le robot visite les points dans l'ordre du plan, déplacement en **dead-reckoning temporisé** (pas d'encodeurs). Pour plus de précision : brancher le suiveur de ligne / des encodeurs sur `move_to_point` (interface inchangée).
-- **Sonde motorisée** : deux drivers disponibles, sélectionnés par `build_probe()` (priorité au série) : (1) `Esp32ProbeController` — sonde **NEMA pilotée par un ESP32 en USB série** (`PROBE_SERIAL_PORT`, protocole `DOWN`/`UP` + accusé `OK` bloquant ; firmware `deploy/esp32_probe/esp32_probe.ino`) ; (2) `AdeeptProbeController` (servo, `PROBE_SERVO_CHANNEL`). Sans aucune des deux : descente simulée.
+- **Sonde motorisée** : trois drivers disponibles, sélectionnés par `build_probe()` par ordre de priorité : (1) `PiGpioNemaProbeController` — sonde **NEMA pilotée DIRECTEMENT par les GPIO de la Pi** (`PROBE_NEMA_GPIO=1`, driver A4988/DRV8825 sur STEP=GPIO26/DIR=GPIO27, mouvement temporisé avec **rampe d'accél./décél.** pour éviter le décrochage ; sens validés DESCENTE=`L`/REMONTÉE=`H`, course 9 s @ 150 tr/min) ; (2) `Esp32ProbeController` — sonde NEMA pilotée par un **ESP32 en USB série** (`PROBE_SERIAL_PORT`, protocole `DOWN`/`UP` + accusé `OK` bloquant ; firmware `deploy/esp32_probe/esp32_probe.ino`) ; (3) `AdeeptProbeController` (servo, `PROBE_SERVO_CHANNEL`). Sans aucun des trois : descente simulée.
 - **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 

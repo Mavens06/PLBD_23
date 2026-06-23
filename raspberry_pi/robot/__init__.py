@@ -51,17 +51,31 @@ def _parse_arm_home(raw: str) -> list[tuple[int, float]]:
     return pose
 
 
+def _truthy(name: str) -> bool:
+    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+
+
 def build_probe(pca=None) -> ProbeController:
     """
     Renvoie la sonde, par ordre de priorité (hardware uniquement) :
-      1. `PROBE_SERIAL_PORT` défini → sonde NEMA pilotée par un ESP32 en USB
+      1. `PROBE_NEMA_GPIO=1` → sonde NEMA pilotée DIRECTEMENT par les GPIO de la
+         Pi (PiGpioNemaProbeController : STEP/DIR temporisé, sans ESP32).
+      2. `PROBE_SERIAL_PORT` défini → sonde NEMA pilotée par un ESP32 en USB
          série (Esp32ProbeController : protocole DOWN/UP + accusé OK).
-      2. `PROBE_SERVO_CHANNEL` défini → BRAS du PiCar-Pro (servo : épaule
+      3. `PROBE_SERVO_CHANNEL` défini → BRAS du PiCar-Pro (servo : épaule
          canal 2, haut 90° / bas 150°, autres servos en posture home).
-      3. sinon → descente simulée.
+      4. sinon → descente simulée.
     `pca` permet de réutiliser le PCA9685 déjà ouvert par le robot (cas servo).
     """
-    # 1. Sonde NEMA via ESP32 (USB série) — prioritaire si configurée.
+    # 1. Sonde NEMA pilotée directement par les GPIO de la Pi (STEP/DIR).
+    if _is_hardware() and _truthy("PROBE_NEMA_GPIO"):
+        try:
+            from .nema_probe import PiGpioNemaProbeController
+            return PiGpioNemaProbeController.from_env()
+        except Exception as err:  # pragma: no cover - dépend du matériel
+            print(f"[probe] ⚠ NEMA GPIO indisponible ({err}) — repli ESP32/servo/simulé.", flush=True)
+
+    # 2. Sonde NEMA via ESP32 (USB série) — si configurée.
     serial_port = os.getenv("PROBE_SERIAL_PORT")
     if _is_hardware() and serial_port is not None and serial_port.strip() != "":
         try:

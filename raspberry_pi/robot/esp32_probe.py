@@ -11,11 +11,13 @@ réception (l'ESP32 confirme la fin RÉELLE du mouvement) :
     Pi → ESP32 : "UP\\n"     (remonter la sonde)
     ESP32 → Pi : "OK\\n"
     Pi → ESP32 : "PING\\n"   (test de présence) → "OK\\n"
+    Pi → ESP32 : "OFF\\n"    (couper le driver si EN est câblé) → "OK\\n"
     (en cas d'erreur côté ESP32 : "ERR ...\\n")
 
 `lower_probe()` / `raise_probe()` BLOQUENT jusqu'à l'accusé `OK` (ou lèvent une
 RuntimeError au timeout) : la mesure n'a donc jamais lieu avant que la sonde soit
-réellement au contact du sol. C'est l'équivalent ESP32 d'`AdeeptProbeController`
+réellement au contact du sol. Le firmware peut couper le driver après `UP` si
+la broche EN du driver est câblée sur l'ESP32. C'est l'équivalent ESP32 d'`AdeeptProbeController`
 — même interface `ProbeController`, donc l'orchestrateur de mission est inchangé.
 
 Le firmware ESP32 correspondant est dans `deploy/esp32_probe/esp32_probe.ino`.
