@@ -6,15 +6,11 @@
 // carte (marqueur « Départ »), jamais mesuré.
 const START_POINT = { label: 'Départ', x: 0, y: 0 };
 
-// Plan de mesure par défaut : 4 points formant un CARRÉ (1.8 m × 1.8 m).
-// Parcours CONTINU sans saut diagonal : le robot part du Départ (0,0), monte la
-// colonne x=0 (P1→P2), traverse vers x=1.8 (P3), puis redescend (P4). Coordonnées
-// calées sur les valeurs AUTORISÉES (0 / 1.8 / 3.6 m) → carré régulier dans 1 m².
+// Plan de mesure par défaut : UN SEUL point coché (l'utilisateur en ajoute
+// d'autres en cochant la grille, jusqu'à 4 max). Coordonnée sur la grille
+// AUTORISÉE (0 / 1.8 / 3.6 m). Le robot part du Départ (0,0) et roule jusqu'au point.
 const DEFAULT_PLAN = [
-  {label:'P1',x:0,y:1.8},   // bas-gauche
-  {label:'P2',x:0,y:3.6},   // haut-gauche
-  {label:'P3',x:1.8,y:3.6}, // haut-droite
-  {label:'P4',x:1.8,y:1.8}, // bas-droite
+  {label:'P1',x:0,y:1.8},
 ];
 const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
 

@@ -361,7 +361,13 @@ function _planHas(x, y) { return APP_STATE.plan.some((p) => p.x === x && p.y ===
 function togglePlanPoint(x, y) {
   const i = APP_STATE.plan.findIndex((p) => p.x === x && p.y === y);
   if (i >= 0) APP_STATE.plan.splice(i, 1);
-  else APP_STATE.plan.push({ label: '', x, y });
+  else {
+    if (APP_STATE.plan.length >= MAX_PLAN_POINTS) {   // 4 points de mesure max
+      showToast(t('planMax', { n: MAX_PLAN_POINTS }));
+      return;
+    }
+    APP_STATE.plan.push({ label: '', x, y });
+  }
   const order = _gridCandidates();
   const rank = (p) => order.findIndex((o) => o.x === p.x && o.y === p.y);
   APP_STATE.plan.sort((a, b) => rank(a) - rank(b));
@@ -484,7 +490,7 @@ function applyPlanFromEditor() {
 // ---------------------------------------------------------------------------
 const _GUIDE_TXT = {
   fr: {
-    welcome: '👋 Bonjour, je suis AgriBot, votre assistant Agribotics.',
+    welcome: '👋 Bonjour, je suis AgriBot, votre assistant agricole.',
     plan: '① Choisissez vos points de mesure : cochez les emplacements souhaités, puis validez avec « Appliquer le plan ».',
     start: '② Votre plan est prêt. Appuyez sur « Démarrer mission » pour lancer le robot.',
     running: '🤖 Mission en cours. Ouvrez l’onglet « Carte » pour suivre le robot en direct.',

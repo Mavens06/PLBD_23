@@ -21,9 +21,9 @@
   if (window.Assistant) return;
 
   var INTRO = {
-    fr: "👋 Bonjour, je suis AgriBot, votre assistant. Sélectionnez votre langue pour commencer.",
-    ar: "👋 مرحباً، أنا كريم مساعدكم. اختاروا لغتكم للبدء.",
-    da: "👋 السلام، أنا كريم لمساعد ديالكم. ختاروا اللغة ديالكم باش نبداو.",
+    fr: "👋 Bonjour, je suis AgriBot, votre assistant agricole. Sélectionnez votre langue pour commencer.",
+    ar: "👋 مرحباً، أنا AgriBot مساعدكم الزراعي. اختاروا لغتكم للبدء.",
+    da: "👋 السلام، أنا AgriBot المساعد الفلاحي ديالكم. ختاروا اللغة ديالكم باش نبداو.",
   };
   // Écran de langue : message AFFICHÉ dans les 3 langues (le choix n'est pas
   // encore fait → chacun doit comprendre l'invitation à choisir sa langue).
