@@ -408,9 +408,9 @@ async def chat(request: ChatRequest):
 _COACH_ACTIONS = {
     "welcome": "souhaiter chaleureusement la bienvenue et se présenter en deux mots comme guide de l'application",
     "plan": (
-        "expliquer comment choisir les 4 points de mesure : soit appuyer sur le bouton "
-        "« Carré » pour les placer automatiquement, soit régler pour chacun ses coordonnées "
-        "X et Y en mètres, puis valider avec le bouton « Appliquer le plan »"
+        "expliquer comment choisir les points de mesure : cocher sur la grille les "
+        "emplacements où le robot doit mesurer, puis valider avec le bouton "
+        "« Appliquer le plan ». Rester très bref."
     ),
     "start": "inviter à appuyer sur le bouton « Démarrer mission » pour lancer la mission du robot",
     "running": "proposer d'ouvrir l'onglet « Carte » pour suivre le robot en direct",

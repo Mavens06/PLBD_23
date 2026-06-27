@@ -37,33 +37,26 @@
     { lang: 'ar',    text: '\u0627\u062e\u062a\u0627\u0631\u0648\u0627 \u0644\u063a\u062a\u0643\u0645' },
     { lang: 'ar-MA', text: '\u062e\u062a\u0627\u0631\u0648\u0627 \u0627\u0644\u0644\u063a\u0629 \u062f\u064a\u0627\u0644\u0643\u0645' },
   ];
-  function speakLangPrompt() {
+  // Dit UN segment (la langue actuellement pointée), synchronisé avec le pointeur.
+  function speakOneLang(idx) {
     try {
       if (window.CHATBOT_SPEAK === false) return;
-      if (!('speechSynthesis' in window)) { speak(LANG_SPEAK); return; }
+      var seg = LANG_PROMPT[idx];
+      if (!seg || !('speechSynthesis' in window)) return;
       if (window.stopBotVoice) window.stopBotVoice();
       window.speechSynthesis.cancel();
       setSpeaking(true);
       clearTimeout(st.hideTimer);
       var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-      var i = 0;
-      function pickVoice(code) {
-        var p = code.slice(0, 2).toLowerCase();
-        return voices.filter(function (v) { return v.lang && v.lang.toLowerCase().indexOf(p) === 0; })[0] || null;
-      }
-      function next() {
-        if (i >= LANG_PROMPT.length) { setSpeaking(false); scheduleHide(3200); return; }
-        var seg = LANG_PROMPT[i++];
-        try {
-          var u = new SpeechSynthesisUtterance(seg.text);
-          u.lang = seg.lang; u.rate = 1.15;
-          var v = pickVoice(seg.lang); if (v) u.voice = v;
-          u.onend = next; u.onerror = next;
-          window.speechSynthesis.speak(u);
-        } catch (e) { next(); }
-      }
-      next();
-    } catch (e) { setSpeaking(false); scheduleHide(3200); }
+      var p = seg.lang.slice(0, 2).toLowerCase();
+      var v = voices.filter(function (vo) { return vo.lang && vo.lang.toLowerCase().indexOf(p) === 0; })[0];
+      var u = new SpeechSynthesisUtterance(seg.text);
+      u.lang = seg.lang; u.rate = 1.12;
+      if (v) u.voice = v;
+      u.onend = function () { setSpeaking(false); };
+      u.onerror = function () { setSpeaking(false); };
+      window.speechSynthesis.speak(u);
+    } catch (e) { setSpeaking(false); }
   }
   // Indice de découvrabilité : rappelle qu'on peut DISCUTER avec AgriBot (chatbot).
   var CHAT_HINT = {
@@ -76,19 +69,19 @@
   var NUDGE_TXT = {
     fr: {
       lang: "Pour commencer, choisissez une langue en haut : Français, العربية ou الدارجة.",
-      plan: "Choisissez vos 4 points de mesure : appuyez sur « Carré » pour les placer, ou réglez leurs coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».",
+      plan: "Choisissez vos points de mesure : cochez les emplacements souhaités sur la grille, puis validez avec « Appliquer le plan ».",
       start: "Votre plan est prêt. Appuyez sur « Démarrer mission », en bas, pour lancer le robot.",
       done: "Mission terminée. Ouvrez l'onglet « Conseils » pour voir, zone par zone, la culture adaptée et les corrections du sol.",
     },
     ar: {
       lang: "للبدء، اختاروا لغة في الأعلى: Français أو العربية أو الدارجة.",
-      plan: "اختاروا نقاط القياس الأربع: اضغطوا « مربّع » لوضعها، أو اضبطوا إحداثيات X و Y. ثم صادقوا عبر « تطبيق الخطة ».",
+      plan: "اختاروا نقاط القياس: أشّروا على الأماكن المطلوبة في الشبكة، ثم صادقوا عبر « تطبيق الخطة ».",
       start: "خطتكم جاهزة. اضغطوا على « بدء المهمة » في الأسفل لتشغيل الروبوت.",
       done: "انتهت المهمة. افتحوا تبويب « النصائح » للاطلاع، منطقة بمنطقة، على المحصول المناسب وتصحيحات التربة.",
     },
     da: {
       lang: "باش تبداو، ختاروا لغة فوق: Français ولا العربية ولا الدارجة.",
-      plan: "ختاروا 4 نقط ديال القياس: كليكيو « مربّع » باش تحطوهم، ولا ضبطوا إحداثيات X و Y. من بعد صادقوا بـ « تطبيق الخطة ».",
+      plan: "ختاروا نقط القياس: شيكيو على البلايص لي بغيتو فالشبكة، من بعد صادقوا بـ « تطبيق الخطة ».",
       start: "الخطة ديالكم واجدة. كليكيو على « بدء المهمة » فالأسفل باش تشغّلوا الروبو.",
       done: "المهمة سالات. حلّوا تبويب « النصائح » باش تشوفوا، بلاصة ببلاصة، المحصول المناسب وتصحيحات التربة.",
     },
@@ -259,6 +252,7 @@
     st.langIdx = (st.langIdx == null) ? 0 : (st.langIdx + 1) % btns.length;
     var b = btns[st.langIdx];
     pointAtEl(b, (b.textContent || '').trim());
+    speakOneLang(st.langIdx);                             // VOIX synchronisée avec le pointeur
     st.langTimer = setTimeout(langCycleStep, 3000);       // 3 s sur chaque langue
   }
   function pointTo(step) {
@@ -292,7 +286,7 @@
 
   function onAvatarClick() {
     el.root.classList.remove('news');
-    if (onLang()) { showBubble(); speakLangPrompt(); return; }   // écran langue : re-saluer + parler
+    if (onLang()) { showBubble(); stopLangCycle(); st.langIdx = null; langCycleStep(); return; }   // écran langue : re-saluer + parler
     if (typeof window.toggleChatPanel === 'function') window.toggleChatPanel();  // sinon : ouvrir le chat
     else { showBubble(); if (st.curText) speak(st.curText); }
   }
@@ -424,7 +418,7 @@
       hideOldFab(); watchPanel();
       if (onLang()) {
         setMood('idle');
-        if (!st.introShown) { st.introShown = true; setBubble(INTRO_ALL, null, ''); showBubble(); speakLangPrompt(); pointTo('lang'); resetIdle('lang'); }
+        if (!st.introShown) { st.introShown = true; setBubble(INTRO_ALL, null, ''); showBubble(); pointTo('lang'); resetIdle('lang'); }
         return;
       }
       if (typeof _GUIDE_TXT === 'undefined' || typeof _coachStepName !== 'function') return;

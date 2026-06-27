@@ -321,7 +321,13 @@ function _injectPlanStyles() {
   .plan-presets{display:flex;align-items:center;gap:8px;margin:0 0 13px;flex-wrap:wrap}
   .plan-preset-lbl{font-size:12px;font-weight:700;color:#3b7a44}
   .plan-preset-btn{min-width:40px;height:32px;border:1px solid #cfe3cf;background:#fff;color:#2f7a3a;border-radius:9px;font-weight:800;font-size:13px;cursor:pointer;transition:background .15s,transform .1s,border-color .15s}
-  .plan-preset-btn:hover{background:#eaf5ea;border-color:#4a9c55}.plan-preset-btn:active{transform:scale(.92)}`;
+  .plan-preset-btn:hover{background:#eaf5ea;border-color:#4a9c55}.plan-preset-btn:active{transform:scale(.92)}
+  .plan-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:6px 0 4px;max-width:300px;margin-left:auto;margin-right:auto}
+  .plan-cell{aspect-ratio:1/1;border:2px dashed #cfe0cf;background:#fafdfa;border-radius:16px;cursor:pointer;display:grid;place-items:center;font-size:24px;color:#b6c8b6;transition:all .14s;position:relative}
+  .plan-cell:hover{border-color:#7fbf86;background:#f0f8f0;color:#6aa873}
+  .plan-cell.on{border-style:solid;border-color:#2f7a3a;background:linear-gradient(135deg,#52a85d,#3b7a44);color:#fff;box-shadow:0 4px 12px rgba(47,122,58,.32)}
+  .plan-cell .pc-num{font-size:18px;font-weight:800}
+  .plan-cell.on::after{content:'✓';position:absolute;top:5px;right:8px;font-size:12px;opacity:.85}`;
   document.head.appendChild(s);
 }
 
@@ -330,6 +336,31 @@ function _nextPlanLabel() {
   let i = 1;
   while (used.has('P' + i)) i++;
   return 'P' + i;
+}
+
+// Points CANDIDATS = grille autorisée (3×3), parcourue en SERPENTIN (colonnes
+// alternées) pour un trajet propre. Coin de parking (0,0) exclu. Coords masquées.
+function _gridCandidates() {
+  const G = ALLOWED_COORDS;
+  const seq = [];
+  G.forEach((x, ci) => {
+    const ys = ci % 2 === 0 ? G : [...G].reverse();
+    ys.forEach((y) => { if (!(x === 0 && y === 0)) seq.push({ x, y }); });
+  });
+  return seq;
+}
+function _planHas(x, y) { return APP_STATE.plan.some((p) => p.x === x && p.y === y); }
+
+function togglePlanPoint(x, y) {
+  const i = APP_STATE.plan.findIndex((p) => p.x === x && p.y === y);
+  if (i >= 0) APP_STATE.plan.splice(i, 1);
+  else APP_STATE.plan.push({ label: '', x, y });
+  const order = _gridCandidates();
+  const rank = (p) => order.findIndex((o) => o.x === p.x && o.y === p.y);
+  APP_STATE.plan.sort((a, b) => rank(a) - rank(b));
+  _renumberPlan();
+  _planApplied = false;
+  renderPlanEditor();
 }
 
 function renderPlanEditor() {
@@ -343,43 +374,24 @@ function renderPlanEditor() {
     host.className = 'plan-editor';
     (card.parentNode || card).insertBefore(host, card);
   }
-  // Garantit que le modèle reste sur la grille autorisée (plan importé/périmé inclus).
-  APP_STATE.plan.forEach((p) => { p.x = _snapCoord(p.x); p.y = _snapCoord(p.y); });
-  const coordOpts = (sel) => ALLOWED_COORDS.map((v) =>
-    `<option value="${v}"${_snapCoord(sel) === v ? ' selected' : ''}>${v} m</option>`).join('');
-  const rows = APP_STATE.plan.map((p, i) => `
-    <div class="plan-row">
-      <span class="plan-idx">${i + 1}</span>
-      <input class="plan-in plan-label" value="${p.label}" readonly tabindex="-1" aria-label="${t('planCol')}"/>
-      <span class="plan-field"><select class="plan-in plan-sel" data-i="${i}" data-k="x">${coordOpts(p.x)}</select></span>
-      <span class="plan-field"><select class="plan-in plan-sel" data-i="${i}" data-k="y">${coordOpts(p.y)}</select></span>
-      <button class="plan-ins" onclick="insertPlanRowAfter(${i})" title="${t('planInsert')}">＋</button>
-      <button class="plan-del" onclick="removePlanRow(${i})" title="${t('planRemove')}">✕</button>
-    </div>`).join('');
+  const rowsY = [...ALLOWED_COORDS].reverse();
+  const cells = rowsY.map((y) => ALLOWED_COORDS.map((x) => {
+    if (x === 0 && y === 0) return `<div class="plan-cell" style="visibility:hidden"></div>`;
+    const on = _planHas(x, y);
+    const n = on ? (APP_STATE.plan.findIndex((p) => p.x === x && p.y === y) + 1) : 0;
+    return `<button class="plan-cell${on ? ' on' : ''}" onclick="togglePlanPoint(${x},${y})">`
+      + (on ? `<span class="pc-num">${n}</span>` : '＋') + `</button>`;
+  }).join('')).join('');
   host.innerHTML = `
     <div class="plan-hd">
-      <span class="plan-hd-title">🛰️ ${t('missionPlanTitle')}</span>
+      <span class="plan-hd-title">🛰️ ${t('choosePoints')}</span>
       <span class="plan-hd-badge">${APP_STATE.plan.length} ${t('planPoints')}</span>
     </div>
-    <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })} · ${t('planAllowedNote', { vals: ALLOWED_COORDS.join(' / ') })}</div>
-    <div class="plan-presets">
-      <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
-      <button class="plan-preset-btn" onclick="applyPreset(4)" style="min-width:120px">⬛ ${t('planSquare')}</button>
-    </div>
-    <div class="plan-rows">${rows}</div>
+    <div class="plan-sub">${t('choosePointsHint')}</div>
+    <div class="plan-grid">${cells}</div>
     <div class="plan-actions">
-      <button class="btn-soft" onclick="addPlanRow()">＋ ${t('planAdd')}</button>
       <button class="btn-primary" onclick="applyPlanFromEditor()">✓ ${t('planApply')}</button>
     </div>`;
-  host.querySelectorAll('.plan-in').forEach((inp) => {
-    inp.onchange = () => {
-      const k = inp.dataset.k;
-      if (!k) return;                       // libellé en lecture seule (auto-numéroté)
-      const v = _snapCoord(inp.value);      // cale sur une valeur autorisée
-      APP_STATE.plan[+inp.dataset.i][k] = v;
-      inp.value = v;                        // reflète la valeur calée dans le champ
-    };
-  });
 }
 
 // Renumérote tous les points dans l'ordre courant : P1, P2, … Pn. Appelée après
@@ -445,24 +457,7 @@ function removePlanRow(i) {
 
 function applyPlanFromEditor() {
   const pts = APP_STATE.plan;
-  const labels = pts.map((p) => String(p.label).trim());
-  if (labels.some((l) => !l) || new Set(labels).size !== labels.length) {
-    showToast(t('planInvalid'));
-    return;
-  }
-  if (pts.some((p) => !isFinite(p.x) || !isFinite(p.y))) {
-    showToast(t('planInvalid'));
-    return;
-  }
-  // Distance minimale entre points (sol homogène sur un petit rayon).
-  for (let i = 0; i < pts.length; i++) {
-    for (let j = i + 1; j < pts.length; j++) {
-      if (Math.hypot(pts[i].x - pts[j].x, pts[i].y - pts[j].y) < MIN_SPACING_M) {
-        showToast(t('planTooClose', { a: pts[i].label, b: pts[j].label, d: MIN_SPACING_M }));
-        return;
-      }
-    }
-  }
+  if (!pts.length) { showToast(t('planMin')); return; }
   applyPlanPoints(pts);
   _planApplied = true;
   showToast(t('planApplied', { n: pts.length }));
@@ -480,7 +475,7 @@ function applyPlanFromEditor() {
 const _GUIDE_TXT = {
   fr: {
     welcome: '👋 Bonjour, je suis AgriBot, votre assistant Agribotics.',
-    plan: '① Choisissez vos 4 points de mesure : appuyez sur « Carré » pour les placer, ou ajustez leurs coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».',
+    plan: '① Choisissez vos points de mesure : cochez les emplacements souhaités, puis validez avec « Appliquer le plan ».',
     start: '② Votre plan est prêt. Appuyez sur « Démarrer mission » pour lancer le robot.',
     running: '🤖 Mission en cours. Ouvrez l’onglet « Carte » pour suivre le robot en direct.',
     progress: (z, m, n) => `✅ Zone ${z} mesurée — ${m}/${n}. Le robot poursuit son parcours.`,
@@ -490,7 +485,7 @@ const _GUIDE_TXT = {
   },
   ar: {
     welcome: '👋 مرحباً! سأرشدك خطوة بخطوة. اتبع تعليماتي.',
-    plan: '① اختر نقاط القياس الأربع: اضغط « مربّع » لوضعها، أو اضبط إحداثيات X و Y. ثم صادق بـ « ✓ تطبيق ».',
+    plan: '① اختر نقاط القياس: أشّر على الأماكن التي تريدها، ثم صادق بـ « ✓ تطبيق ».',
     start: '② كل شيء جاهز. اضغط الزر الأخضر « ▶ ابدأ المهمة ».',
     running: '🤖 انطلقنا! سآخذك إلى الخريطة لمتابعة الروبوت مباشرة.',
     progress: (z, m, n) => `✅ تم قياس المنطقة ${z} — ${m}/${n}. الروبوت يواصل…`,
@@ -500,7 +495,7 @@ const _GUIDE_TXT = {
   },
   da: {
     welcome: '👋 سلام! غادي نوجهك خطوة بخطوة. تبّع التعليمات ديالي.',
-    plan: '① ختار 4 نقط ديال القياس: كليكي على « مربّع » باش تحطهم، ولا ضبط إحداثيات X و Y. من بعد صادق بـ « ✓ تطبيق ».',
+    plan: '① ختار نقط القياس: شيك على البلايص لي بغيتي، من بعد صادق بـ « ✓ تطبيق ».',
     start: '② كلشي واجد. كليكي على الزر الأخضر « ▶ بدا المهمة ».',
     running: '🤖 بدينا! غادي نديك للخريطة باش تتبّع الروبو مباشرة.',
     progress: (z, m, n) => `✅ تقاست البلاصة ${z} — ${m}/${n}. الروبو كيكمّل…`,
