@@ -31,6 +31,47 @@
   // Phrase PARLÉE sur l'écran de langue (voix). NB : les navigateurs bloquent
   // souvent l'audio avant la 1ʳᵉ interaction → reparlé au clic sur l'avatar.
   var LANG_SPEAK = "Bonjour, je suis AgriBot. Choisissez votre langue pour commencer.";
+  // Invitation à choisir la langue, DITE DANS LES 3 LANGUES et RAPIDEMENT
+  // (rate élevé), chaque segment avec sa propre voix. Sur l'écran d'accueil la
+  // langue n'est pas encore choisie → chacun doit entendre l'invitation.
+  var LANG_PROMPT = [
+    { lang: 'fr-FR', text: 'Choisissez votre langue' },
+    { lang: 'ar',    text: 'اختاروا لغتكم' },
+    { lang: 'ar-MA', text: 'ختاروا اللغة ديالكم' },
+  ];
+  // Parole trilingue brève via la synthèse du navigateur (instantanée, pas de
+  // latence cloud). Chaque segment est lu vite (rate 1.15), enchaîné au suivant.
+  function speakLangPrompt() {
+    try {
+      if (window.CHATBOT_SPEAK === false) return;
+      if (!('speechSynthesis' in window)) { speak(LANG_SPEAK); return; }
+      if (window.stopBotVoice) window.stopBotVoice();
+      window.speechSynthesis.cancel();
+      setSpeaking(true);
+      clearTimeout(st.hideTimer);
+      var voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+      var i = 0;
+      function pickVoice(code) {
+        var p = code.slice(0, 2).toLowerCase();
+        return voices.filter(function (v) { return v.lang && v.lang.toLowerCase().indexOf(p) === 0; })[0] || null;
+      }
+      function next() {
+        if (i >= LANG_PROMPT.length) { setSpeaking(false); scheduleHide(3200); return; }
+        var seg = LANG_PROMPT[i++];
+        try {
+          var u = new SpeechSynthesisUtterance(seg.text);
+          u.lang = seg.lang;
+          u.rate = 1.15;                       // rapide
+          var v = pickVoice(seg.lang);
+          if (v) u.voice = v;
+          u.onend = next;
+          u.onerror = next;
+          window.speechSynthesis.speak(u);
+        } catch (e) { next(); }
+      }
+      next();
+    } catch (e) { setSpeaking(false); scheduleHide(3200); }
+  }
   // Indice de découvrabilité : rappelle qu'on peut DISCUTER avec AgriBot (chatbot).
   var CHAT_HINT = {
     fr: "💬 Cliquez sur moi pour échanger à tout moment",
@@ -42,19 +83,19 @@
   var NUDGE_TXT = {
     fr: {
       lang: "Pour commencer, choisissez une langue en haut : Français, العربية ou الدارجة.",
-      plan: "Choisissez un préréglage 3/5, ou ajoutez vos points et réglez leurs coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».",
+      plan: "Choisissez vos 4 points de mesure : appuyez sur « Carré » pour les placer, ou réglez leurs coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».",
       start: "Votre plan est prêt. Appuyez sur « Démarrer mission », en bas, pour lancer le robot.",
       done: "Mission terminée. Ouvrez l'onglet « Conseils » pour voir, zone par zone, la culture adaptée et les corrections du sol.",
     },
     ar: {
       lang: "للبدء، اختاروا لغة في الأعلى: Français أو العربية أو الدارجة.",
-      plan: "اختاروا نموذج 3/5، أو أضيفوا نقاطكم واضبطوا إحداثيي X و Y. ثم صادقوا عبر « تطبيق الخطة ».",
+      plan: "اختاروا نقاط القياس الأربع: اضغطوا « مربّع » لوضعها، أو اضبطوا إحداثيات X و Y. ثم صادقوا عبر « تطبيق الخطة ».",
       start: "خطتكم جاهزة. اضغطوا على « بدء المهمة » في الأسفل لتشغيل الروبوت.",
       done: "انتهت المهمة. افتحوا تبويب « النصائح » للاطلاع، منطقة بمنطقة، على المحصول المناسب وتصحيحات التربة.",
     },
     da: {
       lang: "باش تبداو، ختاروا لغة فوق: Français ولا العربية ولا الدارجة.",
-      plan: "ختاروا نموذج 3/5، ولا زيدوا النقط وضبطوا إحداثيات X و Y. من بعد صادقوا بـ « تطبيق الخطة ».",
+      plan: "ختاروا 4 نقط ديال القياس: كليكيو « مربّع » باش تحطوهم، ولا ضبطوا إحداثيات X و Y. من بعد صادقوا بـ « تطبيق الخطة ».",
       start: "الخطة ديالكم واجدة. كليكيو على « بدء المهمة » فالأسفل باش تشغّلوا الروبو.",
       done: "المهمة سالات. حلّوا تبويب « النصائح » باش تشوفوا، بلاصة ببلاصة، المحصول المناسب وتصحيحات التربة.",
     },
@@ -195,7 +236,7 @@
   // Cible (sélecteur) + libellé du bouton à désigner, par étape.
   var PT = {
     lang:    { sel: '#lang-screen .lang-btn', lab: { fr: 'Choisissez une langue', ar: 'اختاروا لغة', da: 'ختاروا لغة' } },
-    plan:    { sel: '#planEditor',            lab: { fr: 'Définissez votre plan ici', ar: 'حدّدوا خطتكم هنا', da: 'حدّدوا الخطة هنا' } },
+    plan:    { sel: '#planEditor',            lab: { fr: 'Choisissez vos points de mesure ici', ar: 'اختاروا نقاط القياس هنا', da: 'ختاروا نقط القياس هنا' } },
     start:   { sel: '#btnStartReal',          lab: { fr: 'Démarrer mission', ar: 'بدء المهمة', da: 'بدء المهمة' } },
     done:    { sel: '.bottom-nav .bnav-item:nth-child(3)', lab: { fr: 'Voir les conseils', ar: 'النصائح', da: 'النصائح' } },
   };
@@ -258,7 +299,7 @@
 
   function onAvatarClick() {
     el.root.classList.remove('news');
-    if (onLang()) { showBubble(); speak(LANG_SPEAK); return; }   // écran langue : re-saluer + parler
+    if (onLang()) { showBubble(); speakLangPrompt(); return; }   // écran langue : inviter dans les 3 langues
     if (typeof window.toggleChatPanel === 'function') window.toggleChatPanel();  // sinon : ouvrir le chat
     else { showBubble(); if (st.curText) speak(st.curText); }
   }
@@ -390,7 +431,7 @@
       hideOldFab(); watchPanel();
       if (onLang()) {
         setMood('idle');
-        if (!st.introShown) { st.introShown = true; setBubble(INTRO_ALL, null, ''); showBubble(); speak(LANG_SPEAK); pointTo('lang'); resetIdle('lang'); }
+        if (!st.introShown) { st.introShown = true; setBubble(INTRO_ALL, null, ''); showBubble(); speakLangPrompt(); pointTo('lang'); resetIdle('lang'); }
         return;
       }
       if (typeof _GUIDE_TXT === 'undefined' || typeof _coachStepName !== 'function') return;

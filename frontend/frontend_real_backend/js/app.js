@@ -234,7 +234,7 @@ const MIN_SPACING_M = 1.7;
 // Plafond de points de MESURE pour la parcelle prototype (1 m²) : au-delà,
 // dérive du dead-reckoning + empreinte robot rendent les mesures non fiables.
 // (Le point de départ ne compte pas — il n'est pas mesuré.)
-const MAX_PLAN_POINTS = 5;
+const MAX_PLAN_POINTS = 4;   // plan fixé à 4 points de mesure (carré)
 // Espacement des plans prédéfinis (~27 cm physiques à l'échelle 0.15).
 const PRESET_SPACING_M = 1.8;
 // Étendue MAX de la parcelle (mètres « terrain ») : les coordonnées x/y des
@@ -275,8 +275,22 @@ function _serpentinePlan(n) {
   return pts.slice(0, n).map((p, i) => ({ label: 'P' + (i + 1), x: p.x, y: p.y }));
 }
 
+// Plan en CARRÉ (4 points) : les 4 coins d'un carré PRESET_SPACING_M de côté,
+// parcouru sans saut diagonal (montée colonne x=0, traversée, descente x=1.8).
+function _squarePlan() {
+  const a = 0, b = PRESET_SPACING_M;   // 0 et 1.8
+  return [
+    { label: 'P1', x: a, y: b },        // bas-gauche
+    { label: 'P2', x: a, y: 2 * b },    // haut-gauche
+    { label: 'P3', x: b, y: 2 * b },    // haut-droite
+    { label: 'P4', x: b, y: b },        // bas-droite
+  ];
+}
+
 function applyPreset(n) {
-  applyPlanPoints(_serpentinePlan(Math.min(n, MAX_PLAN_POINTS)));
+  // Un seul préréglage : le carré à 4 points (les autres tailles ne sont plus
+  // proposées — la mission compte exactement 4 points de mesure).
+  applyPlanPoints(n === 4 ? _squarePlan() : _serpentinePlan(Math.min(n, MAX_PLAN_POINTS)));
   _planApplied = true;
   showToast(t('planApplied', { n }));
   renderAll();
@@ -354,8 +368,7 @@ function renderPlanEditor() {
     <div class="plan-sub">${t('planSpacingNote', { d: MIN_SPACING_M })} · ${t('planAllowedNote', { vals: ALLOWED_COORDS.join(' / ') })}</div>
     <div class="plan-presets">
       <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
-      <button class="plan-preset-btn" onclick="applyPreset(3)">3</button>
-      <button class="plan-preset-btn" onclick="applyPreset(5)">5</button>
+      <button class="plan-preset-btn" onclick="applyPreset(4)" style="min-width:120px">⬛ ${t('planSquare')}</button>
     </div>
     <div class="plan-rows">${rows}</div>
     <div class="plan-actions">
@@ -471,7 +484,7 @@ function applyPlanFromEditor() {
 const _GUIDE_TXT = {
   fr: {
     welcome: '👋 Bonjour, je suis AgriBot, votre assistant Agribotics.',
-    plan: '① Choisissez un préréglage (3 ou 5 points), ou ajoutez vos points un à un. Réglez pour chacun ses coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».',
+    plan: '① Choisissez vos 4 points de mesure : appuyez sur « Carré » pour les placer, ou ajustez leurs coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».',
     start: '② Votre plan est prêt. Appuyez sur « Démarrer mission » pour lancer le robot.',
     running: '🤖 Mission en cours. Ouvrez l’onglet « Carte » pour suivre le robot en direct.',
     progress: (z, m, n) => `✅ Zone ${z} mesurée — ${m}/${n}. Le robot poursuit son parcours.`,
@@ -481,7 +494,7 @@ const _GUIDE_TXT = {
   },
   ar: {
     welcome: '👋 مرحباً! سأرشدك خطوة بخطوة. اتبع تعليماتي.',
-    plan: '① اختر نموذجاً (3 أو 5 نقاط)، أو أضف نقاطك واحدة تلو الأخرى. اضبط لكل نقطة إحداثيي X و Y. ثم صادق بـ « ✓ تطبيق ».',
+    plan: '① اختر نقاط القياس الأربع: اضغط « مربّع » لوضعها، أو اضبط إحداثيات X و Y. ثم صادق بـ « ✓ تطبيق ».',
     start: '② كل شيء جاهز. اضغط الزر الأخضر « ▶ ابدأ المهمة ».',
     running: '🤖 انطلقنا! سآخذك إلى الخريطة لمتابعة الروبوت مباشرة.',
     progress: (z, m, n) => `✅ تم قياس المنطقة ${z} — ${m}/${n}. الروبوت يواصل…`,
@@ -491,7 +504,7 @@ const _GUIDE_TXT = {
   },
   da: {
     welcome: '👋 سلام! غادي نوجهك خطوة بخطوة. تبّع التعليمات ديالي.',
-    plan: '① ختار نموذج (3 ولا 5 نقط)، ولا زيد النقط وحدة بوحدة. ضبط لكل نقطة إحداثيات X و Y. من بعد صادق بـ « ✓ تطبيق ».',
+    plan: '① ختار 4 نقط ديال القياس: كليكي على « مربّع » باش تحطهم، ولا ضبط إحداثيات X و Y. من بعد صادق بـ « ✓ تطبيق ».',
     start: '② كلشي واجد. كليكي على الزر الأخضر « ▶ بدا المهمة ».',
     running: '🤖 بدينا! غادي نديك للخريطة باش تتبّع الروبو مباشرة.',
     progress: (z, m, n) => `✅ تقاست البلاصة ${z} — ${m}/${n}. الروبو كيكمّل…`,

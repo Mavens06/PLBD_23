@@ -12,9 +12,10 @@ const START_POINT = { label: 'Départ', x: 0, y: 0 };
 // jusqu'au 1er point avant de mesurer. Coordonnées calées sur les valeurs
 // AUTORISÉES (0 / 1.8 / 3.6 m) → quadrillage régulier qui tient dans 1 m².
 const DEFAULT_PLAN = [
-  {label:'P1',x:0,y:1.8}, {label:'P2',x:0,y:3.6},                              // colonne x=0 ↑ (saut du parking 0,0)
-  {label:'P3',x:1.8,y:3.6}, {label:'P4',x:1.8,y:1.8}, {label:'P5',x:1.8,y:0},  // colonne x=1.8 ↓
-  {label:'P6',x:3.6,y:0}, {label:'P7',x:3.6,y:1.8}, {label:'P8',x:3.6,y:3.6},  // colonne x=3.6 ↑
+  {label:'P1',x:0,y:1.8},   // bas-gauche
+  {label:'P2',x:0,y:3.6},   // haut-gauche
+  {label:'P3',x:1.8,y:3.6}, // haut-droite
+  {label:'P4',x:1.8,y:1.8}, // bas-droite
 ];
 const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
 

@@ -6,15 +6,15 @@
 // carte (marqueur « Départ »), jamais mesuré.
 const START_POINT = { label: 'Départ', x: 0, y: 0 };
 
-// Plan de mesure par défaut : 8 points en serpentin (boustrophédon) validé sur
-// le robot — on monte la colonne x=0 (Nord), on descend x=1.8, on remonte x=3.6,
-// déplacement CONTINU sans saut diagonal. Le robot part du Départ (0,0) et ROULE
-// jusqu'au 1er point avant de mesurer. Coordonnées calées sur les valeurs
-// AUTORISÉES (0 / 1.8 / 3.6 m) → quadrillage régulier qui tient dans 1 m².
+// Plan de mesure par défaut : 4 points formant un CARRÉ (1.8 m × 1.8 m).
+// Parcours CONTINU sans saut diagonal : le robot part du Départ (0,0), monte la
+// colonne x=0 (P1→P2), traverse vers x=1.8 (P3), puis redescend (P4). Coordonnées
+// calées sur les valeurs AUTORISÉES (0 / 1.8 / 3.6 m) → carré régulier dans 1 m².
 const DEFAULT_PLAN = [
-  {label:'P1',x:0,y:1.8}, {label:'P2',x:0,y:3.6},                              // colonne x=0 ↑ (saut du parking 0,0)
-  {label:'P3',x:1.8,y:3.6}, {label:'P4',x:1.8,y:1.8}, {label:'P5',x:1.8,y:0},  // colonne x=1.8 ↓
-  {label:'P6',x:3.6,y:0}, {label:'P7',x:3.6,y:1.8}, {label:'P8',x:3.6,y:3.6},  // colonne x=3.6 ↑
+  {label:'P1',x:0,y:1.8},   // bas-gauche
+  {label:'P2',x:0,y:3.6},   // haut-gauche
+  {label:'P3',x:1.8,y:3.6}, // haut-droite
+  {label:'P4',x:1.8,y:1.8}, // bas-droite
 ];
 const ZONES = DEFAULT_PLAN.map((p) => p.label);   // compat : labels du plan par défaut
 
