@@ -38,7 +38,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 
-PY=./.venv/bin/python
+PY="$PWD/.venv/bin/python"   # chemin ABSOLU : reste valide après un `cd` (frontend)
 APP_MODE="${APP_MODE:-mock}"
 BACKEND_HOST="${HOST:-0.0.0.0}"
 BACKEND_PORT="${PORT:-8000}"
