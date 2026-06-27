@@ -15,19 +15,33 @@ from __future__ import annotations
 import unittest
 
 from raspberry_pi.sensors.esp32_sensor import parse_line
-from raspberry_pi.sensors.soil_sensor import SoilSynthesizer, _Esp32SoilSensor
+from raspberry_pi.sensors.soil_sensor import (
+    SoilSynthesizer,
+    _Esp32SoilSensor,
+    _MockSensor,
+)
 
 
 class _FakeEsp32:
-    """ESP32 simulé : renvoie les (temp, hum) qu'on lui fixe, sans port série."""
-    def __init__(self, temp=None, hum=None):
+    """ESP32 simulé : (temp, hum) fixés + état de fraîcheur, sans port série."""
+    def __init__(self, temp=None, hum=None, fresh=True):
         self._t, self._h = temp, hum
+        self.fresh = fresh
 
     def latest(self):
         return self._t, self._h
 
+    def is_fresh(self, max_age_s):
+        return self.fresh
+
     def close(self):
         pass
+
+
+def _mock_fallback():
+    s = _MockSensor(profile="B2")
+    s.set_location("B2", None, None)
+    return s
 
 
 class TestParseLine(unittest.TestCase):
@@ -104,25 +118,38 @@ class TestSoilSynthesizer(unittest.TestCase):
 
 class TestEsp32SoilSensor(unittest.TestCase):
     def test_uses_real_temp_humidity_and_synthesizes_ph_ec(self):
-        sensor = _Esp32SoilSensor(_FakeEsp32(temp=18.4, hum=71.2), SoilSynthesizer(seed=7))
+        sensor = _Esp32SoilSensor(_FakeEsp32(temp=18.4, hum=71.2, fresh=True),
+                                  SoilSynthesizer(seed=7), _mock_fallback())
         r = sensor.read()
         self.assertAlmostEqual(r.temperature, 18.4)
         self.assertAlmostEqual(r.humidity, 71.2)
         self.assertTrue(5.3 <= r.ph <= 7.9)
         self.assertTrue(0.15 <= r.ec <= 4.5)
 
-    def test_keeps_last_value_when_esp32_empty(self):
-        esp = _FakeEsp32(temp=None, hum=None)
-        sensor = _Esp32SoilSensor(esp, SoilSynthesizer(seed=8))
+    def test_falls_back_to_mock_when_not_fresh(self):
+        # ESP32 muet/obsolète → lecture du mock de secours (valeurs cohérentes).
+        esp = _FakeEsp32(temp=99.0, hum=99.0, fresh=False)
+        sensor = _Esp32SoilSensor(esp, SoilSynthesizer(seed=8), _mock_fallback())
         r = sensor.read()
-        # Replis prudents (22 °C / 55 %) tant qu'aucune trame n'est arrivée.
-        self.assertIsNotNone(r.temperature)
-        self.assertIsNotNone(r.humidity)
-        self.assertTrue(0.15 <= r.ec <= 4.5)
+        # Les 99/99 de l'ESP32 (figés) ne doivent PAS sortir : on lit le mock B2.
+        self.assertNotAlmostEqual(r.temperature, 99.0, places=1)
+        self.assertTrue(0 <= r.humidity <= 100)
+        self.assertTrue(0.15 <= r.ec <= 12)
 
-    def test_set_location_is_noop(self):
-        sensor = _Esp32SoilSensor(_FakeEsp32(temp=20.0, hum=60.0), SoilSynthesizer(seed=9))
+    def test_recovers_when_fresh_again(self):
+        esp = _FakeEsp32(temp=17.0, hum=64.0, fresh=False)
+        sensor = _Esp32SoilSensor(esp, SoilSynthesizer(seed=9), _mock_fallback())
+        sensor.read()                      # dégradé → mock
+        esp.fresh = True                   # l'ESP32 réémet
+        r = sensor.read()                  # reprise du réel
+        self.assertAlmostEqual(r.temperature, 17.0)
+        self.assertAlmostEqual(r.humidity, 64.0)
+
+    def test_set_location_delegates_to_fallback(self):
+        fb = _mock_fallback()
+        sensor = _Esp32SoilSensor(_FakeEsp32(temp=20.0, hum=60.0), SoilSynthesizer(seed=10), fb)
         sensor.set_location("C1", 1.0, 2.0)   # ne doit pas lever
+        self.assertEqual(fb._profile, "C1")
         self.assertAlmostEqual(sensor.read().temperature, 20.0)
 
 

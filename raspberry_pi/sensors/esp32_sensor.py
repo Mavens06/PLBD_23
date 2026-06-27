@@ -62,6 +62,8 @@ class Esp32Sensor:
         self._temp: Optional[float] = None
         self._hum: Optional[float] = None
         self._ts: float = 0.0          # monotonic de la dernière trame valide
+        self._t_ts: float = 0.0        # monotonic de la dernière TEMPÉRATURE valide
+        self._h_ts: float = 0.0        # monotonic de la dernière HUMIDITÉ valide
         self._stop = threading.Event()
 
         self._open()
@@ -114,12 +116,15 @@ class Esp32Sensor:
             temp, hum = parse_line(raw.decode("utf-8", "replace"))
             if temp is None and hum is None:
                 continue
+            now = time.monotonic()
             with self._lock:
                 if temp is not None:
                     self._temp = temp
+                    self._t_ts = now
                 if hum is not None:
                     self._hum = hum
-                self._ts = time.monotonic()
+                    self._h_ts = now
+                self._ts = now
 
     # -- API -----------------------------------------------------------------
 
@@ -128,18 +133,31 @@ class Esp32Sensor:
         with self._lock:
             return self._temp, self._hum
 
+    def is_fresh(self, max_age_s: float) -> bool:
+        """
+        True si température ET humidité ont été rafraîchies depuis moins de
+        `max_age_s` secondes. Permet de détecter une acquisition en panne :
+        ESP32 débranché/muet, trames obsolètes, OU DS18B20 en « Erreur »
+        (l'humidité continue mais la température se fige → considéré non frais).
+        """
+        with self._lock:
+            now = time.monotonic()
+            return (self._t_ts > 0 and self._h_ts > 0
+                    and (now - self._t_ts) <= max_age_s
+                    and (now - self._h_ts) <= max_age_s)
+
     def wait_first(self, timeout_s: float = 6.0) -> bool:
-        """Bloque jusqu'à la première trame valide (ou timeout). True si reçue."""
+        """Bloque jusqu'à une 1ʳᵉ lecture COMPLÈTE (temp + humidité) ou timeout."""
         deadline = time.monotonic() + max(0.0, timeout_s)
         while time.monotonic() < deadline:
             with self._lock:
-                if self._ts > 0:
+                if self._t_ts > 0 and self._h_ts > 0:
                     return True
             if self._stop.is_set():
                 return False
             time.sleep(0.1)
         with self._lock:
-            return self._ts > 0
+            return self._t_ts > 0 and self._h_ts > 0
 
     def close(self) -> None:
         self._stop.set()

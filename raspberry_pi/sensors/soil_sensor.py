@@ -136,25 +136,52 @@ class SoilSynthesizer:
 
 class _Esp32SoilSensor:
     """
-    Capteur de sol RÉEL : température + humidité de l'ESP32, pH + EC synthétisés
-    à partir de ces valeurs réelles (SoilSynthesizer). Tant que l'ESP32 n'a pas
-    encore émis de trame, on garde la dernière valeur connue (replis prudents).
+    Capteur de sol RÉEL avec REPLI AUTOMATIQUE en simulation.
+
+    Cas nominal : température + humidité de l'ESP32, pH + EC synthétisés à
+    partir de ces valeurs réelles (SoilSynthesizer).
+
+    Cas dégradé : si l'acquisition ESP32 a un problème (débranché, muet, trames
+    obsolètes, ou DS18B20 en « Erreur » → cf. `Esp32Sensor.is_fresh`), chaque
+    lecture **bascule automatiquement sur le capteur mock** (`fallback`) qui
+    produit des valeurs cohérentes — la mission continue sans valeur figée ni
+    plantage. Dès que l'ESP32 réémet des trames fraîches, on **reprend** les
+    mesures réelles. Les bascules aller/retour sont journalisées une seule fois.
     """
 
-    def __init__(self, esp32, synthesizer: SoilSynthesizer) -> None:
+    def __init__(self, esp32, synthesizer: SoilSynthesizer, fallback: Sensor,
+                 stale_after_s: float = 8.0) -> None:
         self._esp32 = esp32
         self._synth = synthesizer
+        self._fallback = fallback
+        self._stale_after = max(0.5, stale_after_s)
+        self._degraded = False
         self._last_t = 22.0
         self._last_h = 55.0
 
-    # set_location/profile : no-op (le sol réel ne dépend pas d'un profil de zone).
     def set_location(self, label: str | None, x: Optional[float], y: Optional[float]) -> None:
-        return None
+        # Toujours positionner le mock de secours pour qu'il soit prêt (valeurs
+        # cohérentes avec la zone) en cas de bascule.
+        if hasattr(self._fallback, "set_location"):
+            self._fallback.set_location(label, x, y)
 
     def set_profile(self, profile: str | None) -> None:
-        return None
+        if hasattr(self._fallback, "set_profile"):
+            self._fallback.set_profile(profile)
 
     def read(self) -> SensorReading:
+        if not self._esp32.is_fresh(self._stale_after):
+            if not self._degraded:
+                print("[sensor] ⚠ acquisition ESP32 en panne (muette/obsolète) "
+                      "→ bascule automatique en SIMULATION (mock).", flush=True)
+                self._degraded = True
+            return self._fallback.read()
+
+        if self._degraded:
+            print("[sensor] ✅ ESP32 de nouveau actif → reprise des mesures réelles.",
+                  flush=True)
+            self._degraded = False
+
         t, h = self._esp32.latest()
         if t is not None:
             self._last_t = t
@@ -171,8 +198,9 @@ class _Esp32SoilSensor:
     def close(self) -> None:
         try:
             self._esp32.close()
-        except Exception:
-            pass
+        finally:
+            if hasattr(self._fallback, "close"):
+                self._fallback.close()
 
 
 # ---------------------------------------------------------------------------
@@ -315,9 +343,12 @@ def build_sensor() -> Sensor:
             from .esp32_sensor import Esp32Sensor
             baud = int(os.getenv("ESP32_SENSOR_BAUD", "115200"))
             warmup = float(os.getenv("ESP32_SENSOR_WARMUP_S", "6"))
+            stale_after = float(os.getenv("ESP32_SENSOR_STALE_S", "8"))
             esp = Esp32Sensor(port, baudrate=baud)
             got = esp.wait_first(timeout_s=warmup)
-            sensor = _Esp32SoilSensor(esp, SoilSynthesizer())
+            # Mock de secours : repli automatique si l'ESP32 tombe en panne.
+            sensor = _Esp32SoilSensor(esp, SoilSynthesizer(), _build_mock(),
+                                      stale_after_s=stale_after)
             if got:
                 t, h = esp.latest()
                 print(f"[sensor] ESP32 {port} OK — temp={t} °C, humidité={h} % "

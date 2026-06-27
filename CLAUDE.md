@@ -130,6 +130,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `GEMINI_TIMEOUT` | `60` | Timeout HTTP de l'appel Gemini (s) |
 | `ESP32_SENSOR_PORT` | _(vide)_ | Si défini (+ mode hardware) : **température (DS18B20) + humidité (capteur capacitif)** lues depuis un **ESP32 en USB série**. Le **pH + EC** sont alors **synthétisés à partir** de ces valeurs réelles (`SoilSynthesizer`). Préférer un chemin stable `/dev/serial/by-id/...`. Vide ou ESP32 absent → repli simulation (mock) |
 | `ESP32_SENSOR_BAUD` / `ESP32_SENSOR_WARMUP_S` | `115200` / `6` | Débit série ESP32 + attente max (s) de la 1ʳᵉ trame au démarrage. Le port est ouvert **DTR/RTS au repos** (sinon reset de l'ESP32 → on ne capte que le boot ROM à 74880 baud) |
+| `ESP32_SENSOR_STALE_S` | `8` | Au-delà de N secondes sans trame **fraîche** (temp **et** humidité), l'acquisition est jugée en panne (ESP32 débranché/muet, ou DS18B20 en « Erreur ») → **repli automatique en simulation (mock)** à chaque lecture, et **reprise** dès que l'ESP32 réémet. L'ESP32 émet ~toutes les 2 s |
 | `SENSOR_MOCK_PROFILE` | `None` | En mock, force le profil d'une zone (`A1`..`C3`) |
 | `AGRIBOTICS_API_BASE` | `http://127.0.0.1:8000` | URL du backend pour `raspberry_pi/main.py` |
 | `AGRIBOTICS_DB_PATH` | `.agribotics/state.sqlite3` | SQLite backend : plan de mission + mesures persistées |
@@ -306,7 +307,7 @@ UI :
 ### Capteur de sol — ESP32 + synthèse (`raspberry_pi/sensors/`)
 
 - **`soil_sensor.py`** — `build_sensor()` retourne automatiquement :
-  - `_Esp32SoilSensor` si le mode résolu est `hardware` ET `ESP32_SENSOR_PORT` est défini : **température + humidité réelles** de l'ESP32, **pH + EC synthétisés** à partir d'elles via `SoilSynthesizer` (avec **repli mock** si l'ESP32 est absent / pyserial manquant)
+  - `_Esp32SoilSensor` si le mode résolu est `hardware` ET `ESP32_SENSOR_PORT` est défini : **température + humidité réelles** de l'ESP32, **pH + EC synthétisés** à partir d'elles via `SoilSynthesizer` (repli mock au démarrage si l'ESP32 est absent / pyserial manquant). **Repli automatique RUNTIME** : si pendant la mission l'ESP32 tombe en panne (débranché, muet, trames obsolètes au-delà de `ESP32_SENSOR_STALE_S`, ou DS18B20 en « Erreur » → `Esp32Sensor.is_fresh()` faux), **chaque lecture bascule sur le mock** (`fallback`) et **reprend** le réel dès que l'ESP32 réémet — la mission ne se fige jamais
   - `_MockSensor` sinon. Priorité aux profils curés A1..C3 (démo) ; pour tout autre point, **`soil_at(x, y)`** — champ de sol synthétique déterministe et spatialement cohérent (miroir exact de `soilAt()` dans `js/data_model.js`). `set_location(label, x, y)` positionne le mock.
 
   Le mode capteur est **découplé du mode robot** : `SENSOR_MODE` (`auto`/`mock`/`hardware`, défaut `auto` = suit `APP_MODE`). `APP_MODE=hardware SENSOR_MODE=mock` = mode « essai complet en simulation » (robot et bras réels, mesures simulées en temps réel, ESP32 ignoré). Le mock peut **injecter des profils aberrants** (`SENSOR_MOCK_OUTLIER_RATE` probabiliste et/ou `SENSOR_MOCK_OUTLIER_POINTS` forcés) : `saline` (EC 7.2 → alerte salinité), `acide` (pH 3.5), `sec` (humidité 4 %), `canicule` (57 °C → qualité `suspect`). Les profils restent dans les bornes acceptées par le backend (pas de 422) pour exercer les garde-fous **en aval**.
