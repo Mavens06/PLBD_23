@@ -265,6 +265,7 @@
     // Nouvelle langue = nouveau fil : on vide la conversation pour ne jamais
     // mélanger les questions/réponses de deux langues dans le même chatbot.
     if (typeof clearChat === "function") clearChat();
+    if (typeof window._resetGuide === "function") window._resetGuide();
     if (typeof window._updateMuteBtn === "function") window._updateMuteBtn();
     if (typeof populateCropSelects === "function") populateCropSelects();
     if (typeof renderAll === "function") renderAll();

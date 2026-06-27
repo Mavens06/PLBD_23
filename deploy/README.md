@@ -1,8 +1,37 @@
 # Déploiement sur la Raspberry Pi (démarrage automatique au boot)
 
-Pour un **vrai prototype**, le backend et le robot doivent démarrer tout seuls à
-l'allumage, sans `start_demo.sh` lancé à la main. Ces deux services systemd s'en
-chargent et se relancent en cas de crash.
+Pour un **vrai prototype**, le backend, le robot et le tunnel public doivent
+démarrer tout seuls à l'allumage, sans rien lancer à la main. Des services
+systemd s'en chargent et se relancent en cas de crash.
+
+> **Le backend sert AUSSI le frontend** (à `/`). Il n'y a donc rien d'autre à
+> démarrer : backend + robot + tunnel suffisent.
+
+## ⚡ Installation en une commande (recommandé)
+
+```bash
+cd ~/PLBD
+sudo ./deploy/install.sh            # robot réel (APP_MODE=hardware)
+# sudo APP_MODE=mock ./deploy/install.sh   # PC de dev sans matériel
+```
+
+`install.sh` génère les 3 services (backend, robot, tunnel) avec **votre
+utilisateur et vos chemins réels**, les active au boot et les démarre. Après ça,
+**le seul geste à chaque connexion** :
+
+```bash
+./deploy/link.sh           # affiche le lien public du robot
+./deploy/link.sh --new     # en régénère un nouveau (redémarre le tunnel)
+```
+
+Pré-requis du tunnel : installer **cloudflared** une fois
+(`https://developers.cloudflare.com/cloudflare-one/connections/connect-networks/downloads/`).
+Sans lui, le service tunnel reste inactif mais backend + robot tournent quand même.
+
+---
+
+Le reste de ce document détaille la **méthode manuelle** (équivalente, si vous
+préférez ne pas utiliser `install.sh`).
 
 ## 1. Pré-requis sur la Pi
 
@@ -33,10 +62,14 @@ Adapter `User=` et les chemins (`/home/pi/PLBD`) dans les deux fichiers `.servic
 si votre utilisateur ou dossier diffèrent, puis :
 
 ```bash
-sudo cp deploy/agribotics-backend.service deploy/agribotics-robot.service /etc/systemd/system/
+sudo cp deploy/agribotics-backend.service deploy/agribotics-robot.service \
+        deploy/agribotics-tunnel.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now agribotics-backend agribotics-robot
+sudo systemctl enable --now agribotics-backend agribotics-robot agribotics-tunnel
 ```
+
+Le service **tunnel** lance `deploy/tunnel.sh` (cloudflared) et écrit l'URL
+publique dans `.agribotics/tunnel_url.txt`. Récupérez-la avec `./deploy/link.sh`.
 
 ## 3. Superviser
 
@@ -59,4 +92,5 @@ retransmises automatiquement au début de la mission suivante.
 ```bash
 sudo systemctl restart agribotics-backend agribotics-robot   # après un git pull
 sudo systemctl disable --now agribotics-robot                # arrêter le robot
+./deploy/link.sh --new                                       # nouveau lien public
 ```

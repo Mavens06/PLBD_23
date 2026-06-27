@@ -330,7 +330,7 @@
         audio.onerror = () => { URL.revokeObjectURL(url); playNext(); };
         audio.muted = false;
         audio.src = url;
-        audio.playbackRate = 1.12;   // lecture légèrement accélérée (voix cloud)
+        audio.playbackRate = 0.9;    // voix cloud ralentie (plus posée, mieux comprise)
         setVoiceState("speaking");
         const p = audio.play();
         if (p && p.then) {
@@ -380,7 +380,7 @@
       speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       utter.lang = browserSpeechLang();
-      utter.rate = lang === "fr" ? 1.05 : 1.0;   // légèrement accéléré
+      utter.rate = lang === "fr" ? 0.86 : 0.82;  // ralenti (lecture plus posée)
       utter.pitch = 1;
       utter.volume = 1;
       if (voice) utter.voice = voice;

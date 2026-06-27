@@ -16,7 +16,7 @@ import unittest
 from unittest import mock
 
 from raspberry_pi.acquisition_manager import AcquisitionManager
-from raspberry_pi.sensors.rs485_4in1 import (
+from raspberry_pi.sensors.soil_sensor import (
     _MockSensor,
     build_sensor,
     resolve_sensor_mode,
@@ -38,10 +38,18 @@ class TestResolveSensorMode(unittest.TestCase):
         with mock.patch.dict(os.environ, {"APP_MODE": "hardware", "SENSOR_MODE": "mock"}):
             self.assertIsInstance(build_sensor(), _MockSensor)
 
-    def test_build_sensor_hardware_falls_back_to_mock_on_error(self):
-        # Sans port série ni minimalmodbus, l'init hardware échoue → repli mock.
+    def test_build_sensor_hardware_without_esp32_returns_mock(self):
+        # Mode hardware mais aucun ESP32 configuré → simulation (mock).
         env = {"APP_MODE": "hardware", "SENSOR_MODE": "hardware",
-               "RS485_PORT": "/dev/inexistant-agribotics"}
+               "ESP32_SENSOR_PORT": ""}
+        with mock.patch.dict(os.environ, env):
+            self.assertIsInstance(build_sensor(), _MockSensor)
+
+    def test_build_sensor_hardware_bad_esp32_port_falls_back_to_mock(self):
+        # Port ESP32 inexistant → l'ouverture échoue → repli simulation (mock).
+        env = {"APP_MODE": "hardware", "SENSOR_MODE": "hardware",
+               "ESP32_SENSOR_PORT": "/dev/inexistant-agribotics",
+               "ESP32_SENSOR_WARMUP_S": "0"}
         with mock.patch.dict(os.environ, env):
             self.assertIsInstance(build_sensor(), _MockSensor)
 

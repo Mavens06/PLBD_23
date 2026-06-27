@@ -22,7 +22,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import List
 
-from .sensors.rs485_4in1 import Sensor, SensorReading
+from .sensors.soil_sensor import Sensor, SensorReading
 
 
 # ---------------------------------------------------------------------------

@@ -7,7 +7,8 @@ En mode `mock` (défaut sur PC de dev) :
     champ déterministe soil_at(x, y) pour des points arbitraires).
 
 En mode `hardware` (sur le robot réel) :
-  • build_sensor() instancie le driver RS485 réel (minimalmodbus + pyserial).
+  • build_sensor() lit température + humidité sur l'ESP32 (USB série) et
+    synthétise pH + EC à partir de ces valeurs réelles (plus de RS485).
   • Les broches GPIO et le PCA9685 seront pilotés par robot/motors.py
     (à implémenter pour la phase 2 — non requis pour la démo logicielle).
 
@@ -50,7 +51,7 @@ load_dotenv(os.path.join(os.path.dirname(os.path.dirname(__file__)), ".env"))
 from .acquisition_manager import AcquisitionManager, MeasurementRecord
 from .offline_buffer import OfflineBuffer
 from .robot import build_probe, build_robot
-from .sensors.rs485_4in1 import build_sensor, resolve_sensor_mode
+from .sensors.soil_sensor import build_sensor, resolve_sensor_mode
 
 
 # Plan 3×3 par défaut (repli hors-ligne ultime) — coordonnées en mètres.

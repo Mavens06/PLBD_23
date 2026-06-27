@@ -1,0 +1,17 @@
+[Unit]
+Description=Agribotics public tunnel (cloudflared quick tunnel)
+After=agribotics-backend.service network-online.target
+Wants=agribotics-backend.service network-online.target
+
+[Service]
+Type=simple
+# Adapter User et les chemins (ou utiliser deploy/install.sh qui le fait pour vous).
+User=pi
+WorkingDirectory=/home/pi/PLBD
+# Écrit l'URL publique dans .agribotics/tunnel_url.txt (lue par deploy/link.sh).
+ExecStart=/home/pi/PLBD/deploy/tunnel.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

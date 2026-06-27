@@ -2,11 +2,35 @@
 #
 # start_demo.sh — Lance toute la chaîne Agribotics en une commande.
 #
-#   Backend FastAPI (:8000)  +  robot en mode --watch  +  frontend réel (:5500)
+#   Backend FastAPI (:8000)  +  robot en mode --watch (AUTONOME)  +  frontend (:5500)
 #
-# Usage :
-#   ./start_demo.sh                 # APP_MODE=mock (PC, sans matériel)
-#   APP_MODE=hardware ./start_demo.sh   # sur la Raspberry Pi (robot réel)
+# ── LANCEMENT AUTONOME ────────────────────────────────────────────────────────
+#   Le robot tourne en mode `--watch` : il ATTEND qu'une mission soit demandée
+#   depuis l'interface (bouton « Démarrer mission ») puis l'exécute TOUT SEUL
+#   (déplacement → sonde → mesure → point suivant), sans intervention.
+#
+#   ./start_demo.sh                       # PC, sans matériel (APP_MODE=mock)
+#   APP_MODE=hardware ./start_demo.sh     # robot réel (Raspberry Pi)
+#
+#   ⚠ Sur la Pi en production, le robot est DÉJÀ lancé en permanence par systemd
+#     (deploy/install.sh). Inutile de lancer ce script : ouvre simplement le lien
+#     (./deploy/link.sh) et démarre la mission depuis l'interface.
+#
+# ── DÉPLACEMENT LONGUE DISTANCE ───────────────────────────────────────────────
+#   Par défaut le parcours physique est BORNÉ à un petit carré (mode démo,
+#   ROBOT_MAX_FIELD_M ≈ 0.9 m). Pour parcourir les VRAIES distances du plan
+#   (champ réel, échelle 1:1), active le mode longue distance :
+#
+#   LONG_DISTANCE=1 APP_MODE=hardware ./start_demo.sh
+#       → ROBOT_WORLD_SCALE=1.0  (1 m du plan = 1 m au sol)
+#       → ROBOT_MAX_FIELD_M=1000 (plus de bornage : le plan n'est pas réduit)
+#
+#   Sur la Pi en PERMANENCE (systemd), ajoute plutôt ces 2 lignes au .env :
+#       ROBOT_WORLD_SCALE=1.0
+#       ROBOT_MAX_FIELD_M=1000
+#   puis :  sudo systemctl restart agribotics-robot
+#   (Pense à caler ROBOT_SPEED_MPS sur la vitesse réelle : sans encodeurs, la
+#    distance est temporisée — une vitesse juste = des distances justes.)
 #
 # Ctrl-C arrête proprement les trois processus.
 #
@@ -26,7 +50,17 @@ if [ ! -x "$PY" ]; then
   exit 1
 fi
 
+# Mode de déplacement : "long" (échelle réelle 1:1) ou "démo" (emprise bornée).
+if [ "${LONG_DISTANCE:-0}" = "1" ] || [ "${DISTANCE:-}" = "long" ]; then
+  export ROBOT_WORLD_SCALE="${ROBOT_WORLD_SCALE:-1.0}"
+  export ROBOT_MAX_FIELD_M="${ROBOT_MAX_FIELD_M:-1000}"
+  MOVE_DESC="LONGUE DISTANCE (échelle 1:1, vraies distances du plan)"
+else
+  MOVE_DESC="démo (emprise bornée à ROBOT_MAX_FIELD_M=${ROBOT_MAX_FIELD_M:-0.9} m)"
+fi
+
 echo "=== Agribotics — démarrage (APP_MODE=$APP_MODE) ==="
+echo "  déplacement : $MOVE_DESC"
 
 pids=()
 cleanup() {

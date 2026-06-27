@@ -5,7 +5,7 @@ Couche robot/sonde d'Agribotics — factory selon APP_MODE.
   build_probe()  → AdeeptProbeController si un servo sonde est configuré,
                    sinon SimulatedProbeController (descente simulée).
 
-Même logique que `sensors/rs485_4in1.build_sensor()` : le reste du code
+Même logique que `sensors/soil_sensor.build_sensor()` : le reste du code
 (orchestrateur de mission) ne dépend que des interfaces de `base.py`, jamais
 d'une implémentation concrète. Passer au matériel ne change que la factory.
 

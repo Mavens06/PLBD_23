@@ -62,6 +62,19 @@ function renderMission() {
   const progressPill = document.getElementById('mapProgressPill');
   if (robotPill) robotPill.textContent = `🤖 ${t('robot')} : ${r.activePoint}`;
   if (progressPill) progressPill.textContent = `${r.measuredPoints} / ${r.totalPoints} ${t('measuredZones')}`;
+
+  // Hiérarchie des boutons : ▶ Démarrer seul en avant tant que rien ne tourne ;
+  // Pause / Arrêter / Synchroniser n'apparaissent QUE pendant la mission
+  // (le rafraîchissement est de toute façon automatique toutes les 1,5 s).
+  const running = ['requested', 'running', 'moving', 'measuring', 'paused'].includes(r.status);
+  // Pause / Arrêter : seulement pendant la mission. Synchroniser (= remise à
+  // zéro) reste TOUJOURS visible pour pouvoir réinitialiser et reprendre.
+  [['btnPauseReal', running], ['btnStopReal', running]]
+    .forEach(([id, show]) => { const el = document.getElementById(id); if (el) el.style.display = show ? '' : 'none'; });
+  const syncBtn = document.getElementById('btnSyncReal');
+  if (syncBtn) syncBtn.style.display = '';
+
+  updateCoach();
 }
 
 function renderGauges() {
@@ -221,7 +234,7 @@ const MIN_SPACING_M = 1.7;
 // Plafond de points de MESURE pour la parcelle prototype (1 m²) : au-delà,
 // dérive du dead-reckoning + empreinte robot rendent les mesures non fiables.
 // (Le point de départ ne compte pas — il n'est pas mesuré.)
-const MAX_PLAN_POINTS = 8;
+const MAX_PLAN_POINTS = 5;
 // Espacement des plans prédéfinis (~27 cm physiques à l'échelle 0.15).
 const PRESET_SPACING_M = 1.8;
 // Étendue MAX de la parcelle (mètres « terrain ») : les coordonnées x/y des
@@ -264,6 +277,7 @@ function _serpentinePlan(n) {
 
 function applyPreset(n) {
   applyPlanPoints(_serpentinePlan(Math.min(n, MAX_PLAN_POINTS)));
+  _planApplied = true;
   showToast(t('planApplied', { n }));
   renderAll();
 }
@@ -285,7 +299,8 @@ function _injectPlanStyles() {
   .plan-in{width:100%;padding:8px 9px;border:1px solid #dde5dd;border-radius:10px;font:inherit;font-size:13px;background:#fff;transition:border-color .15s,box-shadow .15s}
   .plan-field .plan-in{padding-right:22px}
   .plan-in:focus{outline:none;border-color:#4a9c55;box-shadow:0 0 0 3px rgba(74,156,85,.16)}
-  .plan-sel{cursor:pointer;background:#fff;padding-right:24px}
+  .plan-field .plan-sel{-webkit-appearance:none;-moz-appearance:none;appearance:none;cursor:pointer;padding:8px 30px 8px 11px;font-weight:600;color:#2f4030;text-align:left;background-color:#fff;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='none' stroke='%233b7a44' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round' d='M1 1l4 4 4-4'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 11px center;background-size:10px 6px}
+  .plan-field .plan-sel:hover{border-color:#bcd6bd}
   .plan-del{border:none;background:#fbeceb;color:#c0392b;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:13px;transition:background .15s,transform .1s}
   .plan-del:hover{background:#f3d4d2}.plan-del:active{transform:scale(.92)}
   .plan-ins{border:none;background:#e7f3e9;color:#2f7a3c;border-radius:9px;height:32px;width:32px;cursor:pointer;font-weight:700;font-size:15px;line-height:1;transition:background .15s,transform .1s}
@@ -341,7 +356,6 @@ function renderPlanEditor() {
       <span class="plan-preset-lbl">⚡ ${t('planQuick')} :</span>
       <button class="plan-preset-btn" onclick="applyPreset(3)">3</button>
       <button class="plan-preset-btn" onclick="applyPreset(5)">5</button>
-      <button class="plan-preset-btn" onclick="applyPreset(8)">8</button>
     </div>
     <div class="plan-rows">${rows}</div>
     <div class="plan-actions">
@@ -441,8 +455,246 @@ function applyPlanFromEditor() {
     }
   }
   applyPlanPoints(pts);
+  _planApplied = true;
   showToast(t('planApplied', { n: pts.length }));
   renderAll();
+}
+
+// ---------------------------------------------------------------------------
+// Assistant IA de guidage — vit DANS le chatbot et LIT l'interface. Il poste
+// des messages très brefs (texte + voix) qui disent à l'utilisateur quoi faire
+// et quoi appuyer, attend que l'action soit RÉELLEMENT faite avant de passer à
+// la suivante (l'étape n'avance que quand l'état de la mission change), et
+// commente l'avancement du robot. L'élément à toucher est mis en SURBRILLANCE
+// (pulse). Tout est protégé (try/catch) : ne peut jamais casser l'app.
+// ---------------------------------------------------------------------------
+const _GUIDE_TXT = {
+  fr: {
+    welcome: '👋 Bonjour, je suis AgriBot, votre assistant Agribotics.',
+    plan: '① Choisissez un préréglage (3 ou 5 points), ou ajoutez vos points un à un. Réglez pour chacun ses coordonnées X et Y. Validez ensuite avec « Appliquer le plan ».',
+    start: '② Votre plan est prêt. Appuyez sur « Démarrer mission » pour lancer le robot.',
+    running: '🤖 Mission en cours. Ouvrez l’onglet « Carte » pour suivre le robot en direct.',
+    progress: (z, m, n) => `✅ Zone ${z} mesurée — ${m}/${n}. Le robot poursuit son parcours.`,
+    done: '🎉 Mission terminée. Ouvrez l’onglet « Conseils » pour le bilan par zone.',
+    seeMap: 'Voir la carte', seeAdvice: 'Voir les conseils',
+    summary: (g, n, bad) => `📊 Bilan : ${g}/${n} zone(s) au vert${bad && bad.length ? ` · à surveiller : ${bad.join(', ')}` : ''}.`,
+  },
+  ar: {
+    welcome: '👋 مرحباً! سأرشدك خطوة بخطوة. اتبع تعليماتي.',
+    plan: '① اختر نموذجاً (3 أو 5 نقاط)، أو أضف نقاطك واحدة تلو الأخرى. اضبط لكل نقطة إحداثيي X و Y. ثم صادق بـ « ✓ تطبيق ».',
+    start: '② كل شيء جاهز. اضغط الزر الأخضر « ▶ ابدأ المهمة ».',
+    running: '🤖 انطلقنا! سآخذك إلى الخريطة لمتابعة الروبوت مباشرة.',
+    progress: (z, m, n) => `✅ تم قياس المنطقة ${z} — ${m}/${n}. الروبوت يواصل…`,
+    done: '🎉 انتهى! إليك الحصيلة، ثم افتح النصائح لكل منطقة.',
+    seeMap: 'عرض الخريطة', seeAdvice: 'عرض النصائح',
+    summary: (g, n, bad) => `📊 الحصيلة: ${g}/${n} منطقة جيدة${bad && bad.length ? ` · للمراقبة: ${bad.join('، ')}` : ''}.`,
+  },
+  da: {
+    welcome: '👋 سلام! غادي نوجهك خطوة بخطوة. تبّع التعليمات ديالي.',
+    plan: '① ختار نموذج (3 ولا 5 نقط)، ولا زيد النقط وحدة بوحدة. ضبط لكل نقطة إحداثيات X و Y. من بعد صادق بـ « ✓ تطبيق ».',
+    start: '② كلشي واجد. كليكي على الزر الأخضر « ▶ بدا المهمة ».',
+    running: '🤖 بدينا! غادي نديك للخريطة باش تتبّع الروبو مباشرة.',
+    progress: (z, m, n) => `✅ تقاست البلاصة ${z} — ${m}/${n}. الروبو كيكمّل…`,
+    done: '🎉 سالا! ها الحصيلة، من بعد حلّ النصائح لكل بلاصة.',
+    seeMap: 'شوف الخريطة', seeAdvice: 'شوف النصائح',
+    summary: (g, n, bad) => `📊 الحصيلة: ${g}/${n} بلاصة مزيانة${bad && bad.length ? ` · خاصها تراقب: ${bad.join('، ')}` : ''}.`,
+  },
+};
+let _planApplied = false;          // passe à true dès qu'un plan est appliqué
+let _guideStarted = false;         // bienvenue déjà postée ?
+let _guideLastStep = null;         // dernière étape annoncée
+let _guideLastMeasured = -1;       // nb de points mesurés déjà commentés
+
+function _injectGuideStyles() {
+  if (document.getElementById('guideStyles')) return;
+  const s = document.createElement('style');
+  s.id = 'guideStyles';
+  s.textContent = `
+  .coach-target{position:relative;animation:coachPulse 1.2s infinite;border-radius:12px;outline:3px solid #e0922f;outline-offset:3px}
+  @keyframes coachPulse{0%{box-shadow:0 0 0 0 rgba(224,146,47,.65)}70%{box-shadow:0 0 0 17px rgba(224,146,47,0)}100%{box-shadow:0 0 0 0 rgba(224,146,47,0)}}
+  .chat-bubble.guide{background:linear-gradient(135deg,#eef8ef,#e2f2e5);border-left:3px solid #3b7a44;font-weight:600}
+  .guide-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+  .guide-action{background:#3b7a44;color:#fff;border:none;border-radius:10px;padding:7px 12px;font-weight:700;font-size:12.5px;cursor:pointer;font-family:inherit;transition:background .15s,transform .1s}
+  .guide-action:hover{background:#2f6437}.guide-action:active{transform:scale(.95)}
+  .guide-confetti{position:fixed;top:-30px;z-index:80;pointer-events:none;will-change:transform,opacity;animation:confFall 2.3s ease-in forwards}
+  @keyframes confFall{0%{transform:translateY(0) rotate(0);opacity:1}100%{transform:translateY(108vh) rotate(380deg);opacity:.15}}`;
+  document.head.appendChild(s);
+}
+
+function _coachStepName() {
+  const r = APP_STATE.robot || {};
+  if (['requested', 'running', 'moving', 'measuring', 'paused'].includes(r.status)) return 'running';
+  if ((r.totalPoints || 0) > 0 && (r.measuredPoints || 0) >= r.totalPoints) return 'done';
+  if (!_planApplied && (r.measuredPoints || 0) === 0) return 'plan';
+  return 'start';
+}
+
+// Met en surbrillance (pulse) l'élément exact à toucher pour l'étape courante.
+function _guidePulse(step) {
+  _injectGuideStyles();
+  const sel = {
+    plan: '#planEditor',
+    start: '#btnStartReal',
+    running: '.bottom-nav .bnav-item:nth-child(2)',   // onglet Carte
+    done: '.bottom-nav .bnav-item:nth-child(3)',       // onglet Conseils
+  }[step];
+  document.querySelectorAll('.coach-target').forEach((e) => e.classList.remove('coach-target'));
+  const tgt = sel ? document.querySelector(sel) : null;
+  if (tgt) tgt.classList.add('coach-target');
+}
+
+// Ajoute une bulle "assistant" dans le fil du chatbot. `actions` (optionnel) =
+// liste de { label, on } → boutons cliquables one-tap dans la bulle.
+function _guideAdd(text, actions) {
+  const box = document.getElementById('chatMessages');
+  if (!box) return;
+  const b = document.createElement('div');
+  b.className = 'chat-bubble bot guide';
+  b.textContent = text;
+  if (actions && actions.length) {
+    const row = document.createElement('div');
+    row.className = 'guide-actions';
+    actions.forEach((a) => {
+      const btn = document.createElement('button');
+      btn.className = 'guide-action';
+      btn.textContent = a.label;
+      btn.onclick = a.on;
+      row.appendChild(btn);
+    });
+    b.appendChild(row);
+  }
+  box.appendChild(b);
+  box.scrollTop = box.scrollHeight;
+}
+
+// Navigue vers un onglet du bas (1=Terrain, 2=Carte, 3=Conseils) en cliquant
+// l'item correspondant (met aussi à jour l'état actif de la barre).
+function _guideGoto(n) {
+  try {
+    const b = document.querySelector('.bottom-nav .bnav-item:nth-child(' + n + ')');
+    if (b) b.click();
+  } catch (e) { /* navigation impossible : silencieux */ }
+}
+
+// Bilan rapide de fin de mission : compte les zones « au vert » vs à surveiller.
+function _missionSummary() {
+  try {
+    const labels = (typeof planLabels === 'function') ? planLabels() : [];
+    let good = 0; const bad = [];
+    labels.forEach((z) => {
+      const data = APP_STATE.fieldData[z];
+      if (!data) return;
+      const crop = APP_STATE.zoneCropPlan[z] || APP_STATE.selectedCrop;
+      const ev = (typeof evaluateZoneForCrop === 'function') ? evaluateZoneForCrop(data, crop) : null;
+      if (!ev) return;
+      if (ev.type === 'good') good += 1; else bad.push(z);
+    });
+    return { good, bad, total: labels.length };
+  } catch (e) { return null; }
+}
+
+// Petite célébration visuelle (confettis emoji) à la fin de la mission.
+function _confetti() {
+  try {
+    _injectGuideStyles();
+    const em = ['🎉', '🌱', '✅', '🎊', '⭐'];
+    for (let i = 0; i < 14; i++) {
+      const s = document.createElement('div');
+      s.className = 'guide-confetti';
+      s.textContent = em[i % em.length];
+      s.style.left = (Math.random() * 98) + 'vw';
+      s.style.animationDelay = (Math.random() * 0.5) + 's';
+      s.style.fontSize = (16 + Math.random() * 16) + 'px';
+      document.body.appendChild(s);
+      setTimeout(() => s.remove(), 2800);
+    }
+  } catch (e) { /* déco non bloquante */ }
+}
+
+// Lit le message à voix haute via la vraie voix du chatbot (cloud AR/DA,
+// locale FR), en respectant le bouton muet 🔇/🔊 (window.CHATBOT_SPEAK).
+function _guideSpeak(text) {
+  try {
+    if (typeof window.speakBotAnswer === 'function') {
+      if (typeof window.stopBotVoice === 'function') window.stopBotVoice();
+      window.speakBotAnswer(String(text).replace(/[①②③🤖🗺️💡🎉👋✓▶«»]/g, '').replace(/\s+/g, ' ').trim());
+    }
+  } catch (e) { /* voix indisponible : silencieux */ }
+}
+
+// Ouvre le panneau du chatbot (sans basculer) pour que l'assistant soit visible.
+function _openChatForGuide() {
+  const p = document.getElementById('chatPanel');
+  const f = document.getElementById('chatFab');
+  if (p && !p.classList.contains('open')) {
+    p.classList.add('open');
+    if (f) f.classList.add('active');
+  }
+}
+
+// Réinitialise l'assistant (appelé au changement de langue → re-bienvenue).
+window._resetGuide = function () {
+  _guideStarted = false;
+  _guideLastStep = null;
+  _guideLastMeasured = -1;
+  if (window.Assistant && window.Assistant.reset) window.Assistant.reset();  // re-bonjour dans la nouvelle langue
+};
+
+function updateCoach(force) {
+  try {
+    if (window._guideOff) return;
+    // Assistant « tête parlante » (assistant.js) : s'il est présent, il prend en
+    // charge tout le guidage (lit l'interface + voix + bulle). On lui délègue et
+    // on n'utilise plus les bulles dans le chat (sinon double message).
+    if (window.Assistant && window.Assistant.update) { window.Assistant.update(force); return; }
+    if (!document.getElementById('chatMessages')) return;     // chat pas encore prêt
+    const langScr = document.getElementById('lang-screen');
+    if (langScr && getComputedStyle(langScr).display !== 'none') return;  // écran langue ouvert
+    const L = _GUIDE_TXT[window.currentLang || 'fr'] || _GUIDE_TXT.fr;
+    const r = APP_STATE.robot || {};
+    const step = _coachStepName();
+    _guidePulse(step);
+
+    let welcomeNow = false;
+    if (!_guideStarted) {
+      _guideStarted = true;
+      welcomeNow = true;
+      _openChatForGuide();
+      _guideAdd(L.welcome);          // message de bienvenue rapide
+    }
+
+    if (force || step !== _guideLastStep) {
+      // Nouvelle étape : instruction très brève (+ voix). On NE passe à l'étape
+      // suivante que lorsque l'utilisateur a réellement agi (l'état change).
+      _guideLastStep = step;
+      _guideLastMeasured = r.measuredPoints || 0;
+      const instr = L[step];
+      // Boutons d'action one-tap selon l'étape.
+      let actions = null;
+      if (step === 'running') actions = [{ label: '🗺️ ' + L.seeMap, on: () => _guideGoto(2) }];
+      if (step === 'done') actions = [{ label: '💡 ' + L.seeAdvice, on: () => _guideGoto(3) }];
+      _guideAdd(instr, actions);
+      _guideSpeak((welcomeNow ? L.welcome + '. ' : '') + instr);
+      // La carte est « demandée » pour observer le robot : on y emmène
+      // l'utilisateur dès le démarrage de la mission.
+      if (step === 'running') setTimeout(() => _guideGoto(2), 800);
+      // Fin de mission : bilan chiffré + célébration.
+      if (step === 'done') {
+        const sum = _missionSummary();
+        if (sum) _guideAdd(L.summary(sum.good, sum.total, sum.bad));
+        _confetti();
+      }
+    } else if (step === 'running') {
+      // Même étape : on commente chaque NOUVELLE zone mesurée (avancement robot).
+      const m = r.measuredPoints || 0;
+      if (m > _guideLastMeasured) {
+        _guideLastMeasured = m;
+        const msg = L.progress(r.activePoint || ('P' + m), m, r.totalPoints || 0);
+        _guideAdd(msg);
+        _guideSpeak(msg);
+      }
+    }
+  } catch (e) { /* le guidage ne doit jamais casser l'app */ }
 }
 
 function renderAll() {
@@ -452,6 +704,7 @@ function renderAll() {
   renderGauges();
   renderAdvice();
   drawMap();
+  updateCoach();
 }
 
 // ---------------------------------------------------------------------------
@@ -527,6 +780,9 @@ function setupChatLauncher() {
   fab.title = t('chatTitle');
   fab.onclick = toggleChatPanel;
   document.body.appendChild(fab);
+
+  // Démarre l'assistant de guidage maintenant que le chat existe.
+  updateCoach();
 }
 
 function toggleChatPanel() {
@@ -535,6 +791,9 @@ function toggleChatPanel() {
   if (!p) return;
   const open = p.classList.toggle('open');
   if (f) f.classList.toggle('active', open);
+  // Ouvrir OU fermer le chat coupe toute lecture vocale en cours (sinon la voix
+  // continue après la fermeture du panneau).
+  try { if (window.stopBotVoice) window.stopBotVoice(); } catch (_) {}
 }
 
 // Rend le panneau chatbot DÉPLAÇABLE (drag par l'en-tête) et REDIMENSIONNABLE

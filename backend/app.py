@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field
 
 try:
     from .chatbot_llm import (
-        generate_expert_response, synthesize_speech, transcribe_speech,
+        generate_expert_response, generate_coach_line, synthesize_speech, transcribe_speech,
         GEMINI_MODEL, GEMINI_BASE_URL,
         GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
     )
@@ -35,7 +35,7 @@ try:
 except ImportError:
     # Fallback quand le module est exécuté depuis le dossier backend/ directement
     from chatbot_llm import (
-        generate_expert_response, synthesize_speech, transcribe_speech,
+        generate_expert_response, generate_coach_line, synthesize_speech, transcribe_speech,
         GEMINI_MODEL, GEMINI_BASE_URL,
         GEMINI_FALLBACK_MODEL, LLM_PROVIDER, OPENAI_MODEL, OPENAI_BASE_URL,
     )
@@ -401,6 +401,55 @@ async def chat(request: ChatRequest):
         raise HTTPException(status_code=503, detail=str(err))
 
     return {"response": answer}
+
+
+# Actions de l'interface décrites en langage naturel → le LLM les reformule en
+# UNE phrase courte, douce et polie (guidage de navigation « tête parlante »).
+_COACH_ACTIONS = {
+    "welcome": "souhaiter chaleureusement la bienvenue et se présenter en deux mots comme guide de l'application",
+    "plan": (
+        "expliquer comment définir les points de mesure : soit choisir un préréglage "
+        "(3 ou 5 points), soit ajouter les points un par un et régler pour chacun "
+        "ses coordonnées X et Y en mètres, puis valider avec le bouton « Appliquer le plan »"
+    ),
+    "start": "inviter à appuyer sur le bouton « Démarrer mission » pour lancer la mission du robot",
+    "running": "proposer d'ouvrir l'onglet « Carte » pour suivre le robot en direct",
+    "progress": "féliciter : le robot vient de terminer la mesure d'une zone et continue son parcours",
+    "done": "féliciter pour la mission terminée et inviter à ouvrir l'onglet « Conseils » (bilan par zone)",
+}
+
+
+class CoachRequest(BaseModel):
+    step: str                                # étape d'interface (cf. _COACH_ACTIONS)
+    language: str = "fr"                     # fr / ar / da
+    zone: Optional[str] = None               # zone concernée (pour 'progress')
+    measured: Optional[int] = None           # nb de zones mesurées
+    total: Optional[int] = None              # nb total de zones
+    nudge: bool = False                      # True = RELANCE (réexplication claire, inactivité)
+
+
+@app.post("/api/coach", dependencies=[Depends(require_api_key)])
+async def coach(request: CoachRequest):
+    """Phrase de guidage courte, chaleureuse et polie générée par le LLM (GPT /
+    Gemini) pour l'assistant de navigation. Le frontend affiche une version
+    locale instantanée puis remplace par cette phrase si elle arrive."""
+    if request.language not in ("fr", "ar", "da"):
+        raise HTTPException(status_code=400, detail="Langue non supportée.")
+    action = _COACH_ACTIONS.get(request.step)
+    if not action:
+        raise HTTPException(status_code=400, detail="Étape inconnue.")
+    if request.step == "progress" and request.measured is not None:
+        action += f" (zone {request.zone or '?'}, {request.measured}/{request.total or '?'} mesurées)"
+    # L'étape « plan » mérite une LÉGÈRE explication (2–3 phrases courtes) ; les
+    # autres restent en une phrase. Une relance (nudge) explique déjà en détail.
+    explain = (request.step == "plan") and not request.nudge
+    try:
+        line = await generate_coach_line(
+            action, request.language, nudge=request.nudge, explain=explain,
+        )
+    except RuntimeError as err:
+        raise HTTPException(status_code=503, detail=str(err))
+    return {"text": line}
 
 
 class TTSRequest(BaseModel):

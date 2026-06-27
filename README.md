@@ -1,13 +1,13 @@
 # Agribotics — robot agricole de mesure de sol (PLBD)
 
 Prototype fonctionnel d'un robot agricole mobile (**Adeept PiCar-Pro** + **Raspberry Pi**)
-qui visite des points d'une parcelle, mesure le sol via un capteur **4-en-1 RS485
-(pH, humidité, température, EC)**, et produit des **recommandations de culture**
-multilingues (FR / AR / Darija) avec un chatbot.
+qui visite des points d'une parcelle, **mesure le sol** (pH, humidité, température, EC)
+et produit des **recommandations de culture** multilingues (FR / AR / Darija) avec un chatbot.
 
-État : la chaîne logicielle complète est opérationnelle. **Seuls les capteurs RS485
-ne sont pas encore montés** → ils sont remplacés par un mock cohérent ; le reste
-(robot, mission, backend, ML/règles, interface, chatbot) fonctionne réellement.
+Acquisition du sol : **température (DS18B20) + humidité (capteur capacitif)** lues en réel
+sur un **ESP32 en USB série** ; **pH + EC générés de façon agronomiquement cohérente à
+partir** de ces deux valeurs réelles. État : chaîne complète opérationnelle (robot,
+mission, backend, ML/règles, interface, chatbot).
 
 - **Inférence agronomique 100 % locale** (ML scikit-learn + moteur de règles).
 - **Seul le chatbot** utilise le cloud (LLM **Gemini**, Google AI Studio).
@@ -144,9 +144,10 @@ robot ne perd aucune mesure — elles sont mises en file sur le disque
 ## Capteurs (à venir)
 
 La lecture du sol est isolée dans `raspberry_pi/sensors/` (`build_sensor()`).
-Tant que le capteur RS485 n'est pas monté, `APP_MODE=mock` produit des mesures
-cohérentes. À l'arrivée du capteur : `APP_MODE=hardware` active le driver Modbus
-réel (`_HardwareSensor`), **sans changer le backend, le ML ni l'interface**.
+En `APP_MODE=hardware` avec `ESP32_SENSOR_PORT` défini, la température + humidité
+viennent de l'ESP32 et le pH + EC sont synthétisés à partir d'elles
+(`SoilSynthesizer`). Sans ESP32 (ou `APP_MODE=mock`), un mock cohérent prend le
+relais, **sans changer le backend, le ML ni l'interface**.
 
 ---
 

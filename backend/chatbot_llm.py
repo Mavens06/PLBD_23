@@ -30,6 +30,7 @@ import base64
 import io
 import json
 import os
+import random
 import re
 import wave
 from typing import Optional
@@ -437,6 +438,153 @@ async def generate_expert_response(
                 # sinon : on tente le modèle suivant (boucle)
     # Inatteignable en pratique (la boucle retourne ou relève), garde-fou.
     raise last_error or RuntimeError("Échec de l'appel au LLM Gemini.")
+
+
+# Prompt système du guidage « tête parlante ». Registre FORMEL et PROFESSIONNEL :
+# vouvoiement, courtoisie sobre, phrases claires et concises.
+_COACH_SYS = {
+    "fr": (
+        "Vous êtes AgriBot, l'assistant professionnel de l'application agricole "
+        "Agribotics. Vous accompagnez l'utilisateur avec courtoisie, clarté et "
+        "sobriété. Répondez en français par UNE phrase courte (max 14 mots), au "
+        "registre formel et professionnel, en vouvoyant, invitant à effectuer "
+        "l'action décrite. Restez courtois sans formule obséquieuse : évitez "
+        "« s'il vous plaît » et « veuillez ». Nomme les boutons par leur libellé "
+        "EXACT entre « » (jamais « bouton vert »). Pas d'emoji, pas d'explication superflue."
+    ),
+    "ar": (
+        "أنتم كريم، المساعد المهني لتطبيق Agribotics الزراعي. ترافقون المستخدم "
+        "بلباقة ووضوح. أجيبوا بالعربية الفصحى بجملة واحدة قصيرة (14 كلمة كحد أقصى)، "
+        "بأسلوب رسمي ومهني ومحترم، تدعونه للقيام بالإجراء الموصوف. كونوا مهذّبين "
+        "دون مبالغة. بدون رموز تعبيرية ولا شرح زائد ولا علامات اقتباس."
+    ),
+    "da": (
+        "نتا كريم، المساعد المهني ديال تطبيق Agribotics الزراعي. كتعاون المستخدم "
+        "بأدب ووضوح. جاوب بالدارجة المغربية المهذّبة بجملة وحدة قصيرة (14 كلمة ماكس)، "
+        "بأسلوب محترم ومهني، كتدعيه يدير العملية الموصوفة. كون مؤدب بلا مبالغة. "
+        "بلا إيموجي ولا شرح زائد ولا علامات اقتباس."
+    ),
+}
+
+# Styles tirés au hasard à chaque appel → guidage varié, mais TOUJOURS dans un
+# registre professionnel et sobre.
+_COACH_STYLES = [
+    "ton informatif et précis",
+    "formulation claire et professionnelle",
+    "courtoisie sobre et rassurante",
+    "concision experte",
+    "clarté pédagogique et posée",
+    "registre soigné et assuré",
+    "accompagnement attentif et professionnel",
+    "tournure efficace et directe",
+]
+
+
+# Mode RELANCE : l'utilisateur semble perdu/inactif → réexplication plus claire
+# (1–2 phrases), rassurante, complice, polie mais SANS « s'il vous plaît ».
+_COACH_NUDGE_SYS = {
+    "fr": (
+        "Vous êtes AgriBot, l'assistant professionnel d'Agribotics. L'utilisateur "
+        "semble hésiter. Réexpliquez-lui clairement, en 1 ou 2 phrases courtes "
+        "(max 24 mots au total), COMMENT effectuer l'action décrite : où regarder, "
+        "sur quoi appuyer. Registre formel, vouvoiement, ton posé et rassurant. "
+        "Courtois sans « s'il vous plaît » ni « veuillez ». Nomme les boutons par leur libellé EXACT entre « » (jamais « bouton vert »). Pas d'emoji."
+    ),
+    "ar": (
+        "أنتم كريم، المساعد المهني لـ Agribotics. يبدو أن المستخدم متردد. أعيدوا له "
+        "الشرح بوضوح في جملة أو جملتين قصيرتين (24 كلمة كحد أقصى): أين ينظر وعلى ماذا "
+        "يضغط. أسلوب رسمي ومحترم، نبرة هادئة ومطمئنة. مؤدب دون مبالغة. بدون رموز "
+        "تعبيرية ولا علامات اقتباس."
+    ),
+    "da": (
+        "نتا كريم، المساعد المهني ديال Agribotics. المستخدم بان متردد. عاود ليه الشرح "
+        "بوضوح فجملة ولا جوج قصار (24 كلمة ماكس): فين يشوف وعلاش يكليكي. أسلوب محترم "
+        "ومهني، نبرة هادئة ومطمئنة. مؤدب بلا مبالغة. بلا إيموجي ولا علامات اقتباس."
+    ),
+}
+
+
+# Mode EXPLICATION (étape « plan ») : 2–3 phrases TRÈS courtes décrivant
+# concrètement la marche à suivre. Registre formel et professionnel.
+_COACH_EXPLAIN_SYS = {
+    "fr": (
+        "Vous êtes AgriBot, l'assistant professionnel d'Agribotics. Expliquez en 2 à 3 "
+        "phrases TRÈS courtes (max 32 mots au total), au registre formel et "
+        "professionnel (vouvoiement), COMMENT réaliser l'action décrite, étape par "
+        "étape et concrètement. Sobre et clair, sans « s'il vous plaît » ni "
+        "« veuillez ». Nomme les boutons par leur libellé EXACT entre « » (jamais « bouton vert »). Pas d'emoji."
+    ),
+    "ar": (
+        "أنتم كريم، المساعد المهني لـ Agribotics. اشرحوا في جملتين إلى ثلاث جمل قصيرة "
+        "جدًا (32 كلمة كحد أقصى)، بأسلوب رسمي ومهني ومحترم، كيفية تنفيذ الإجراء الموصوف "
+        "خطوة بخطوة وبشكل ملموس. واضح وموجز. بدون رموز تعبيرية ولا علامات اقتباس."
+    ),
+    "da": (
+        "نتا كريم، المساعد المهني ديال Agribotics. شرح فجملتين ولا تلاتة قصار بزاف "
+        "(32 كلمة ماكس)، بأسلوب محترم ومهني، كيفاش تدير العملية الموصوفة خطوة بخطوة "
+        "وبشكل ملموس. واضح وموجز. بلا إيموجي ولا علامات اقتباس."
+    ),
+}
+
+
+async def generate_coach_line(
+    action: str, language: str = "fr", style: Optional[str] = None,
+    nudge: bool = False, explain: bool = False,
+) -> str:
+    """Génère une phrase de guidage (assistant de navigation).
+    `nudge=True` → RELANCE : réexplication claire (1–2 phrases) sur inactivité.
+    `explain=True` → EXPLICATION : marche à suivre en 2–3 phrases courtes (étape
+    « plan »). Sinon : phrase courte, style tiré au hasard.
+    Réutilise l'aiguillage fournisseur de `generate_expert_response`."""
+    if language not in ("fr", "ar", "da"):
+        language = "fr"
+    action = (action or "").strip()[:240]
+    if not action:
+        raise RuntimeError("Action vide : rien à reformuler.")
+
+    if nudge:
+        system_prompt = _COACH_NUDGE_SYS.get(language, _COACH_NUDGE_SYS["fr"])
+        user_msg = action
+        temperature, max_tokens = 0.85, 150
+    elif explain:
+        system_prompt = _COACH_EXPLAIN_SYS.get(language, _COACH_EXPLAIN_SYS["fr"])
+        user_msg = action
+        temperature, max_tokens = 0.6, 180
+    else:
+        system_prompt = _COACH_SYS.get(language, _COACH_SYS["fr"])
+        style = style or random.choice(_COACH_STYLES)
+        user_msg = f"{action}\nStyle imposé : {style}."
+        temperature, max_tokens = 1.0, 80
+
+    if LLM_PROVIDER == "openai":
+        if not OPENAI_API_KEY:
+            raise RuntimeError("OPENAI_API_KEY manquante (LLM_PROVIDER=openai).")
+        return strip_markdown(await _call_openai_chat(system_prompt, [], user_msg)).strip()
+
+    if not GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY manquante.")
+    payload = {
+        "system_instruction": {"parts": [{"text": system_prompt}]},
+        "contents": [{"role": "user", "parts": [{"text": user_msg}]}],
+        "generationConfig": {
+            "temperature": temperature,
+            "maxOutputTokens": max_tokens,
+            "thinkingConfig": {"thinkingBudget": 0},
+        },
+    }
+    models_to_try = [GEMINI_MODEL]
+    if GEMINI_FALLBACK_MODEL and GEMINI_FALLBACK_MODEL != GEMINI_MODEL:
+        models_to_try.append(GEMINI_FALLBACK_MODEL)
+    async with httpx.AsyncClient(timeout=GEMINI_TIMEOUT) as client:
+        last_error: Optional[RuntimeError] = None
+        for idx, model in enumerate(models_to_try):
+            try:
+                return strip_markdown(await _call_gemini(client, model, payload)).strip()
+            except _QuotaError as err:
+                last_error = RuntimeError(str(err))
+                if idx == len(models_to_try) - 1:
+                    raise last_error from err
+    raise last_error or RuntimeError("Échec de l'appel coach au LLM.")
 
 
 class _QuotaError(RuntimeError):

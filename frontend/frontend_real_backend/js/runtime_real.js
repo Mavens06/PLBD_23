@@ -92,3 +92,20 @@ async function stopRealMode(){
   updatePauseBtn();
   renderAll();
 }
+
+// SYNCHRONISER = REMISE À ZÉRO : remet le robot et l'interface à l'état du début
+// (progression 0, mesures effacées, en attente), tout en CONSERVANT le plan —
+// pour reprendre/relancer une mission proprement. N'enclenche PAS le robot.
+async function syncResetReal(){
+  if(realPollTimer){ clearInterval(realPollTimer); realPollTimer=null; }
+  _realPaused=false;
+  try{ await postBackend('/mission/reset',{}); }catch(_){}   // backend : vide l'état, garde le plan
+  APP_STATE.fieldData = emptyField();
+  APP_STATE.robot.measuredPoints = 0;
+  APP_STATE.robot.progress = 0;
+  APP_STATE.robot.activePoint = 'Départ';
+  APP_STATE.robot.status = 'idle';
+  updatePauseBtn();
+  renderAll();
+  if(typeof showToast==='function') showToast('🔄 Robot remis à zéro — prêt à reprendre');
+}

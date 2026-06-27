@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Vue d'ensemble
 
-**Agribotics** est un prototype académique réel de robot agricole mobile basé sur une **Raspberry Pi** (châssis **Adeept Pi Car Pro**). Le robot navigue sur des points prédéfinis d'une parcelle, acquiert des mesures de sol via un **capteur industriel 4-en-1 RS485 (Modbus RTU)** et génère des recommandations agronomiques multilingues (FR / AR / Darija marocaine).
+**Agribotics** est un prototype académique réel de robot agricole mobile basé sur une **Raspberry Pi** (châssis **Adeept Pi Car Pro**). Le robot navigue sur des points prédéfinis d'une parcelle, acquiert des mesures de sol et génère des recommandations agronomiques multilingues (FR / AR / Darija marocaine).
+
+**Acquisition du sol (4 variables) :** la **température (DS18B20)** et l'**humidité (capteur capacitif)** sont lues en réel sur un **ESP32 relié en USB série**. Le **pH** et l'**EC** sont **générés de façon agronomiquement cohérente à partir** de ces deux valeurs réelles (`SoilSynthesizer`). **Plus aucun capteur RS485.**
 
 **Le code actif est à la racine du dépôt** dans les dossiers `backend/`, `ml_model/`, `raspberry_pi/` et `frontend/`. Aucun sous-dossier de projet supplémentaire — toutes les commandes s'exécutent depuis la racine.
 
@@ -22,7 +24,7 @@ python3 -m venv .venv
 ./.venv/bin/pip install -r requirements.txt
 ```
 
-`minimalmodbus` est installé automatiquement uniquement sur architectures ARM (Raspberry Pi). Sur PC/Mac de dev, il n'est pas requis car on tourne en mode `mock`.
+`pyserial` (lecture de l'ESP32 capteurs + sonde NEMA en USB série) est dans les dépendances. Sur PC/Mac de dev, l'absence d'ESP32 fait basculer automatiquement en mode `mock` (simulation).
 
 ### Gemini (LLM chatbot, cloud Google AI Studio) — préparation
 1. Obtenir une clé API gratuite : https://aistudio.google.com/apikey
@@ -62,7 +64,7 @@ APP_MODE=mock ./.venv/bin/python -m raspberry_pi.main --point B2
 # Sur le robot réel : APP_MODE=hardware
 APP_MODE=hardware python3 -m raspberry_pi.main
 
-# Essai complet SANS capteur RS485 : robot + bras réels, mesures simulées
+# Essai complet en simulation (SENSOR_MODE=mock) : robot + bras réels, mesures simulées
 # (stabilisation + collecte en temps réel ; valeurs aberrantes injectées sur
 # ~25 % des points pour tester alertes salinité / qualité "suspect")
 APP_MODE=hardware SENSOR_MODE=mock SENSOR_MOCK_OUTLIER_RATE=0.25 \
@@ -112,7 +114,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | Variable | Défaut | Rôle |
 |---|---|---|
 | `APP_MODE` | `mock` | `mock` = dev/démo sans matériel · `hardware` = robot réel |
-| `SENSOR_MODE` | `auto` | `auto` = suit `APP_MODE` · `mock` = mesures simulées même en hardware (essai complet sans capteur RS485) · `hardware` = force le RS485 (repli mock si init KO) |
+| `SENSOR_MODE` | `auto` | `auto` = suit `APP_MODE` · `mock` = force la simulation même en hardware (ignore l'ESP32) · `hardware` = capteur réel (ESP32 + synthèse pH/EC ; repli mock si ESP32 absent) |
 | `SENSOR_MOCK_OUTLIER_RATE` | `0` | Probabilité [0..1] qu'un point mock produise des valeurs aberrantes (salinité, pH acide, sol sec, temp « suspect ») |
 | `SENSOR_MOCK_OUTLIER_POINTS` | _(vide)_ | Labels forcés en aberrant, ex. `B2,C1` |
 | `GEMINI_API_KEY` | _(vide)_ | Clé API Google AI Studio (obligatoire pour le chatbot) |
@@ -126,10 +128,8 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `GEMINI_STT_MODEL` | `gemini-2.5-flash` | Modèle STT Gemini pour `/api/stt` (n'accepte pas le webm de Chrome) |
 | `GEMINI_BASE_URL` | `https://generativelanguage.googleapis.com/v1beta` | Endpoint Generative Language API |
 | `GEMINI_TIMEOUT` | `60` | Timeout HTTP de l'appel Gemini (s) |
-| `RS485_PORT` | `/dev/ttyUSB0` | Port série du capteur (ou `/dev/ttyAMA0`) |
-| `RS485_ADDRESS` | `1` | Adresse Modbus du capteur |
-| `RS485_BAUDRATE` | `9600` | Débit série |
-| `RS485_TIMEOUT_S` | `0.5` | Timeout de lecture série |
+| `ESP32_SENSOR_PORT` | _(vide)_ | Si défini (+ mode hardware) : **température (DS18B20) + humidité (capteur capacitif)** lues depuis un **ESP32 en USB série**. Le **pH + EC** sont alors **synthétisés à partir** de ces valeurs réelles (`SoilSynthesizer`). Préférer un chemin stable `/dev/serial/by-id/...`. Vide ou ESP32 absent → repli simulation (mock) |
+| `ESP32_SENSOR_BAUD` / `ESP32_SENSOR_WARMUP_S` | `115200` / `6` | Débit série ESP32 + attente max (s) de la 1ʳᵉ trame au démarrage. Le port est ouvert **DTR/RTS au repos** (sinon reset de l'ESP32 → on ne capte que le boot ROM à 74880 baud) |
 | `SENSOR_MOCK_PROFILE` | `None` | En mock, force le profil d'une zone (`A1`..`C3`) |
 | `AGRIBOTICS_API_BASE` | `http://127.0.0.1:8000` | URL du backend pour `raspberry_pi/main.py` |
 | `AGRIBOTICS_DB_PATH` | `.agribotics/state.sqlite3` | SQLite backend : plan de mission + mesures persistées |
@@ -209,7 +209,8 @@ PLBD/
 │   │   └── __init__.py                 # build_robot() / build_probe() selon APP_MODE
 │   ├── offline_buffer.py               # File hors-ligne des mesures (résilience réseau)
 │   └── sensors/
-│       └── rs485_4in1.py               # Driver unifié RS485 (hardware ou mock auto)
+│       ├── soil_sensor.py              # Capteur de sol unifié : ESP32 (temp/hum réels) + SoilSynthesizer (pH/EC) ou mock
+│       └── esp32_sensor.py             # Lecteur série température (DS18B20) + humidité (capacitif) via ESP32 USB
 │
 ├── frontend/
 │   ├── frontend_simulation/            # Démo autonome — port 5501
@@ -242,7 +243,7 @@ PLBD/
 APP_MODE=hardware (robot) :
   raspberry_pi.main
     → AcquisitionManager.collect(point)
-      → _HardwareSensor.read() × 10  (stabilisation 4 s + 10 lectures Modbus 0x03)
+      → _Esp32SoilSensor.read() × 10  (stabilisation 4 s ; temp/hum ESP32 + pH/EC synthétisés)
       → stats mean/median/pstdev
       → MeasurementRecord
     → POST /api/measurements
@@ -302,21 +303,16 @@ UI :
 | GET | `/api/recommendation/{point}/explain` | Classement règles 10 cultures + détail par variable (+ `ml_top` si modèle dispo) |
 | GET | `/api/recommendation/{point}/correction?crop=X` | Diagnostic du sol pour une culture cible + corrections + cultures mieux adaptées |
 
-### Capteur RS485 4-en-1 (`raspberry_pi/sensors/`)
+### Capteur de sol — ESP32 + synthèse (`raspberry_pi/sensors/`)
 
-- **`rs485_4in1.py`** — `build_sensor()` retourne automatiquement :
-  - `_HardwareSensor` (minimalmodbus) si le mode capteur résolu est `hardware` (avec **repli mock** si l'init échoue : port absent, lib manquante)
+- **`soil_sensor.py`** — `build_sensor()` retourne automatiquement :
+  - `_Esp32SoilSensor` si le mode résolu est `hardware` ET `ESP32_SENSOR_PORT` est défini : **température + humidité réelles** de l'ESP32, **pH + EC synthétisés** à partir d'elles via `SoilSynthesizer` (avec **repli mock** si l'ESP32 est absent / pyserial manquant)
   - `_MockSensor` sinon. Priorité aux profils curés A1..C3 (démo) ; pour tout autre point, **`soil_at(x, y)`** — champ de sol synthétique déterministe et spatialement cohérent (miroir exact de `soilAt()` dans `js/data_model.js`). `set_location(label, x, y)` positionne le mock.
 
-  Le mode capteur est **découplé du mode robot** : `SENSOR_MODE` (`auto`/`mock`/`hardware`, défaut `auto` = suit `APP_MODE`). `APP_MODE=hardware SENSOR_MODE=mock` = mode « essai complet sans capteur RS485 » (robot et bras réels, mesures simulées en temps réel). Le mock peut **injecter des profils aberrants** (`SENSOR_MOCK_OUTLIER_RATE` probabiliste et/ou `SENSOR_MOCK_OUTLIER_POINTS` forcés) : `saline` (EC 7.2 → alerte salinité), `acide` (pH 3.5), `sec` (humidité 4 %), `canicule` (57 °C → qualité `suspect`). Les profils restent dans les bornes acceptées par le backend (pas de 422) pour exercer les garde-fous **en aval**.
-  
-  Registres lus en un seul bloc Modbus (fonction 0x03) :
-  ```
-  Reg 0x0000 → moisture     × 0.1 %
-  Reg 0x0001 → temperature  × 0.1 °C   (signé 16 bits — two's complement)
-  Reg 0x0002 → conductivity   µS/cm    (converti en mS/cm)
-  Reg 0x0003 → ph           × 0.1
-  ```
+  Le mode capteur est **découplé du mode robot** : `SENSOR_MODE` (`auto`/`mock`/`hardware`, défaut `auto` = suit `APP_MODE`). `APP_MODE=hardware SENSOR_MODE=mock` = mode « essai complet en simulation » (robot et bras réels, mesures simulées en temps réel, ESP32 ignoré). Le mock peut **injecter des profils aberrants** (`SENSOR_MOCK_OUTLIER_RATE` probabiliste et/ou `SENSOR_MOCK_OUTLIER_POINTS` forcés) : `saline` (EC 7.2 → alerte salinité), `acide` (pH 3.5), `sec` (humidité 4 %), `canicule` (57 °C → qualité `suspect`). Les profils restent dans les bornes acceptées par le backend (pas de 422) pour exercer les garde-fous **en aval**.
+
+  **`SoilSynthesizer`** — génère pH + EC de façon **agronomiquement cohérente à partir de l'humidité + température RÉELLES** : EC ↑ avec l'humidité (l'eau conduit) et avec la température (≈ +1,9 %/°C autour de 25 °C), pH légèrement plus acide en sol humide. Petit bruit capteur + dérive lente bornée (marche aléatoire lissée) → rendu « temps réel » crédible, valeurs successives proches (qualité `good`). Bornes : pH ∈ [5.3, 7.9], EC ∈ [0.15, 4.5] mS/cm.
+- **`esp32_sensor.py` — lecteur série ESP32 (température + humidité réelles)** : un **ESP32 en USB série** (DS18B20 1-Wire + capteur d'humidité capacitif sur ADC) émet en clair toutes les ~2 s `Température : XX.X °C, Humidité : YY.Y %` ; un thread de fond maintient la dernière valeur, `latest()` la renvoie sans bloquer. **Piège critique** : le port est ouvert avec **DTR/RTS au repos** (`dtr=False, rts=False`), sinon le CP2102 reset l'ESP32 à chaque ouverture et on ne capte que le boot ROM (74880 baud, illisible à 115200). `parse_line()` est une fonction pure testée (tolère `é`/`Temp`, virgule/point, cas `Erreur` de la DS18B20 déconnectée). Test indépendant : `python3 deploy/esp32_sensor_test.py <port>`.
 - **`acquisition_manager.py`** — Protocole `AcquisitionManager.collect(point)` :
   1. (hardware seulement) stabilisation 4 s
   2. 10 lectures espacées de `interval_s` (0.5 s hardware, 0.0 s mock)
@@ -418,15 +414,15 @@ Deux versions strictement parallèles :
 
 - **`main.py`** — Orchestrateur de mission piloté par le **plan dynamique**. Source du plan par priorité : `--plan plan.json` → `GET /api/mission/plan` → repli grille 3×3. Argparse : `--point`, `--plan`, `--watch` (**daemon** déclenché par `command=="requested"`), `--no-reset`. **Séquence par point** : `robot.move_to_point` → `probe.lower_probe` → `probe.stabilize` → acquisition capteur → `probe.raise_probe` → push HTTP. **Résilience réseau** : un push raté n'est jamais perdu — la mesure est mise en file sur le disque (`offline_buffer.OfflineBuffer`) et retransmise au début de la mission suivante. **Pilotage temps réel** : en `--watch`, le callback `control` lit `command` du backend AVANT chaque point (`_control_decision`) → `idle/abort` (stop/suspend) stoppe entre deux points, `paused` immobilise le robot sur place et l'endort dans une boucle d'attente (reprise sur `running`/`requested`, jamais sur un hoquet réseau `None`), `running/requested` poursuit ; le robot est toujours arrêté en fin de mission (`finally`).
 - **`offline_buffer.py`** — File d'attente disque (JSON Lines) des mesures non transmises au backend. `enqueue()` persiste immédiatement, `flush(push_fn)` retransmet (s'arrête au premier échec pour ne pas marteler le réseau), tolère un fichier corrompu. Garantit **zéro perte de mesure** au champ.
-- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro, calqué sur le code mission **validé sur le robot** (`Code_PLBD_23_mission.py`) : PCA9685 `adafruit_motor`, 2 moteurs DC + servo de direction (centre 85°, braquages à fond 0°/180°), **throttles signés** (avant = `-0.15`, virages = `+0.18` — ne pas « corriger » sans réessai), **virages en arc** (braquage à fond + avance `TURN_90_S`), navigation **Manhattan par cap N/E/S/W** (`manhattan_legs()`, fonction pure testée). **`ROBOT_WORLD_SCALE`** rejoue le plan (mètres UI) sur une surface réduite (démo 1 m²) sans toucher UI/backend/mesures. Bras-sonde 4 servos (épaule canal 2 descend, posture home `1:90,3:140,4:80`) — **ou** sonde NEMA pilotée par un ESP32 en USB série (`esp32_probe.py`, `PROBE_SERIAL_PORT`). **Ultrason anti-obstacle** (trigger 23 / écho 24, seuil 12 cm) vérifié toutes les ~0.4 s pendant les lignes droites : pause + LED + bip puis reprise auto quand la voie se dégage, `RuntimeError` propre au timeout (le daemon `--watch` survit). **LEDs/buzzer** (`signals.py`, GPIO 25/11 + 18) : bips mission, clignotement par point — no-op silencieux si gpiozero/broches absents. `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
+- **`robot/`** — Couche robot/sonde **isolée** (même logique que `sensors.build_sensor`). `base.py` : interfaces `RobotController` / `ProbeController`. `mock_controller.py` : implémentations simulées (PC / repli). `adeept_controller.py` : pilotage **réel** du PiCar-Pro, calqué sur le code mission **validé sur le robot** (`Code_PLBD_23_mission.py`) : PCA9685 `adafruit_motor`, 2 moteurs DC + servo de direction (centre 85°, braquages à fond 0°/180°), **throttles signés** (avant = `-0.15`, virages = `+0.18` — ne pas « corriger » sans réessai), **rotations par défaut = manœuvre en 3 points (`TURN_MODE=kturn`)** : vraie rotation quasi sur place où les roues roulent (pas de raclage) → **le moins de dérapage, adaptée au sable** ; gyroscope pour l'angle exact (90°/180°), repli k-turn chronométré (`KTURN_CYCLES_90`) sans gyro. Modes alternatifs : `pivot` (rotation différentielle sur place) et `arc` (virage en arc, qui fait avancer). Navigation **Manhattan par cap N/E/S/W** (`manhattan_legs()`, fonction pure testée). **`ROBOT_WORLD_SCALE`** rejoue le plan (mètres UI) sur une surface réduite (démo 1 m²) sans toucher UI/backend/mesures. Bras-sonde 4 servos (épaule canal 2 descend, posture home `1:90,3:140,4:80`) — **ou** sonde NEMA pilotée par un ESP32 en USB série (`esp32_probe.py`, `PROBE_SERIAL_PORT`). **Ultrason anti-obstacle** (trigger 23 / écho 24, seuil 12 cm) vérifié toutes les ~0.4 s pendant les lignes droites : pause + LED + bip puis reprise auto quand la voie se dégage, `RuntimeError` propre au timeout (le daemon `--watch` survit). **LEDs/buzzer** (`signals.py`, GPIO 25/11 + 18) : bips mission, clignotement par point — no-op silencieux si gpiozero/broches absents. `__init__.py` : `build_robot()` / `build_probe()` selon `APP_MODE`, avec repli mock si l'I2C échoue. Limite assumée : pas d'odométrie → **dead-reckoning temporisé** (`ROBOT_SPEED_MPS`).
 - **`hardware_test.py`** — Test matériel sûr (`--test motors|servo|all`, vitesse faible) ; fonctionne en mock sur PC.
-- **`acquisition_manager.py` / `sensors/rs485_4in1.py`** — décrits plus haut.
+- **`acquisition_manager.py` / `sensors/soil_sensor.py`** — décrits plus haut.
 
 ---
 
 ## Décisions d'architecture importantes
 
-- **Pas de N/P/K, pas de rainfall** : le capteur 4-en-1 RS485 mesure uniquement pH, humidité, température et EC. Le générateur de dataset et `preprocess.py` lèvent une exception si une de ces variables hors périmètre fuite. Côté chatbot, le LLM ne prétend jamais avoir mesuré N/P/K et ne recommande pas d'engrais NPK (une évocation pédagogique du rôle d'un nutriment reste tolérée). Le modèle de production n'utilise que les 4 variables capteur.
+- **Pas de N/P/K, pas de rainfall** : le périmètre se limite à pH, humidité, température et EC (température + humidité mesurées sur l'ESP32, pH + EC synthétisés à partir d'elles). Le générateur de dataset et `preprocess.py` lèvent une exception si une de ces variables hors périmètre fuite. Côté chatbot, le LLM ne prétend jamais avoir mesuré N/P/K et ne recommande pas d'engrais NPK (une évocation pédagogique du rôle d'un nutriment reste tolérée). Le modèle de production n'utilise que les 4 variables capteur.
 - **Dataset synthétique calibré sur les règles** : le ML n'est pas entraîné sur des CSV externes mais sur un dataset généré à partir des plages exactes de `rules/crop_catalog.py`, avec 85 % au cœur / 15 % bordure. Conséquence : la frontière apprise par le ML reste cohérente avec la vérité agronomique, mais avec des décisions plus tranchées qu'une règle binaire dans les cas ambigus.
 - **Moteur de règles comme fallback automatique** : si `best_model.pkl` est absent, `ml_model/predict.py` bascule sur `rules/engine.py`. Aucune exception n'est levée — la démo ne casse jamais.
 - **État runtime + persistance légère** : `APP_STATE` reste un singleton Python pour l'état courant. Le plan de mission et les mesures sont persistés dans SQLite (`.agribotics/state.sqlite3` par défaut) et restaurés au redémarrage du backend. La commande robot (`requested`/`running`/`done`) reste volontairement volatile.
@@ -444,7 +440,7 @@ Reste à faire, surtout sur le robot réel (non testable sur PC) :
 - **Calibration robot** : `adeept_controller.py` pilote réellement moteurs + servo, mais `DRIVE_THROTTLE_SCALE`, `ROBOT_SPEED_MPS` et les angles de braquage doivent être **calibrés sur le robot**, et le sens des moteurs vérifié (`hardware_test.py`).
 - **Navigation précise** : le robot visite les points dans l'ordre du plan, déplacement en **dead-reckoning temporisé** (pas d'encodeurs). Pour plus de précision : brancher le suiveur de ligne / des encodeurs sur `move_to_point` (interface inchangée).
 - **Sonde motorisée** : trois drivers disponibles, sélectionnés par `build_probe()` par ordre de priorité : (1) `PiGpioNemaProbeController` — sonde **NEMA pilotée DIRECTEMENT par les GPIO de la Pi** (`PROBE_NEMA_GPIO=1`, driver A4988/DRV8825 sur STEP=GPIO26/DIR=GPIO27, mouvement temporisé avec **rampe d'accél./décél.** pour éviter le décrochage ; sens validés DESCENTE=`L`/REMONTÉE=`H`, course 9 s @ 150 tr/min) ; (2) `Esp32ProbeController` — sonde NEMA pilotée par un **ESP32 en USB série** (`PROBE_SERIAL_PORT`, protocole `DOWN`/`UP` + accusé `OK` bloquant ; firmware `deploy/esp32_probe/esp32_probe.ino`) ; (3) `AdeeptProbeController` (servo, `PROBE_SERVO_CHANNEL`). Sans aucun des trois : descente simulée.
-- **Capteur RS485** : driver `_HardwareSensor` prêt, activé en `APP_MODE=hardware` dès le montage du capteur — sans changer le backend, le ML ni l'interface.
+- **Capteur de sol** : température + humidité réelles via ESP32 (`ESP32_SENSOR_PORT`), pH + EC synthétisés à partir d'elles (`SoilSynthesizer`). Validé sur la Pi. Repli simulation automatique si l'ESP32 est débranché.
 - Refactor backend en `models/` / `services/` / `routes/` — backend mono-fichier `app.py` aujourd'hui (acceptable).
 
 Déjà fait depuis les versions antérieures : couche robot/sonde (`raspberry_pi/robot/`), `hardware_test.py`, persistance SQLite, `/health` + `/api/status`, arrêt d'urgence, rafraîchissement live du frontend pendant la mission (polling 1,5 s dans `runtime_real.js`, arrêt automatique en fin de mission), **résilience réseau du robot** (file hors-ligne `offline_buffer.py`, zéro perte de mesure), **déploiement systemd** (`deploy/`, démarrage auto au boot), dépendances robot dans `requirements.txt`, suite de tests `unittest` (`tests/`).

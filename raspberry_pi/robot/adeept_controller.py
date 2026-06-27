@@ -14,8 +14,13 @@ Calqué sur le code VALIDÉ sur le robot de l'équipe (Code_PLBD_23_mission.py) 
     ne pas les « corriger » sans réessayer sur le robot.
 
 Architecture « voiture » (2 moteurs de propulsion + 1 servo de braquage) :
-les virages se font en ARC DE CERCLE — braquage à fond + avance pendant
-TURN_90_S (≈1.2 s pour 90°, 2× pour un demi-tour), comme validé.
+les rotations par DÉFAUT sont des MANŒUVRES EN 3 POINTS (`TURN_MODE=kturn`) —
+avance braqué puis recul contre-braqué, répété jusqu'à l'angle : vraie rotation
+quasi sur place où les roues ROULENT (pas de raclage) → le MOINS de dérapage,
+adaptée au SABLE. Modes alternatifs : `pivot` (rotation différentielle sur
+place) et `arc` (virage en arc, qui fait avancer/déraper). Le gyroscope mesure
+l'angle (90°/180°) ; sans gyro, le k-turn reste chronométré (toujours sans
+dérapage).
 
 Navigation : MANHATTAN par cap (N/E/S/W) — pour rejoindre (x, y), le robot
 s'oriente puis parcourt |dx| puis |dy| en lignes droites temporisées
@@ -229,6 +234,10 @@ class AdeeptRobotController(RobotController):
         # avant/arrière braquée. Plus court = empreinte plus petite, plus de
         # va-et-vient ; plus long = rotation plus rapide, empreinte plus large.
         self._kturn_pulse_s = _envf("KTURN_PULSE_S", 0.5)
+        # Repli CHRONOMÉTRÉ du k-turn (gyro absent) : nombre d'allers-retours
+        # (avant braqué + arrière contre-braqué) pour un quart de tour (90°).
+        # 180° = ×2. À calibrer au sol si le robot tourne sans gyroscope.
+        self._kturn_cycles_90 = max(1, _envi("KTURN_CYCLES_90", 3))
         # Throttle (magnitude) des impulsions du k-turn — séparé de la ligne
         # droite : celle-ci tourne lentement pour la précision (DRIVE_THROTTLE
         # bas), mais le k-turn doit rouler franchement pour ne pas caler.
@@ -287,13 +296,15 @@ class AdeeptRobotController(RobotController):
                 _log(f"⚠ ultrason indisponible ({err}) — anti-obstacle désactivé.")
 
         # --- Gyroscope MPU6500 (rotations asservies) -------------------------
-        # TURN_MODE=kturn : MANŒUVRE EN 3 POINTS (avant braqué ↔ arrière contre-
-        # braqué) — rotation quasi sur place SANS raclage, recommandée au sol ·
-        # TURN_MODE=pivot : rotation sur place (moteurs G/D opposés, peut racler
-        # les roues) · TURN_MODE=arc : virage en arc (avance d'arc géométrique).
-        # Avec gyro : on tourne jusqu'à l'angle MESURÉ (90°/180°), indépendant
-        # des batteries et du sol. Sans gyro : repli arc chronométré.
-        self._turn_mode = os.getenv("TURN_MODE", "arc").strip().lower()
+        # TURN_MODE=kturn (DÉFAUT) : MANŒUVRE EN 3 POINTS (avant braqué ↔ arrière
+        # contre-braqué) — vraie rotation quasi sur place, roues qui ROULENT (pas
+        # de raclage) → le MOINS de dérapage, idéale sur SABLE · TURN_MODE=pivot :
+        # rotation sur place (moteurs G/D opposés, peut racler les roues) ·
+        # TURN_MODE=arc : virage en arc (avance d'arc géométrique, dérape sur sable).
+        # Avec gyro : on tourne jusqu'à l'angle MESURÉ (90°/180°), indépendant des
+        # batteries et du sol. Sans gyro : k-turn CHRONOMÉTRÉ (toujours sans
+        # dérapage) ; les autres modes retombent sur l'arc chronométré.
+        self._turn_mode = os.getenv("TURN_MODE", "kturn").strip().lower()
         self._pivot_throttle = abs(_envf("PIVOT_THROTTLE", 0.15))
         self._pivot_invert = os.getenv("PIVOT_INVERT", "0").strip().lower() \
             in ("1", "true", "yes")
@@ -773,6 +784,46 @@ class AdeeptRobotController(RobotController):
         if self._turn_pause_s > 0:
             time.sleep(self._turn_pause_s)
 
+    def _turn_kturn_timed(self, target_deg: float, clockwise: bool) -> None:
+        """
+        K-turn CHRONOMÉTRÉ — repli SANS gyroscope (garde la manœuvre 3 points
+        sans dérapage au lieu de retomber sur l'arc, qui dérape sur sable).
+        Le nombre d'allers-retours est calibré pour 90° (KTURN_CYCLES_90), ×2
+        pour un demi-tour. Même séquence que la version gyro : avance braqué dans
+        le sens du virage, puis recule contre-braqué (annule la translation).
+        """
+        fwd_steer = self._steer_right if clockwise else self._steer_left
+        bwd_steer = self._steer_left if clockwise else self._steer_right
+        fwd_t = -self._kturn_throttle   # avant = throttle négatif sur ce câblage
+        bwd_t = self._kturn_throttle
+        cycles = self._kturn_cycles_90 * (2 if target_deg >= 135 else 1)
+        try:
+            for _ in range(cycles):
+                # 1) avance braqué dans le sens du virage
+                self._set_angle(self._steer_ch, fwd_steer)
+                time.sleep(0.05)
+                self._throttle(fwd_t)
+                time.sleep(self._kturn_pulse_s)
+                self._throttle(0.0)
+                time.sleep(0.12)
+                # 2) recule contre-braqué (même sens de rotation, translation annulée)
+                self._set_angle(self._steer_ch, bwd_steer)
+                time.sleep(0.05)
+                self._throttle(bwd_t)
+                time.sleep(self._kturn_pulse_s)
+                self._throttle(0.0)
+                time.sleep(0.12)
+        finally:
+            self._throttle(0.0)
+            try:
+                self._set_angle(self._steer_ch, self._steer_center + self._steer_trim)
+            except Exception:
+                pass
+        _log(f"rotation k-turn chronométrée : {cycles} cycles "
+             f"(cible {target_deg}°, ~{self._kturn_cycles_90}/90°)")
+        if self._turn_pause_s > 0:
+            time.sleep(self._turn_pause_s)
+
     def _turn_gyro(self, target_deg: float, clockwise: bool) -> None:
         """
         Rotation ASSERVIE AU GYROSCOPE : on met le robot en rotation (pivot
@@ -858,16 +909,20 @@ class AdeeptRobotController(RobotController):
         per_quarter = self._post_turn_right_backup_m if clockwise \
             else self._post_turn_left_backup_m
         self._pending_turn_backup_m = per_quarter * (2.0 if delta == 2 else 1.0)
-        if self._gyro is not None:
-            # Angle à tourner (NE PAS écraser `target`, qui reste la chaîne de
-            # cap "N/E/S/W" affectée à self._heading en fin de fonction — sinon
-            # un float fuite dans le cap et HEADINGS.index() plante au virage
-            # suivant d'un même déplacement en L).
-            target_deg = 180.0 if delta == 2 else 90.0
-            if self._turn_mode == "kturn":
+        # Angle à tourner (NE PAS écraser `target`, qui reste la chaîne de cap
+        # "N/E/S/W" affectée à self._heading en fin de fonction — sinon un float
+        # fuite dans le cap et HEADINGS.index() plante au virage suivant d'un
+        # même déplacement en L).
+        target_deg = 180.0 if delta == 2 else 90.0
+        if self._turn_mode == "kturn":
+            # Vraie rotation 3 points (sans dérapage), gyro si dispo sinon chrono.
+            if self._gyro is not None:
                 self._turn_kturn(target_deg, clockwise)
             else:
-                self._turn_gyro(target_deg, clockwise)
+                self._turn_kturn_timed(target_deg, clockwise)
+        elif self._gyro is not None:
+            # pivot / arc asservis au gyro (angle mesuré)
+            self._turn_gyro(target_deg, clockwise)
         elif delta == 1:
             self._turn_arc(self._steer_right, self._turn_90_s)
         elif delta == 2:
@@ -948,7 +1003,11 @@ class AdeeptRobotController(RobotController):
         # n'est pas déjà compensée autrement :
         #  • rotation sur place (pivot / k-turn au gyro) → pas d'avance ;
         #  • virage en arc avec recul de compensation (TURN_BACKUP_M) → déjà annulée.
-        in_place_turn = self._gyro is not None and self._turn_mode in ("pivot", "kturn")
+        # Rotation SUR PLACE (pas d'avance d'arc à compenser) : le k-turn l'est
+        # toujours (gyro ou chrono) ; le pivot seulement avec gyro (sinon il
+        # retombe sur l'arc, qui avance).
+        in_place_turn = (self._turn_mode == "kturn") \
+            or (self._gyro is not None and self._turn_mode == "pivot")
         arc_backup = self._turn_mode != "pivot" and self._turn_backup_m > 0
         arc_advance = 0.0 if (in_place_turn or arc_backup) else self._turn_advance_m
         pending_arc_advance = 0.0
