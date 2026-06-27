@@ -56,7 +56,7 @@
       var v = voices.filter(function (vo) { return vo.lang && vo.lang.toLowerCase().indexOf(p) === 0; })[0];
       var u = new SpeechSynthesisUtterance(seg.text);
       u.lang = seg.lang;
-      u.rate = 1.12;
+      u.rate = 0.95;                                    // un peu plus lent (posé)
       if (v) u.voice = v;
       u.onend = function () { setSpeaking(false); };
       u.onerror = function () { setSpeaking(false); };
@@ -258,7 +258,10 @@
     var b = btns[st.langIdx];
     pointAtEl(b, (b.textContent || '').trim());
     speakOneLang(st.langIdx);                             // VOIX synchronisée avec le pointeur
-    st.langTimer = setTimeout(langCycleStep, 3000);       // 3 s sur chaque langue
+    // ~3,33 s par langue → un tour des 3 langues ≈ 10 s, puis ça RECOMMENCE
+    // tant que la langue n'est pas choisie (le cycle s'arrête dès qu'on quitte
+    // l'écran de langue, cf. garde en tête de fonction).
+    st.langTimer = setTimeout(langCycleStep, 3330);
   }
   function pointTo(step) {
     if (!el.pointer) return;

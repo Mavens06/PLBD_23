@@ -51,7 +51,7 @@
       var p = seg.lang.slice(0, 2).toLowerCase();
       var v = voices.filter(function (vo) { return vo.lang && vo.lang.toLowerCase().indexOf(p) === 0; })[0];
       var u = new SpeechSynthesisUtterance(seg.text);
-      u.lang = seg.lang; u.rate = 1.12;
+      u.lang = seg.lang; u.rate = 0.95;
       if (v) u.voice = v;
       u.onend = function () { setSpeaking(false); };
       u.onerror = function () { setSpeaking(false); };
@@ -253,7 +253,7 @@
     var b = btns[st.langIdx];
     pointAtEl(b, (b.textContent || '').trim());
     speakOneLang(st.langIdx);                             // VOIX synchronisée avec le pointeur
-    st.langTimer = setTimeout(langCycleStep, 3000);       // 3 s sur chaque langue
+    st.langTimer = setTimeout(langCycleStep, 3330);       // ~10 s par tour, répété tant que pas choisi
   }
   function pointTo(step) {
     if (!el.pointer) return;
