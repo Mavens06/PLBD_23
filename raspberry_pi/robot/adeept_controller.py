@@ -123,6 +123,11 @@ class AdeeptRobotController(RobotController):
         # Throttles SIGNÉS issus du code validé : avant = -0.15, virage = +0.18.
         self._drive_throttle = _envf("DRIVE_THROTTLE", -0.15)
         self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
+        # DÉMARRAGE EN DOUCEUR (anti-brownout) : monter le throttle de 0 à la
+        # consigne sur DRIVE_RAMP_S secondes au lieu d'un échelon brutal. L'appel
+        # de courant d'inrush des moteurs (qui fait chuter la tension batterie et
+        # peut couper la Pi/le backend au démarrage de la mission) est ainsi lissé.
+        self._drive_ramp_s = max(0.0, _envf("DRIVE_RAMP_S", 0.5))
         self._turn_90_s = _envf("TURN_90_S", 1.2)
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
@@ -492,7 +497,9 @@ class AdeeptRobotController(RobotController):
         since_nudge = 0.0
         nudge_left = 0.0                         # temps restant du coup de volant
         last = time.monotonic()
-        self._throttle(throttle)
+        # Démarrage en RAMPE (anti-brownout) plutôt qu'un échelon brutal : lisse
+        # l'appel de courant d'inrush qui fait chuter la batterie au départ.
+        self._ramp_throttle(0.0, throttle, self._drive_ramp_s)
         while remaining > 0:
             dt = min(0.05 if fine else 0.4, remaining)
             time.sleep(dt)
