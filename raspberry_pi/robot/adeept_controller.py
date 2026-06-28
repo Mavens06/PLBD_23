@@ -123,20 +123,6 @@ class AdeeptRobotController(RobotController):
         # Throttles SIGNÉS issus du code validé : avant = -0.15, virage = +0.18.
         self._drive_throttle = _envf("DRIVE_THROTTLE", -0.15)
         self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
-        # DÉMARRAGE EN DOUCEUR (anti-brownout) : monter le throttle de 0 à la
-        # consigne sur DRIVE_RAMP_S secondes au lieu d'un échelon brutal. L'appel
-        # de courant d'inrush des moteurs (qui fait chuter la tension batterie et
-        # peut couper la Pi/le backend au démarrage de la mission) est ainsi lissé.
-        self._drive_ramp_s = max(0.0, _envf("DRIVE_RAMP_S", 0.5))
-        # « Coup de reins » de démarrage (magnitude) : la rampe ne part PAS de 0
-        # mais de ±DRIVE_KICK, c.-à-d. juste AU-DESSUS du seuil de démarrage
-        # (stiction) des moteurs. Sinon, pendant la portion 0→seuil de la rampe,
-        # les 2 moteurs ne s'arrachent pas en même temps (frottements différents)
-        # → une roue tourne avant l'autre → le robot DÉVIE au tout début de chaque
-        # ligne droite. En partant au-dessus du seuil, les 2 roues démarrent
-        # ENSEMBLE (plus de déviation), tout en gardant le lissage anti-brownout
-        # pour la suite de la montée. 0 = ancien comportement (rampe depuis 0).
-        self._drive_kick = abs(_envf("DRIVE_KICK", 0.0))
         self._turn_90_s = _envf("TURN_90_S", 1.2)
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
@@ -506,17 +492,7 @@ class AdeeptRobotController(RobotController):
         since_nudge = 0.0
         nudge_left = 0.0                         # temps restant du coup de volant
         last = time.monotonic()
-        # Démarrage en RAMPE (anti-brownout) plutôt qu'un échelon brutal : lisse
-        # l'appel de courant d'inrush qui fait chuter la batterie au départ. La
-        # rampe part du « coup de reins » DRIVE_KICK (au-dessus du seuil moteur,
-        # MÊME SIGNE que la marche) pour que les 2 roues s'arrachent ENSEMBLE et
-        # que le robot ne dévie pas au départ. On ne part jamais au-delà de la
-        # consigne (kick borné à |throttle|).
-        kick = 0.0
-        if self._drive_kick > 0.0 and throttle != 0.0:
-            sign = -1.0 if throttle < 0 else 1.0
-            kick = sign * min(self._drive_kick, abs(throttle))
-        self._ramp_throttle(kick, throttle, self._drive_ramp_s)
+        self._throttle(throttle)
         while remaining > 0:
             dt = min(0.05 if fine else 0.4, remaining)
             time.sleep(dt)
