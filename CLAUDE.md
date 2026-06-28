@@ -143,7 +143,7 @@ Copier `backend/.env.example` → `.env` à la racine du projet.
 | `PCA9685_ADDRESS` | `0x5f` | Adresse I2C du PCA9685 (robot réel) |
 | `MOTOR_LEFT_IN1/IN2`, `MOTOR_RIGHT_IN1/IN2` | `15/14`, `12/13` | Canaux PCA des 2 moteurs DC |
 | `STEER_SERVO_CHANNEL` / `STEER_*_DEG` | `0` / `85,0,180` | Servo de direction : canal + angles centre/gauche/droite (validés robot) |
-| `DRIVE_THROTTLE` | `-0.15` | Throttle SIGNÉ ligne droite (avant = négatif sur ce câblage, validé) |
+| `DRIVE_THROTTLE` | `-0.25` | Throttle SIGNÉ ligne droite (avant = négatif sur ce câblage, validé au sol). Départ en **échelon direct** (pas de rampe : la rampe anti-brownout faisait dévier le robot à gauche au démarrage) |
 | `TURN_THROTTLE` | `0.18` | Throttle pendant les virages en arc |
 | `TURN_90_S` | `1.2` | Durée d'un quart de tour en arc (~90°) |
 | `PIVOT_TRIM_RIGHT` / `PIVOT_TRIM_LEFT` | `0` / `0` | Compensation de TRANSLATION du pivot, PAR SENS (composante commune aux 2 roues → annule la dérive sans changer la rotation). `+` = pousse vers l'arrière (corrige un robot qui avance pendant le pivot), `−` = corrige un recul. À régler au sol pour un pivot « sur place » net |

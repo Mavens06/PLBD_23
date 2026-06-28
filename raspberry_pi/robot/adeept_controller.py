@@ -120,8 +120,10 @@ class AdeeptRobotController(RobotController):
         self._steer_center = _envf("STEER_CENTER_DEG", 85)
         self._steer_left = _envf("STEER_LEFT_DEG", 0)
         self._steer_right = _envf("STEER_RIGHT_DEG", 180)
-        # Throttles SIGNÉS issus du code validé : avant = -0.15, virage = +0.18.
-        self._drive_throttle = _envf("DRIVE_THROTTLE", -0.15)
+        # Throttles SIGNÉS validés au sol : avant = -0.25 (échelon direct, sans
+        # rampe — la rampe anti-brownout faisait dévier à gauche au départ),
+        # virage = +0.18.
+        self._drive_throttle = _envf("DRIVE_THROTTLE", -0.25)
         self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
         self._turn_90_s = _envf("TURN_90_S", 1.2)
         # Après le virage : roues recentrées + courte avance pour réaligner
