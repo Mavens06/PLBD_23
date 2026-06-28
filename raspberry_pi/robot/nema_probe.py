@@ -172,7 +172,18 @@ class PiGpioNemaProbeController(ProbeController):
             return
         self._closed = True
         try:
-            self._gpio.output(self._step_pin, self._gpio.LOW)
-            self._gpio.cleanup([self._step_pin, self._dir_pin])
+            GPIO = self._gpio
+            # PARK SÛR — surtout PAS de cleanup() ici. cleanup() remet STEP/DIR
+            # en ENTRÉE (flottantes) : sur un A4988 dont EN est câblé à la masse
+            # (toujours actif), une broche STEP flottante capte du bruit
+            # électrique → fronts parasites → le moteur DESCEND VIOLEMMENT après
+            # la fin de la mission, sans qu'aucun pas ne soit commandé. On laisse
+            # donc les broches en SORTIE : STEP piloté à LOW (aucun front
+            # possible) et DIR en position REMONTÉE (sûr si un pas survenait). À
+            # la sortie du process, RPi.GPIO ne nettoie pas tout seul → l'état
+            # SORTIE/LOW est conservé par le noyau. La prochaine mission refait
+            # GPIO.setup() (idempotent, warnings désactivés).
+            GPIO.output(self._dir_pin, GPIO.HIGH if self._up_high else GPIO.LOW)
+            GPIO.output(self._step_pin, GPIO.LOW)
         except Exception:
             pass

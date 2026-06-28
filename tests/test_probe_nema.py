@@ -97,11 +97,19 @@ class PiGpioNemaProbeTest(unittest.TestCase):
         p = _probe(g)
         p.stabilize(0.0)                    # ne bloque pas
 
-    def test_close_cleans_up(self) -> None:
+    def test_close_parks_safe_without_cleanup(self) -> None:
+        # close() NE doit PAS remettre les broches en entrée (cleanup) : une
+        # STEP flottante sur un A4988 toujours actif (EN=GND) capte du bruit →
+        # descente parasite après la mission. Park sûr attendu : DIR en remontée
+        # (HIGH), STEP à LOW, et AUCUN cleanup.
         g = FakeGPIO()
         p = _probe(g)
+        g.writes.clear()
         p.close()
-        self.assertTrue(g.cleaned)
+        self.assertFalse(g.cleaned)
+        self.assertEqual(g.dir_writes(p._dir_pin)[-1], FakeGPIO.HIGH)
+        last_step = [lvl for pin, lvl in g.writes if pin == p._step_pin][-1]
+        self.assertEqual(last_step, FakeGPIO.LOW)
 
     def test_ramp_profile_bounds(self) -> None:
         # Au repos -> start_rpm ; au milieu -> cruise ; jamais au-delà du cruise.
