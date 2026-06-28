@@ -129,6 +129,13 @@ class AdeeptRobotController(RobotController):
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
         self._straighten_s = _envf("TURN_STRAIGHTEN_S", 0.4)
+        # REDRESSEMENT post-virage par une TOUTE PETITE AVANCE (roues droites)
+        # APRÈS chaque rotation, au lieu de RECULER (TURN_BACKUP_M) : on s'assure
+        # que le robot est bien droit en avançant très légèrement, puis on mesure.
+        # Demandé : « on ne recule plus, on avance très très légèrement ». Quand
+        # ce redressement est actif (>0), le recul de compensation d'arc est
+        # désactivé. 0 = comportement précédent (recul TURN_BACKUP_M).
+        self._post_turn_straighten_s = max(0.0, _envf("POST_TURN_STRAIGHTEN_S", 0.0))
         # Le virage en arc AVANCE le robot (~20 cm mesurés au sol) : cette
         # distance est déduite de la ligne droite qui suit chaque rotation,
         # sinon l'erreur s'accumule à chaque virage du parcours.
@@ -882,9 +889,12 @@ class AdeeptRobotController(RobotController):
              f"mode {self._turn_mode})")
         if self._turn_pause_s > 0:
             time.sleep(self._turn_pause_s)
-        # Virage en ARC : il a fait AVANCER le robot → on recule de la distance
-        # provoquée par l'arc pour revenir sur le point (compensation directe).
-        if self._turn_mode != "pivot" and self._turn_backup_m > 0:
+        # Virage en ARC : il a fait AVANCER le robot → on reculait de la distance
+        # provoquée par l'arc pour revenir sur le point. DÉSACTIVÉ si le
+        # redressement par avance (POST_TURN_STRAIGHTEN_S) est actif : on ne
+        # recule plus, on avancera très légèrement à la place (cf. _turn_to).
+        if (self._turn_mode != "pivot" and self._turn_backup_m > 0
+                and self._post_turn_straighten_s <= 0):
             self._reverse_distance(self._turn_backup_m)
             if self._turn_pause_s > 0:
                 time.sleep(self._turn_pause_s)
@@ -932,7 +942,27 @@ class AdeeptRobotController(RobotController):
                            self._turn_90_s * 2)
         else:
             self._turn_arc(self._steer_left, self._turn_90_s)
+        # Redressement : TOUTE PETITE avance roues droites après le virage (au
+        # lieu de reculer) pour s'assurer que le châssis est bien droit avant de
+        # poursuivre / mesurer.
+        if self._post_turn_straighten_s > 0:
+            self._straighten_forward(self._post_turn_straighten_s)
         self._heading = target
+
+    def _straighten_forward(self, secs: float) -> None:
+        """Très courte avance roues DROITES après un virage pour redresser le
+        châssis — remplace tout recul (on ne s'arrête jamais en marche arrière).
+        Pas de vérif d'obstacle ni de frein actif : mouvement minime."""
+        if secs <= 0:
+            return
+        self._set_angle(self._steer_ch, self._steer_center)
+        time.sleep(0.05)
+        _log(f"redressement post-virage : avance {secs:.2f}s")
+        self._throttle(self._drive_throttle)
+        time.sleep(secs)
+        self._throttle(0.0)
+        if self._turn_pause_s > 0:
+            time.sleep(self._turn_pause_s)
 
     # -- Interface RobotController ------------------------------------------
     def forward(self, speed: int = 50, duration: float = 1.0) -> None:
