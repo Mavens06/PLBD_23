@@ -12,7 +12,7 @@
   échoue silencieusement et l'app fonctionne en page web normale (et reste
   « Ajoutable à l'écran d'accueil » sur iOS via les meta Apple).
 */
-const CACHE = "agribotics-shell-v34";
+const CACHE = "agribotics-shell-v35";
 const SHELL = [
   "./",
   "./agribotics_v5.html",

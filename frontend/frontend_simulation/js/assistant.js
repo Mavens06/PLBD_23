@@ -504,7 +504,22 @@
 
   window.Assistant = {
     update: update,
-    reset: function () { st.spoke = false; st.lastStep = null; st.lastMeasured = -1; st.introShown = false; clearIdle(); IDLE.count = 0; IDLE.step = null; },
+    // Appelé au CHOIX de la langue (chooseLang → _resetGuide). On coupe ICI, de
+    // façon SYNCHRONE, le cycle vocal de l'écran de langue ET la voix navigateur
+    // française déjà lancée par speakOneLang : sinon le français continue de
+    // jouer (et un dernier segment peut être prononcé) pendant que la voix de
+    // bienvenue dans la langue choisie ne démarre qu'après ~2,6 s → on entendait
+    // du français « pour la première fois » juste après avoir choisi l'arabe.
+    reset: function () {
+      stopLangCycle();
+      if (el.pointer) el.pointer.classList.remove('on');
+      try {
+        if (window.stopBotVoice) window.stopBotVoice();
+        else if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+      } catch (_) {}
+      setSpeaking(false);
+      st.spoke = false; st.lastStep = null; st.lastMeasured = -1; st.introShown = false; clearIdle(); IDLE.count = 0; IDLE.step = null;
+    },
     say: function (text, actions, mood) { if (!st.built) build(); present(text, actions, mood || 'idle', '', null); },
   };
 
