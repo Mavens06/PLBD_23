@@ -125,6 +125,14 @@ class AdeeptRobotController(RobotController):
         # virage = +0.18.
         self._drive_throttle = _envf("DRIVE_THROTTLE", -0.25)
         self._turn_throttle = _envf("TURN_THROTTLE", 0.18)
+        # DÉPART DOUX PUIS IMPULSION (anti-brownout pour throttle élevé) :
+        # `DRIVE_RAMP_S` = montée progressive du throttle de DRIVE_KICK à la
+        # consigne (étale l'appel de courant → pas de chute batterie au départ).
+        # `DRIVE_KICK` = petit « coup de reins » (≥ seuil de démarrage) d'où part
+        # la rampe, pour que les 2 roues s'arrachent ENSEMBLE (sinon dérive).
+        # Défaut 0/0 = échelon direct (comportement précédent).
+        self._drive_ramp_s = max(0.0, _envf("DRIVE_RAMP_S", 0.0))
+        self._drive_kick = abs(_envf("DRIVE_KICK", 0.0))
         self._turn_90_s = _envf("TURN_90_S", 1.2)
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
@@ -506,7 +514,14 @@ class AdeeptRobotController(RobotController):
         since_nudge = 0.0
         nudge_left = 0.0                         # temps restant du coup de volant
         last = time.monotonic()
-        self._throttle(throttle)
+        # Départ doux puis impulsion (anti-brownout) : la rampe part du coup de
+        # reins DRIVE_KICK (≥ seuil moteur, même signe) jusqu'à la consigne. Si
+        # DRIVE_RAMP_S et DRIVE_KICK valent 0 → échelon direct (inchangé).
+        kick = 0.0
+        if self._drive_kick > 0.0 and throttle != 0.0:
+            sign = -1.0 if throttle < 0 else 1.0
+            kick = sign * min(self._drive_kick, abs(throttle))
+        self._ramp_throttle(kick, throttle, self._drive_ramp_s)
         while remaining > 0:
             dt = min(0.05 if fine else 0.4, remaining)
             time.sleep(dt)
