@@ -136,6 +136,11 @@ class AdeeptRobotController(RobotController):
         # ce redressement est actif (>0), le recul de compensation d'arc est
         # désactivé. 0 = comportement précédent (recul TURN_BACKUP_M).
         self._post_turn_straighten_s = max(0.0, _envf("POST_TURN_STRAIGHTEN_S", 0.0))
+        # RECUL AVANT CHAQUE ROTATION (m PHYSIQUES). Demandé pour compenser un
+        # virage en arc « trop grand » : avant de tourner pour rejoindre le point
+        # suivant, le robot recule d'autant, puis tourne (l'arc le ramène en
+        # avant) → il finit ~en place malgré l'avance de l'arc. 0 = désactivé.
+        self._pre_turn_backup_m = max(0.0, _envf("PRE_TURN_BACKUP_M", 0.0))
         # Le virage en arc AVANCE le robot (~20 cm mesurés au sol) : cette
         # distance est déduite de la ligne droite qui suit chaque rotation,
         # sinon l'erreur s'accumule à chaque virage du parcours.
@@ -1047,6 +1052,11 @@ class AdeeptRobotController(RobotController):
         just_turned = False
         for kind, value in legs:
             if kind == "turn":
+                # Recul AVANT la rotation (compense un arc trop grand) : on
+                # recule, puis on tourne (l'arc ramène le robot en avant).
+                if self._pre_turn_backup_m > 0:
+                    _log(f"recul pré-rotation : {self._pre_turn_backup_m:.2f} m")
+                    self._reverse_distance(self._pre_turn_backup_m)
                 self._turn_to(str(value))
                 pending_arc_advance = arc_advance
                 # Recul de compensation calculé par _turn_to selon le sens/angle :
