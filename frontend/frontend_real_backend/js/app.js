@@ -331,7 +331,15 @@ function _injectPlanStyles() {
   .plan-cell:hover{border-color:#7fbf86;background:#f0f8f0;color:#6aa873}
   .plan-cell.on{border-style:solid;border-color:#2f7a3a;background:linear-gradient(135deg,#52a85d,#3b7a44);color:#fff;box-shadow:0 4px 12px rgba(47,122,58,.32)}
   .plan-cell .pc-num{font-size:18px;font-weight:800}
-  .plan-cell.on::after{content:'✓';position:absolute;top:5px;right:8px;font-size:12px;opacity:.85}`;
+  .plan-cell.on::after{content:'✓';position:absolute;top:5px;right:8px;font-size:12px;opacity:.85}
+  .plan-coords{margin-top:13px;border-top:1px dashed #dbe7db;padding-top:11px}
+  .plan-coords-hd{font-size:12px;font-weight:800;color:#3b7a44;margin-bottom:9px;display:flex;align-items:center;gap:6px}
+  .pcoord-row{display:grid;grid-template-columns:32px 1fr 1fr;gap:8px;align-items:center;margin-bottom:7px}
+  .pcoord-lbl{width:30px;height:28px;border-radius:8px;display:grid;place-items:center;font-weight:800;font-size:11px;color:#fff;background:linear-gradient(135deg,#52a85d,#3b7a44)}
+  .pcoord-f{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid #dde5dd;border-radius:9px;padding:5px 9px;transition:border-color .15s,box-shadow .15s}
+  .pcoord-f:focus-within{border-color:#4a9c55;box-shadow:0 0 0 3px rgba(74,156,85,.16)}
+  .pcoord-f span{font-size:11px;color:#9aa79a;font-weight:800;width:10px}
+  .pcoord-f input{width:100%;border:none;outline:none;font:inherit;font-size:13px;background:transparent;color:#2f4030}`;
   document.head.appendChild(s);
 }
 
@@ -396,6 +404,20 @@ function renderPlanEditor() {
     return `<button class="plan-cell${on ? ' on' : ''}" onclick="togglePlanPoint(${x},${y})">`
       + (on ? `<span class="pc-num">${n}</span>` : '＋') + `</button>`;
   }).join('')).join('');
+  // Petite zone d'AJUSTEMENT des coordonnées (m), affichée tant que le plan
+  // n'est pas appliqué. Permet de caler finement le déplacement réel du robot.
+  // Disparaît dès « Appliquer le plan » (_planApplied passe à true).
+  const acLbl = { fr: '⚙️ Ajuster les coordonnées (m)', ar: '⚙️ ضبط إحداثيات النقاط (م)', da: '⚙️ عدّل الإحداثيات (م)' }[window.currentLang || 'fr'] || '⚙️ Ajuster les coordonnées (m)';
+  const coordsBlock = (APP_STATE.plan.length && !_planApplied) ? `
+    <div class="plan-coords">
+      <div class="plan-coords-hd">${acLbl}</div>
+      ${APP_STATE.plan.map((p, i) => `
+        <div class="pcoord-row">
+          <span class="pcoord-lbl">${p.label}</span>
+          <div class="pcoord-f"><span>x</span><input type="number" step="0.05" min="0" max="6" value="${p.x}" onchange="setPlanCoord(${i},'x',this.value)"></div>
+          <div class="pcoord-f"><span>y</span><input type="number" step="0.05" min="0" max="6" value="${p.y}" onchange="setPlanCoord(${i},'y',this.value)"></div>
+        </div>`).join('')}
+    </div>` : '';
   host.innerHTML = `
     <div class="plan-hd">
       <span class="plan-hd-title">🛰️ ${t('choosePoints')}</span>
@@ -403,9 +425,23 @@ function renderPlanEditor() {
     </div>
     <div class="plan-sub">${t('choosePointsHint')}</div>
     <div class="plan-grid">${cells}</div>
+    ${coordsBlock}
     <div class="plan-actions">
       <button class="btn-primary" onclick="applyPlanFromEditor()">✓ ${t('planApply')}</button>
     </div>`;
+}
+
+// Ajuste une coordonnée (x ou y, en mètres-plan) d'un point SANS re-rendre tout
+// l'éditeur (on garde le focus dans le champ). Met à jour la carte en direct.
+function setPlanCoord(i, axis, val) {
+  const p = APP_STATE.plan[i];
+  if (!p) return;
+  let v = parseFloat(val);
+  if (isNaN(v)) v = 0;
+  v = Math.max(0, Math.min(6, Math.round(v * 100) / 100));
+  p[axis] = v;
+  _planApplied = false;
+  try { drawMap(); } catch (e) { /* carte non prête : ignoré */ }
 }
 
 // Renumérote tous les points dans l'ordre courant : P1, P2, … Pn. Appelée après
