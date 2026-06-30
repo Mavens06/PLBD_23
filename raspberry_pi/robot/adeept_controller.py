@@ -133,6 +133,9 @@ class AdeeptRobotController(RobotController):
         # Défaut 0/0 = échelon direct (comportement précédent).
         self._drive_ramp_s = max(0.0, _envf("DRIVE_RAMP_S", 0.0))
         self._drive_kick = abs(_envf("DRIVE_KICK", 0.0))
+        # Départ DOUX des ROTATIONS aussi (anti-brownout) : montée progressive du
+        # throttle de virage de 0 à la consigne sur TURN_RAMP_S s. 0 = échelon.
+        self._turn_ramp_s = max(0.0, _envf("TURN_RAMP_S", 0.0))
         self._turn_90_s = _envf("TURN_90_S", 1.2)
         # Après le virage : roues recentrées + courte avance pour réaligner
         # le châssis avant la prochaine ligne droite (validé au sol).
@@ -739,7 +742,10 @@ class AdeeptRobotController(RobotController):
         et courte avance roues droites pour redresser le châssis."""
         self._set_angle(self._steer_ch, steer_deg)
         time.sleep(0.1)
-        self._throttle(self._turn_throttle)
+        if self._turn_ramp_s > 0:
+            self._ramp_throttle(0.0, self._turn_throttle, self._turn_ramp_s)
+        else:
+            self._throttle(self._turn_throttle)
         time.sleep(max(0.0, duration))
         self._throttle(0.0)
         self._set_angle(self._steer_ch, self._steer_center)
@@ -881,7 +887,10 @@ class AdeeptRobotController(RobotController):
             self._set_angle(self._steer_ch,
                             self._steer_right if clockwise else self._steer_left)
             time.sleep(0.1)
-            self._throttle(self._turn_throttle)
+            if self._turn_ramp_s > 0:                     # départ doux du virage
+                self._ramp_throttle(0.0, self._turn_throttle, self._turn_ramp_s)
+            else:
+                self._throttle(self._turn_throttle)
 
         margin = self._gyro_margin_right if clockwise else self._gyro_margin_left
         angle = 0.0
